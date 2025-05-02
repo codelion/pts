@@ -113,6 +113,10 @@ def run_pts(args):
         ))
         
         if query_pivotal_tokens:
+            # Force save each token to storage explicitly
+            for token in query_pivotal_tokens:
+                storage.add_token(token)
+                
             successful_searches += 1
             total_pivotal_tokens += len(query_pivotal_tokens)
             logger.info(f"Found {len(query_pivotal_tokens)} pivotal tokens for example {i}")
@@ -120,12 +124,17 @@ def run_pts(args):
             logger.info(f"No pivotal tokens found for example {i}")
     
     # Save the tokens
-    storage.save()
-    
-    logger.info(f"Finished processing {args.max_examples} examples")
     logger.info(f"Found pivotal tokens in {successful_searches}/{args.max_examples} examples")
     logger.info(f"Total pivotal tokens found: {total_pivotal_tokens}")
-    logger.info(f"Saved tokens to {args.output_path}")
+    
+    # Make sure to save even if the tokens were added directly by the searcher
+    if total_pivotal_tokens > 0:
+        storage.save()
+        logger.info(f"Saved tokens to {args.output_path}")
+    else:
+        logger.info(f"No tokens found, no file saved")
+        
+    logger.info(f"Finished processing {args.max_examples} examples")
 
 
 def export_tokens(args):

@@ -57,7 +57,7 @@ The activation patterns associated with pivotal tokens can be used to guide mode
 Different datasets use different field names for questions and answers. PTS automatically detects appropriate field names for common datasets, but you can also specify them manually:
 
 ```bash
-pts run --model="gpt2" --dataset="your-dataset" --query-key="question" --answer-key="answer"
+pts run --model="Qwen/Qwen3-0.6B" --dataset="your-dataset" --query-key="question" --answer-key="answer"
 ```
 
 For example:

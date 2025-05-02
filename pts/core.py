@@ -455,6 +455,7 @@ class PivotalTokenSearcher:
         prompt_len = len(tokenized_prompt)
         
         # Generate multiple full sequences to analyze
+        pivotal_tokens_found = []
         for i in range(max_generations):
             self.logger.info(f"Generating sequence {i+1}/{max_generations}")
             
@@ -548,13 +549,27 @@ class PivotalTokenSearcher:
                             if self.token_storage:
                                 self.token_storage.add_token(pivotal_token)
                                 self.logger.debug(f"Added token to storage: {pivotal_token.pivot_token}")
+                                
+                            # Add to local list for returning
+                            pivotal_tokens_found.append(pivotal_token)
+                            
+                            yield pivotal_token
                         except Exception as e:
                             self.logger.error(f"Error adding token to storage: {e}")
-                            
-                        yield pivotal_token
                 
                 # Update the prefix for the next segment
                 current_prefix = current_prefix + segment
+        
+        # Ensure tokens are saved before returning
+        if self.token_storage and pivotal_tokens_found:
+            self.logger.info(f"Found {len(pivotal_tokens_found)} pivotal tokens for query: {query[:50]}...")
+            try:
+                # Save tokens to file
+                self.token_storage.save()
+            except Exception as e:
+                self.logger.error(f"Error saving tokens to storage: {e}")
+                
+        return
     
     def find_rejected_tokens(
         self, 
