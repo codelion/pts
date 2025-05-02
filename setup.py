@@ -16,6 +16,7 @@ setup(
         "numpy>=1.20.0",
         "tqdm>=4.65.0",
         "huggingface_hub>=0.16.0",
+        "accelerate",
     ],
     entry_points={
         "console_scripts": [
