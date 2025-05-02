@@ -19,6 +19,25 @@ logger = logging.getLogger(__name__)
 class Oracle:
     """Base class for oracles that determine success of model responses."""
     
+    def extract_final_response(self, response: str) -> str:
+        """
+        Extract the final response after thinking tags if present.
+        
+        Args:
+            response: The model's full response
+            
+        Returns:
+            The final response (after </think> tag if present)
+        """
+        import re
+        # Check if the response contains thinking tags
+        think_match = re.search(r'</think>(.*)', response, re.DOTALL)
+        if think_match:
+            # Return everything after the </think> tag
+            return think_match.group(1).strip()
+        # If no thinking tags, return the original response
+        return response
+    
     def check_success(self, query: str, response: str) -> bool:
         """
         Check if a response is successful for a given query.
@@ -30,6 +49,9 @@ class Oracle:
         Returns:
             Boolean indicating success
         """
+        # Extract the final response (after thinking tags if present)
+        final_response = self.extract_final_response(response)
+        # Subclasses must implement the actual success checking
         raise NotImplementedError("Subclasses must implement this method")
 
 
@@ -56,6 +78,7 @@ class DummyOracle(Oracle):
         Returns:
             Always returns True
         """
+        # DummyOracle doesn't need to extract the final response
         return True
 
 
@@ -212,11 +235,14 @@ class MathOracle(Oracle):
                 logger.info(f"Available queries: {list(self.answers.keys())[:3]}{'...' if len(self.answers) > 3 else ''}")
             return False
             
+        # Extract the final response (after thinking tags if present)
+        final_response = self.extract_final_response(response)
+            
         expected = self.answers[query]
-        extracted = self.extract_answer(response)
+        extracted = self.extract_answer(final_response)
         
         if extracted is None:
-            logger.debug(f"Could not extract answer from response: {response}")
+            logger.debug(f"Could not extract answer from response: {final_response}")
             return False
             
         result = self.compare_answers(extracted, expected)
@@ -347,9 +373,12 @@ class CodeOracle(Oracle):
         if query not in self.test_cases:
             logger.warning(f"No test cases for query: {query}")
             return False
+        
+        # Extract the final response (after thinking tags if present)
+        final_response = self.extract_final_response(response)
             
         # Extract code from the response
-        code = self.extract_code(response)
+        code = self.extract_code(final_response)
         if not code:
             logger.debug("Could not extract code from response")
             return False
@@ -455,9 +484,12 @@ class QAOracle(Oracle):
         if query not in self.answers:
             logger.warning(f"No expected answer for query: {query}")
             return False
+        
+        # Extract the final response (after thinking tags if present)
+        final_response = self.extract_final_response(response)
             
         expected = self.answers[query]
-        extracted = self.extract_answer(response)
+        extracted = self.extract_answer(final_response)
         
         # Handle list of valid answers
         if isinstance(expected, list):

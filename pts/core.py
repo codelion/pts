@@ -109,8 +109,11 @@ class PivotalTokenSearcher:
         oracle: Optional[Oracle] = None,
         device: str = None,
         prob_threshold: float = 0.2,
-        temperature: float = 0.8,
-        max_new_tokens: int = 8196,
+        temperature: float = 0.6,
+        top_p: float = 0.95,
+        top_k: int = 20,
+        min_p: float = 0.0,
+        max_new_tokens: int = 512,
         num_samples: int = 10,
         batch_size: int = 5,
         trust_remote_code: bool = True,
@@ -153,6 +156,9 @@ class PivotalTokenSearcher:
         logger.info(f"Using device: {self.device}")
         self.prob_threshold = prob_threshold
         self.temperature = temperature
+        self.top_p = top_p
+        self.top_k = top_k
+        self.min_p = min_p
         self.max_new_tokens = max_new_tokens
         self.num_samples = num_samples
         self.batch_size = batch_size
@@ -277,6 +283,9 @@ class PivotalTokenSearcher:
                         num_return_sequences=current_batch_size,
                         max_new_tokens=self.max_new_tokens,
                         temperature=self.temperature,
+                        top_p=self.top_p,
+                        top_k=self.top_k,
+                        min_p=self.min_p,
                         pad_token_id=self.tokenizer.pad_token_id,
                         return_dict_in_generate=True
                     )
@@ -429,6 +438,9 @@ class PivotalTokenSearcher:
                     do_sample=True,
                     max_new_tokens=self.max_new_tokens,
                     temperature=self.temperature,
+                    top_p=self.top_p,
+                    top_k=self.top_k,
+                    min_p=self.min_p,
                     pad_token_id=self.tokenizer.pad_token_id,
                     return_dict_in_generate=True
                 )

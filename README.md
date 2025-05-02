@@ -23,13 +23,13 @@ pip install -e .
 
 ```bash
 # Find pivotal tokens in a dataset and save to file
-pts run --model="gpt2" --dataset="codelion/optillmbench" --output-path="pivotal_tokens.jsonl"
+pts run --model="Qwen/Qwen3-0.6B" --dataset="codelion/optillmbench" --output-path="pivotal_tokens.jsonl"
 
 # Convert pivotal tokens to DPO dataset
 pts export --input-path="pivotal_tokens.jsonl" --format="dpo" --output-path="dpo_dataset.jsonl"
 
 # Convert pivotal tokens to steering vectors
-pts export --input-path="pivotal_tokens.jsonl" --format="steering" --output-path="steering_vectors.jsonl" --model="gpt2"
+pts export --input-path="pivotal_tokens.jsonl" --format="steering" --output-path="steering_vectors.jsonl" --model="Qwen/Qwen3-0.6B"
 
 # Push dataset to Hugging Face
 pts push --input-path="dpo_dataset.jsonl" --hf-repo="username/pts-dpo-dataset"
@@ -86,7 +86,10 @@ Options:
 - `--query-key`: Key for question/instruction field in dataset (auto-detected if not specified)
 - `--answer-key`: Key for answer/output field in dataset (auto-detected if not specified)
 - `--prob-threshold`: Probability threshold for pivotal tokens (default: 0.2)
-- `--temperature`: Sampling temperature (default: 0.8)
+- `--temperature`: Sampling temperature (default: 0.6)
+- `--top-p`: Top-p (nucleus) sampling parameter (default: 0.95)
+- `--top-k`: Top-k sampling parameter (default: 20)
+- `--min-p`: Min-p sampling parameter (default: 0.0)
 - `--num-samples`: Number of samples for probability estimation (default: 10)
 - `--max-pairs`: Maximum number of pairs to generate (default: 1000)
 
@@ -122,31 +125,42 @@ Options:
 ### Finding Pivotal Tokens with OptillmBench
 
 ```bash
-pts run --model="gpt2" \
+pts run --model="Qwen/Qwen3-0.6B" \
     --dataset="codelion/optillmbench" \
     --output-path="optillm_pivotal_tokens.jsonl" \
     --prob-threshold=0.2 \
-    --temperature=0.7
+    --temperature=0.6 \
+    --top-p=0.95 \
+    --top-k=20 \
+    --min-p=0.0
 ```
 
 ### Working with a Custom Dataset
 
 ```bash
-pts run --model="gpt2" \
+pts run --model="Qwen/Qwen3-0.6B" \
     --dataset="my-custom-dataset" \
     --query-key="input_text" \
     --answer-key="target_text" \
     --output-path="custom_pivotal_tokens.jsonl" \
-    --prob-threshold=0.2
+    --prob-threshold=0.2 \
+    --temperature=0.6 \
+    --top-p=0.95 \
+    --top-k=20 \
+    --min-p=0.0
 ```
 
 ### Creating a DPO Dataset
 
 ```bash
 # First find pivotal tokens
-pts run --model="codellama/CodeLlama-7b-hf" \
+pts run --model="Qwen/Qwen3-0.6B" \
     --dataset="codelion/optillmbench" \
-    --output-path="optillm_pivotal_tokens.jsonl"
+    --output-path="optillm_pivotal_tokens.jsonl" \
+    --temperature=0.6 \
+    --top-p=0.95 \
+    --top-k=20 \
+    --min-p=0.0
 
 # Then export to DPO format
 pts export --input-path="optillm_pivotal_tokens.jsonl" \
@@ -160,6 +174,6 @@ pts export --input-path="optillm_pivotal_tokens.jsonl" \
 pts export --input-path="pivotal_tokens.jsonl" \
     --format="steering" \
     --output-path="steering_vectors.jsonl" \
-    --model="deepseek-ai/deepseek-r1-llama-8b" \
+    --model="Qwen/Qwen3-0.6B" \
     --layer-nums=19,23,27
 ```

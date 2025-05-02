@@ -71,6 +71,9 @@ def run_pts(args):
         device=args.device,
         prob_threshold=args.prob_threshold,
         temperature=args.temperature,
+        top_p=args.top_p,
+        top_k=args.top_k,
+        min_p=args.min_p,
         max_new_tokens=args.max_new_tokens,
         num_samples=args.num_samples,
         batch_size=args.batch_size,
@@ -304,7 +307,10 @@ def parse_args():
     run_parser.add_argument("--output-path", type=str, default="pivotal_tokens.jsonl", help="Output file path")
     run_parser.add_argument("--device", type=str, default=None, help="Device to run on (cuda, cpu)")
     run_parser.add_argument("--prob-threshold", type=float, default=0.2, help="Probability threshold for pivotal tokens")
-    run_parser.add_argument("--temperature", type=float, default=0.8, help="Temperature for sampling")
+    run_parser.add_argument("--temperature", type=float, default=0.6, help="Temperature for sampling")
+    run_parser.add_argument("--top-p", type=float, default=0.95, help="Top-p (nucleus) sampling parameter")
+    run_parser.add_argument("--top-k", type=int, default=20, help="Top-k sampling parameter")
+    run_parser.add_argument("--min-p", type=float, default=0.0, help="Min-p sampling parameter")
     run_parser.add_argument("--max-new-tokens", type=int, default=512, help="Maximum number of new tokens to generate")
     run_parser.add_argument("--num-samples", type=int, default=10, help="Number of samples for probability estimation")
     run_parser.add_argument("--batch-size", type=int, default=5, help="Batch size for generation")
