@@ -115,7 +115,8 @@ def load_dataset(
 
 
 def create_oracle_from_dataset(
-    examples: List[Dict[str, Any]]
+    examples: List[Dict[str, Any]],
+    debug_mode: bool = False
 ) -> Any:
     """
     Create an appropriate oracle from dataset examples.
@@ -149,9 +150,10 @@ def create_oracle_from_dataset(
                     if category not in examples_with_categories:
                         examples_with_categories[category] = {}
                         
+                    # Use the original question text as the key to maintain the mapping
                     examples_with_categories[category][example["query"]] = example["answer"]
             
-            return OptiBenchOracle(examples_with_categories=examples_with_categories)
+            return OptiBenchOracle(examples_with_categories=examples_with_categories, debug_mode=debug_mode)
             
         else:
             # Default to QAOracle for other datasets
@@ -163,7 +165,7 @@ def create_oracle_from_dataset(
                 if example.get("query") and example.get("answer"):
                     answers[example["query"]] = example["answer"]
             
-            return QAOracle(answers=answers)
+            return QAOracle(answers=answers, debug_mode=debug_mode)
             
     except Exception as e:
         logger.error(f"Error creating oracle: {e}")

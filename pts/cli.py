@@ -59,7 +59,7 @@ def run_pts(args):
     logger.info(f"Loaded {len(examples)} examples from {args.dataset}")
     
     # Create oracle from dataset
-    oracle = create_oracle_from_dataset(examples)
+    oracle = create_oracle_from_dataset(examples, debug_mode=args.debug)
     
     # Create storage for pivotal tokens
     storage = TokenStorage(filepath=args.output_path)
@@ -78,7 +78,8 @@ def run_pts(args):
         num_samples=args.num_samples,
         batch_size=args.batch_size,
         token_storage=storage,
-        log_level=getattr(logging, args.log_level.upper())
+        log_level=getattr(logging, args.log_level.upper()),
+        debug_mode=args.debug
     )
     
     # Process each example
@@ -107,7 +108,8 @@ def run_pts(args):
             item_id=example.get("item_id", str(i)),
             max_generations=args.max_generations,
             min_prob=args.min_prob,
-            max_prob=args.max_prob
+            max_prob=args.max_prob,
+            category=example.get("metadata", {}).get("category", None)
         ))
         
         if query_pivotal_tokens:
@@ -326,6 +328,7 @@ def parse_args():
     run_parser.add_argument("--answer-key", type=str, default=None, 
                            help="Key for answer field in dataset (e.g., 'answer', 'output', 'solution'). Auto-detected if not specified.")
     run_parser.add_argument("--log-level", type=str, default="INFO", choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"], help="Logging level")
+    run_parser.add_argument("--debug", action="store_true", help="Enable debug mode to print questions and responses")
     
     # Export subcommand
     export_parser = subparsers.add_parser("export", help="Export tokens to different formats")

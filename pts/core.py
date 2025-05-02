@@ -118,7 +118,8 @@ class PivotalTokenSearcher:
         batch_size: int = 5,
         trust_remote_code: bool = True,
         token_storage: Optional[TokenStorage] = None,
-        log_level: int = logging.INFO
+        log_level: int = logging.INFO,
+        debug_mode: bool = False
     ):
         """
         Initialize the PivotalTokenSearcher.
@@ -165,6 +166,7 @@ class PivotalTokenSearcher:
         self.trust_remote_code = trust_remote_code
         self.oracle = oracle
         self.token_storage = token_storage or TokenStorage()
+        self.debug_mode = debug_mode
         
         # Check if flash attention is available
         use_flash_attention = False
@@ -217,7 +219,8 @@ class PivotalTokenSearcher:
         query: str, 
         prefix: str = "",
         num_samples: Optional[int] = None,
-        system_prompt: Optional[str] = None
+        system_prompt: Optional[str] = None,
+        category: Optional[str] = None
     ) -> float:
         """
         Estimate the probability of success by generating multiple completions 
@@ -256,7 +259,11 @@ class PivotalTokenSearcher:
                 add_generation_prompt=True
             )
         else:
-            prompt = query
+            # Use category-specific formatting if available 
+            if category and hasattr(self.oracle, 'get_prompt_for_category'):
+                prompt = self.oracle.get_prompt_for_category(query, category)
+            else:
+                prompt = query
             
         if prefix:
             prompt = prompt + prefix
@@ -296,8 +303,19 @@ class PivotalTokenSearcher:
                     full_response = prompt + completion
                     
                     # Check success with oracle
-                    if self.oracle.check_success(query, full_response):
+                    success = self.oracle.check_success(query, full_response)
+                    if success:
                         success_count += 1
+                    
+                    # Print debug information if debug mode is enabled
+                    if self.debug_mode:
+                        print("\n" + "=" * 50)
+                        print(f"QUERY: {query}")
+                        if category:
+                            print(f"CATEGORY: {category}")
+                        print("-" * 50)
+                        print(f"COMPLETION {pbar.n}/{num_samples} (SUCCESS: {success}):\n{completion}")
+                        print("=" * 50)
                     
                     pbar.update(1)
                     
@@ -317,7 +335,8 @@ class PivotalTokenSearcher:
         query: str,
         sequence: List[int],
         prefix: List[int] = None,
-        system_prompt: Optional[str] = None
+        system_prompt: Optional[str] = None,
+        category: Optional[str] = None
     ) -> List[List[int]]:
         """
         Recursively divide a token sequence into segments where each segment 
@@ -342,8 +361,8 @@ class PivotalTokenSearcher:
         prefix_str = self.tokenizer.decode(prefix, skip_special_tokens=False)
         full_seq_str = self.tokenizer.decode(prefix + sequence, skip_special_tokens=False)
         
-        prob_before = self.estimate_success_probability(query, prefix_str, system_prompt=system_prompt)
-        prob_after = self.estimate_success_probability(query, full_seq_str, system_prompt=system_prompt)
+        prob_before = self.estimate_success_probability(query, prefix_str, system_prompt=system_prompt, category=category)
+        prob_after = self.estimate_success_probability(query, full_seq_str, system_prompt=system_prompt, category=category)
         
         # Base case 2: No significant change in probability
         if abs(prob_after - prob_before) < self.prob_threshold:
@@ -355,13 +374,13 @@ class PivotalTokenSearcher:
         right = sequence[mid:]
         
         # Recursively subdivide left side
-        left_segments = self.subdivide_sequence(query, left, prefix, system_prompt)
+        left_segments = self.subdivide_sequence(query, left, prefix, system_prompt, category)
         
         # Update prefix for right side by concatenating prefix and left side
         new_prefix = prefix + left
         
         # Recursively subdivide right side
-        right_segments = self.subdivide_sequence(query, right, new_prefix, system_prompt)
+        right_segments = self.subdivide_sequence(query, right, new_prefix, system_prompt, category)
         
         # Combine all segments
         return left_segments + right_segments
@@ -375,7 +394,8 @@ class PivotalTokenSearcher:
         item_id: Optional[str] = None,
         max_generations: int = 10,
         min_prob: float = 0.2,
-        max_prob: float = 0.8
+        max_prob: float = 0.8,
+        category: Optional[str] = None
     ) -> Generator[PivotalToken, None, None]:
         """
         Search for pivotal tokens in responses to the given query.
@@ -395,14 +415,22 @@ class PivotalTokenSearcher:
         # First, check if the query is in the right difficulty range
         init_prob = self.estimate_success_probability(
             query, 
-            system_prompt=system_prompt
+            system_prompt=system_prompt,
+            category=category
         )
         
         if not (min_prob <= init_prob <= max_prob):
-            self.logger.info(
-                f"Query success probability ({init_prob:.2f}) outside target range " +
-                f"[{min_prob:.2f}, {max_prob:.2f}], skipping"
-            )
+            message = f"Query success probability ({init_prob:.2f}) outside target range [{min_prob:.2f}, {max_prob:.2f}], skipping"
+            self.logger.info(message)
+            
+            # Print debug info if debug mode enabled
+            if self.debug_mode:
+                print("\n" + "#" * 70)
+                print(f"DEBUG: {message}")
+                print(f"QUERY: {query}")
+                if category:
+                    print(f"CATEGORY: {category}")
+                print("#" * 70)
             return
         
         self.logger.info(f"Initial success probability: {init_prob:.4f}")
@@ -458,7 +486,8 @@ class PivotalTokenSearcher:
                 query, 
                 full_sequence_list, 
                 prefix=tokenized_prompt.tolist(),
-                system_prompt=system_prompt
+                system_prompt=system_prompt,
+                category=category
             )
             
             # Process each segment to identify pivotal tokens
@@ -484,13 +513,15 @@ class PivotalTokenSearcher:
                     prob_before = self.estimate_success_probability(
                         query, 
                         prefix_str,
-                        system_prompt=system_prompt
+                        system_prompt=system_prompt,
+                        category=category
                     )
                     
                     prob_after = self.estimate_success_probability(
                         query, 
                         prefix_plus_token_str,
-                        system_prompt=system_prompt
+                        system_prompt=system_prompt,
+                        category=category
                     )
                     
                     prob_delta = prob_after - prob_before
@@ -528,7 +559,8 @@ class PivotalTokenSearcher:
     def find_rejected_tokens(
         self, 
         pivotal_token: PivotalToken,
-        num_candidates: int = 10
+        num_candidates: int = 10,
+        category: Optional[str] = None
     ) -> Optional[Tuple[str, int, float]]:
         """
         For a positive pivotal token, find a rejected token that would decrease 
@@ -569,7 +601,8 @@ class PivotalTokenSearcher:
             full_context = pivotal_token.pivot_context + token_str
             prob_after = self.estimate_success_probability(
                 pivotal_token.query, 
-                full_context
+                full_context,
+                category=category
             )
             
             # If this token decreases probability significantly, return it

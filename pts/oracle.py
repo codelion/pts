@@ -404,7 +404,8 @@ class QAOracle(Oracle):
         answers: Dict[str, Union[str, List[str]]] = None,
         extract_answer_regex: str = None,
         fuzzy_match: bool = True,
-        similarity_threshold: float = 0.8
+        similarity_threshold: float = 0.8,
+        debug_mode: bool = False
     ):
         """
         Initialize the QA oracle.
@@ -419,6 +420,7 @@ class QAOracle(Oracle):
         self.extract_answer_regex = extract_answer_regex
         self.fuzzy_match = fuzzy_match
         self.similarity_threshold = similarity_threshold
+        self.debug_mode = debug_mode
         
     def add_answer(self, query: str, answer: Union[str, List[str]]):
         """Add or update an answer for a query."""
@@ -482,7 +484,10 @@ class QAOracle(Oracle):
         """
         # Must have an expected answer for the query
         if query not in self.answers:
-            logger.warning(f"No expected answer for query: {query}")
+            message = f"No expected answer for query: {query}"
+            logger.warning(message)
+            if self.debug_mode:
+                print(f"\nDEBUG [QAOracle]: {message}")
             return False
         
         # Extract the final response (after thinking tags if present)
@@ -490,6 +495,9 @@ class QAOracle(Oracle):
             
         expected = self.answers[query]
         extracted = self.extract_answer(final_response)
+        
+        if self.debug_mode:
+            print(f"\nDEBUG [QAOracle]:\nQuery: {query}\nExtracted answer: {extracted}\nExpected answer: {expected}")
         
         # Handle list of valid answers
         if isinstance(expected, list):
@@ -517,7 +525,8 @@ class OptiBenchOracle(Oracle):
     
     def __init__(
         self, 
-        examples_with_categories: Dict[str, Dict[str, str]] = None
+        examples_with_categories: Dict[str, Dict[str, str]] = None,
+        debug_mode: bool = False
     ):
         """
         Initialize the OptiBenchOracle.
@@ -526,6 +535,36 @@ class OptiBenchOracle(Oracle):
             examples_with_categories: Dictionary mapping categories to query-answer dictionaries
         """
         self.examples_with_categories = examples_with_categories or {}
+        self.debug_mode = debug_mode
+        
+    def get_prompt_for_category(self, question: str, category: str) -> str:
+        """
+        Generate appropriate prompt based on category.
+        """
+        if category == "gsm8k":
+            return (
+                f"Solve this math problem step by step. After solving, provide the final "
+                f"numerical answer after '### ' (three hash symbols and a space).\n\n"
+                f"Question: {question}\n\n"
+                f"Show your work, then give the final answer after '### '."
+            )
+        elif category == "mmlu_math":
+            return (
+                f"Solve this math problem. Provide only the answer with no explanation.\n\n"
+                f"Question: {question}"
+            )
+        elif category == "boolq":
+            return (
+                f"Answer this yes/no question with only 'yes' or 'no'.\n\n"
+                f"Question: {question}"
+            )
+        elif category == "aqua_rat":
+            return (
+                f"Choose the correct answer. Provide only the letter choice with no explanation.\n\n"
+                f"Question: {question}"
+            )
+        else:
+            return f"Question: {question}"
         
     def extract_gsm8k_answer(self, text: str) -> Optional[float]:
         """Extract numerical answer after ### from GSM8K responses."""
@@ -587,7 +626,13 @@ class OptiBenchOracle(Oracle):
         for category, examples in self.examples_with_categories.items():
             if query in examples:
                 ground_truth = examples[query]
-                return self.evaluate_response(response, ground_truth, category)
+                result = self.evaluate_response(response, ground_truth, category)
+                
+                if self.debug_mode:
+                    prompt = self.get_prompt_for_category(query, category)
+                    print(f"\nDEBUG [OptiBenchOracle]:\nCategory: {category}\nFormatted Prompt: {prompt}\nGround truth: {ground_truth}\nResponse: {response[:100]}...\nResult: {result}")
+                    
+                return result
         
         # If category not found, fall back to exact match
         logger.warning(f"No category found for query, falling back to exact match")
