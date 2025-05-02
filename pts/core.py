@@ -110,7 +110,7 @@ class PivotalTokenSearcher:
         device: str = None,
         prob_threshold: float = 0.2,
         temperature: float = 0.8,
-        max_new_tokens: int = 512,
+        max_new_tokens: int = 8196,
         num_samples: int = 10,
         batch_size: int = 5,
         trust_remote_code: bool = True,
