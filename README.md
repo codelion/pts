@@ -177,3 +177,17 @@ pts export --input-path="pivotal_tokens.jsonl" \
     --model="Qwen/Qwen3-0.6B" \
     --layer-nums=19,23,27
 ```
+
+## Citation
+
+If you use this tool in your research, please cite:
+
+```bibtex
+@software{pts,
+  title = {PTS: Pivotal Token Search},
+  author = {Asankhaya Sharma},
+  year = {2025},
+  publisher = {GitHub},
+  url = {https://github.com/codelion/pts}
+}
+```
