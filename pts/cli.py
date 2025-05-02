@@ -16,7 +16,7 @@ from tqdm import tqdm
 from .core import PivotalTokenSearcher
 from .storage import TokenStorage
 from .exporters import TokenExporter
-from .dataset import load_dataset, load_math_dataset, load_code_dataset, create_oracle_from_dataset
+from .dataset import load_dataset, create_oracle_from_dataset
 
 
 def setup_logging(log_level: str = "INFO"):
@@ -42,33 +42,15 @@ def run_pts(args):
     
     logger.info(f"Running PTS with model {args.model}")
     
-    # Load dataset based on type
-    if args.dataset_type == "math":
-        examples = load_math_dataset(
-            dataset_name=args.dataset,
-            split=args.split,
-            sample_size=args.sample_size,
-            seed=args.seed,
-            difficulty_range=(args.min_difficulty, args.max_difficulty)
-        )
-    elif args.dataset_type == "code":
-        examples = load_code_dataset(
-            dataset_name=args.dataset,
-            split=args.split,
-            sample_size=args.sample_size,
-            seed=args.seed,
-            language=args.language
-        )
-    else:
-        examples = load_dataset(
-            dataset_name=args.dataset,
-            split=args.split,
-            sample_size=args.sample_size,
-            seed=args.seed,
-            task_type=args.dataset_type,
-            query_key=args.query_key,
-            answer_key=args.answer_key
-        )
+    # Load dataset
+    examples = load_dataset(
+        dataset_name=args.dataset,
+        split=args.split,
+        sample_size=args.sample_size,
+        seed=args.seed,
+        query_key=args.query_key,
+        answer_key=args.answer_key
+    )
     
     if not examples:
         logger.error(f"No examples loaded from dataset {args.dataset}")
@@ -77,7 +59,7 @@ def run_pts(args):
     logger.info(f"Loaded {len(examples)} examples from {args.dataset}")
     
     # Create oracle from dataset
-    oracle = create_oracle_from_dataset(examples, task_type=args.dataset_type)
+    oracle = create_oracle_from_dataset(examples)
     
     # Create storage for pivotal tokens
     storage = TokenStorage(filepath=args.output_path)
@@ -117,7 +99,7 @@ def run_pts(args):
         query_pivotal_tokens = list(searcher.search_pivotal_tokens(
             query=query,
             system_prompt=args.system_prompt,
-            task_type=args.dataset_type,
+            task_type="generic",  # Single task type
             dataset_id=args.dataset,
             item_id=example.get("item_id", str(i)),
             max_generations=args.max_generations,
@@ -318,7 +300,6 @@ def parse_args():
     run_parser = subparsers.add_parser("run", help="Run PTS on a dataset")
     run_parser.add_argument("--model", type=str, required=True, help="Model name or path")
     run_parser.add_argument("--dataset", type=str, default="codelion/optillmbench", help="Dataset name or path")
-    run_parser.add_argument("--dataset-type", type=str, default="generic", choices=["generic", "math", "code", "qa"], help="Type of dataset")
     run_parser.add_argument("--split", type=str, default="train", help="Dataset split to use")
     run_parser.add_argument("--output-path", type=str, default="pivotal_tokens.jsonl", help="Output file path")
     run_parser.add_argument("--device", type=str, default=None, help="Device to run on (cuda, cpu)")
@@ -334,11 +315,10 @@ def parse_args():
     run_parser.add_argument("--max-prob", type=float, default=0.8, help="Maximum initial success probability")
     run_parser.add_argument("--seed", type=int, default=42, help="Random seed")
     run_parser.add_argument("--system-prompt", type=str, default=None, help="System prompt for chat models")
-    run_parser.add_argument("--query-key", type=str, default="instruction", help="Key for query in dataset")
-    run_parser.add_argument("--answer-key", type=str, default="output", help="Key for answer in dataset")
-    run_parser.add_argument("--min-difficulty", type=float, default=0.3, help="Minimum difficulty for math problems")
-    run_parser.add_argument("--max-difficulty", type=float, default=0.7, help="Maximum difficulty for math problems")
-    run_parser.add_argument("--language", type=str, default=None, help="Programming language for code problems")
+    run_parser.add_argument("--query-key", type=str, default=None, 
+                           help="Key for query field in dataset (e.g., 'question', 'instruction', 'problem'). Auto-detected if not specified.")
+    run_parser.add_argument("--answer-key", type=str, default=None, 
+                           help="Key for answer field in dataset (e.g., 'answer', 'output', 'solution'). Auto-detected if not specified.")
     run_parser.add_argument("--log-level", type=str, default="INFO", choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"], help="Logging level")
     
     # Export subcommand

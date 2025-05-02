@@ -52,6 +52,23 @@ PTS creates high-quality DPO datasets by isolating the specific token-level choi
 
 The activation patterns associated with pivotal tokens can be used to guide models during generation, encouraging them to follow successful reasoning paths.
 
+## Dataset Field Customization
+
+Different datasets use different field names for questions and answers. PTS automatically detects appropriate field names for common datasets, but you can also specify them manually:
+
+```bash
+pts run --model="gpt2" --dataset="your-dataset" --query-key="question" --answer-key="answer"
+```
+
+For example:
+- `codelion/optillmbench`: Uses "question" and "answer" fields
+- Other datasets may use fields like:
+  - "instruction"/"output"
+  - "problem"/"solution" 
+  - "prompt"/"canonical_solution"
+
+If not specified, PTS will attempt to automatically detect the appropriate fields based on common naming patterns.
+
 ## Command Reference
 
 ### `pts run`
@@ -66,6 +83,8 @@ Options:
 - `--model`: Model to use for generation
 - `--dataset`: Dataset to search (default: "codelion/optillmbench")
 - `--output-path`: Path to save pivotal tokens (default: "pivotal_tokens.jsonl")
+- `--query-key`: Key for question/instruction field in dataset (auto-detected if not specified)
+- `--answer-key`: Key for answer/output field in dataset (auto-detected if not specified)
 - `--prob-threshold`: Probability threshold for pivotal tokens (default: 0.2)
 - `--temperature`: Sampling temperature (default: 0.8)
 - `--num-samples`: Number of samples for probability estimation (default: 10)
@@ -100,26 +119,39 @@ Options:
 
 ## Examples
 
-### Finding Pivotal Tokens in Math Problems
+### Finding Pivotal Tokens with OptillmBench
 
 ```bash
-pts run --model="deepseek-ai/deepseek-coder-33b-instruct" \
-    --dataset="competition_math" \
-    --output-path="math_pivotal_tokens.jsonl" \
-    --prob-threshold=0.3 \
+pts run --model="gpt2" \
+    --dataset="codelion/optillmbench" \
+    --output-path="optillm_pivotal_tokens.jsonl" \
+    --prob-threshold=0.2 \
     --temperature=0.7
 ```
 
-### Creating a DPO Dataset for Coding Tasks
+### Working with a Custom Dataset
 
 ```bash
+pts run --model="gpt2" \
+    --dataset="my-custom-dataset" \
+    --query-key="input_text" \
+    --answer-key="target_text" \
+    --output-path="custom_pivotal_tokens.jsonl" \
+    --prob-threshold=0.2
+```
+
+### Creating a DPO Dataset
+
+```bash
+# First find pivotal tokens
 pts run --model="codellama/CodeLlama-7b-hf" \
     --dataset="codelion/optillmbench" \
-    --output-path="code_pivotal_tokens.jsonl"
+    --output-path="optillm_pivotal_tokens.jsonl"
 
-pts export --input-path="code_pivotal_tokens.jsonl" \
+# Then export to DPO format
+pts export --input-path="optillm_pivotal_tokens.jsonl" \
     --format="dpo" \
-    --output-path="code_dpo_dataset.jsonl"
+    --output-path="optillm_dpo_dataset.jsonl"
 ```
 
 ### Extracting Steering Vectors

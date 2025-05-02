@@ -478,3 +478,95 @@ class QAOracle(Oracle):
                 return similarity >= self.similarity_threshold
             else:
                 return self.normalize_text(extracted) == self.normalize_text(expected)
+
+
+class OptiBenchOracle(Oracle):
+    """Oracle for the OptillmBench dataset that handles different problem categories."""
+    
+    def __init__(
+        self, 
+        examples_with_categories: Dict[str, Dict[str, str]] = None
+    ):
+        """
+        Initialize the OptiBenchOracle.
+        
+        Args:
+            examples_with_categories: Dictionary mapping categories to query-answer dictionaries
+        """
+        self.examples_with_categories = examples_with_categories or {}
+        
+    def extract_gsm8k_answer(self, text: str) -> Optional[float]:
+        """Extract numerical answer after ### from GSM8K responses."""
+        match = re.search(r'###\s*(-?\d*\.?\d+)', text)
+        if match:
+            try:
+                return float(match.group(1))
+            except ValueError:
+                return None
+        return None
+    
+    def evaluate_response(self, response: str, ground_truth: str, category: str) -> bool:
+        """
+        Evaluate if the response matches the ground truth based on category.
+        
+        Args:
+            response: Model's response
+            ground_truth: Correct answer
+            category: Problem category (gsm8k, mmlu_math, boolq, aqua_rat, etc.)
+        
+        Returns:
+            bool: Whether the response is correct
+        """
+        if not response or not ground_truth:
+            return False
+            
+        if category == "gsm8k":
+            # Extract numerical answers after ### and compare
+            response_num = self.extract_gsm8k_answer(response)
+            ground_truth_num = self.extract_gsm8k_answer(ground_truth)
+            
+            if response_num is None or ground_truth_num is None:
+                # Fallback to text comparison if extraction fails
+                response_clean = response.strip().lower()
+                ground_truth_clean = ground_truth.strip().lower()
+                return response_clean == ground_truth_clean
+                
+            # Compare with small tolerance for floating point
+            return abs(response_num - ground_truth_num) < 1e-6
+        else:
+            # For other categories, exact match is required
+            # Clean up both strings for comparison
+            response_clean = response.strip().lower()
+            ground_truth_clean = ground_truth.strip().lower()
+            return response_clean == ground_truth_clean
+    
+    def check_success(self, query: str, response: str) -> bool:
+        """
+        Check if a response is successful based on the category.
+        
+        Args:
+            query: The original query
+            response: The model's response
+            
+        Returns:
+            Boolean indicating success
+        """
+        # Find the category for this query
+        for category, examples in self.examples_with_categories.items():
+            if query in examples:
+                ground_truth = examples[query]
+                return self.evaluate_response(response, ground_truth, category)
+        
+        # If category not found, fall back to exact match
+        logger.warning(f"No category found for query, falling back to exact match")
+        
+        # Check in all categories
+        for category, examples in self.examples_with_categories.items():
+            if query in examples:
+                ground_truth = examples[query]
+                response_clean = response.strip().lower()
+                ground_truth_clean = ground_truth.strip().lower()
+                return response_clean == ground_truth_clean
+                
+        logger.warning(f"Query not found in any category: {query}")
+        return False
