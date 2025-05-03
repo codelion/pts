@@ -215,36 +215,36 @@ class TokenExporter:
                 logger.warning(f"No rejected token found for token: {pivot_token}, skipping")
                 continue
                 
-                # Prepare pair - only include relevant fields
-                if prob_delta > 0:
-                    # Positive token with rejected alternative
-                    if rejected_token and rejected_token != pivot_token:
-                        pair = {
-                            "prompt": pivot_context,
-                            "chosen": pivot_token,
-                            "rejected": rejected_token,
-                            "metadata": {
-                                "original_query": query,
-                                "prob_delta": prob_delta,
-                                "task_type": token.get('task_type', 'unknown')
-                            }
+            # Prepare pair - only include relevant fields
+            if prob_delta > 0:
+                # Positive token with rejected alternative
+                if rejected_token and rejected_token != pivot_token:
+                    pair = {
+                        "prompt": pivot_context,
+                        "chosen": pivot_token,
+                        "rejected": rejected_token,
+                        "metadata": {
+                            "original_query": query,
+                            "prob_delta": prob_delta,
+                            "task_type": token.get('task_type', 'unknown')
                         }
-                        pairs.append(pair)
-                else:
-                    # Negative token (treat as rejected)
-                    # Find an alternative token if available
-                    if rejected_token and rejected_token != pivot_token:
-                        pair = {
-                            "prompt": pivot_context,
-                            "chosen": rejected_token,
-                            "rejected": pivot_token,
-                            "metadata": {
-                                "original_query": query,
-                                "prob_delta": abs(prob_delta),
-                                "task_type": token.get('task_type', 'unknown')
-                            }
+                    }
+                    pairs.append(pair)
+            else:
+                # Negative token (treat as rejected)
+                # Find an alternative token if available
+                if rejected_token and rejected_token != pivot_token:
+                    pair = {
+                        "prompt": pivot_context,
+                        "chosen": rejected_token,
+                        "rejected": pivot_token,
+                        "metadata": {
+                            "original_query": query,
+                            "prob_delta": abs(prob_delta),
+                            "task_type": token.get('task_type', 'unknown')
                         }
-                        pairs.append(pair)
+                    }
+                    pairs.append(pair)
         
         # Save to file
         with open(output_path, 'w') as f:
