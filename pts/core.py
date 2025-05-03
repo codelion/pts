@@ -40,12 +40,6 @@ class PivotalToken:
     dataset_id: Optional[str] = None
     dataset_item_id: Optional[str] = None
     timestamp: str = field(default_factory=lambda: time.strftime("%Y-%m-%dT%H:%M:%S"))
-    
-    # Optional additional info
-    token_logprob: Optional[float] = None
-    rejected_token: Optional[str] = None
-    rejected_token_id: Optional[int] = None
-    notes: Optional[str] = None
 
     def is_positive(self) -> bool:
         """Return True if this token increases success probability."""
@@ -66,11 +60,7 @@ class PivotalToken:
             "task_type": self.task_type,
             "dataset_id": self.dataset_id,
             "dataset_item_id": self.dataset_item_id,
-            "timestamp": self.timestamp,
-            "token_logprob": self.token_logprob,
-            "rejected_token": self.rejected_token,
-            "rejected_token_id": self.rejected_token_id,
-            "notes": self.notes
+            "timestamp": self.timestamp
         }
     
     @classmethod
@@ -88,11 +78,7 @@ class PivotalToken:
             task_type=data["task_type"],
             dataset_id=data.get("dataset_id"),
             dataset_item_id=data.get("dataset_item_id"),
-            timestamp=data.get("timestamp", time.strftime("%Y-%m-%dT%H:%M:%S")),
-            token_logprob=data.get("token_logprob"),
-            rejected_token=data.get("rejected_token"),
-            rejected_token_id=data.get("rejected_token_id"),
-            notes=data.get("notes")
+            timestamp=data.get("timestamp", time.strftime("%Y-%m-%dT%H:%M:%S"))
         )
 
 

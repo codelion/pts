@@ -215,36 +215,36 @@ class TokenExporter:
                 logger.warning(f"No rejected token found for token: {pivot_token}, skipping")
                 continue
                 
-            # Prepare pair
-            if prob_delta > 0:
-                # Positive token with rejected alternative
-                if rejected_token and rejected_token != pivot_token:
-                    pair = {
-                        "prompt": pivot_context,
-                        "chosen": pivot_token,
-                        "rejected": rejected_token,
-                        "metadata": {
-                            "original_query": query,
-                            "prob_delta": prob_delta,
-                            "task_type": token.get('task_type', 'unknown')
+                # Prepare pair - only include relevant fields
+                if prob_delta > 0:
+                    # Positive token with rejected alternative
+                    if rejected_token and rejected_token != pivot_token:
+                        pair = {
+                            "prompt": pivot_context,
+                            "chosen": pivot_token,
+                            "rejected": rejected_token,
+                            "metadata": {
+                                "original_query": query,
+                                "prob_delta": prob_delta,
+                                "task_type": token.get('task_type', 'unknown')
+                            }
                         }
-                    }
-                    pairs.append(pair)
-            else:
-                # Negative token (treat as rejected)
-                # Find an alternative token if available
-                if rejected_token and rejected_token != pivot_token:
-                    pair = {
-                        "prompt": pivot_context,
-                        "chosen": rejected_token,
-                        "rejected": pivot_token,
-                        "metadata": {
-                            "original_query": query,
-                            "prob_delta": abs(prob_delta),
-                            "task_type": token.get('task_type', 'unknown')
+                        pairs.append(pair)
+                else:
+                    # Negative token (treat as rejected)
+                    # Find an alternative token if available
+                    if rejected_token and rejected_token != pivot_token:
+                        pair = {
+                            "prompt": pivot_context,
+                            "chosen": rejected_token,
+                            "rejected": pivot_token,
+                            "metadata": {
+                                "original_query": query,
+                                "prob_delta": abs(prob_delta),
+                                "task_type": token.get('task_type', 'unknown')
+                            }
                         }
-                    }
-                    pairs.append(pair)
+                        pairs.append(pair)
         
         # Save to file
         with open(output_path, 'w') as f:
@@ -603,25 +603,23 @@ This dataset can be used for fine-tuning language models with Direct Preference 
                     # Get the reasoning pattern for this cluster
                     reasoning_pattern = cluster_to_pattern.get(cluster_id, "unknown")
                     
-                    # Add steering data
-                    steering_token["steering_vector"] = layer_activations[i].tolist()
-                    steering_token["cluster_id"] = int(cluster_id)
-                    steering_token["reasoning_pattern"] = reasoning_pattern
-                    steering_token["cluster_vector"] = cluster_vectors[cluster_id]["vector"]
-                    
-                    # Compute positive/negative mean vectors
-                    positive_indices = [j for j, t in enumerate(token_data) if t.get("prob_delta", 0) > 0]
-                    negative_indices = [j for j, t in enumerate(token_data) if t.get("prob_delta", 0) < 0]
-                    
-                    positive_mean = layer_activations[positive_indices].mean(dim=0).tolist() if positive_indices else None
-                    negative_mean = layer_activations[negative_indices].mean(dim=0).tolist() if negative_indices else None
-                    
-                    steering_token["positive_mean"] = positive_mean
-                    steering_token["negative_mean"] = negative_mean
-                    
-                    # Add metadata
-                    steering_token["steering_layer"] = select_layer
-                    steering_token["vector_extracted"] = True
+                    # Add only necessary steering data
+                    steering_token = {
+                        "query": token.get("query", ""),
+                        "pivot_context": token.get("pivot_context", ""),
+                        "pivot_token": token.get("pivot_token", ""),
+                        "pivot_token_id": token.get("pivot_token_id", 0),
+                        "prob_before": token.get("prob_before", 0),
+                        "prob_after": token.get("prob_after", 0),
+                        "prob_delta": token.get("prob_delta", 0),
+                        "model_id": token.get("model_id", ""),
+                        "task_type": token.get("task_type", "unknown"),
+                        "steering_vector": layer_activations[i].tolist(),
+                        "cluster_id": int(cluster_id),
+                        "reasoning_pattern": reasoning_pattern,
+                        "cluster_vector": cluster_vectors[cluster_id]["vector"],
+                        "steering_layer": select_layer
+                    }
                     
                     break
             
