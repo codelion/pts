@@ -307,7 +307,7 @@ A Direct Preference Optimization (DPO) dataset created using the Pivotal Token S
 ## Details
 
 - **Dataset size:** {len(pairs)} pairs
-- **Source:** Generated using the [PTS](https://github.com/yourusername/pts) tool
+- **Source:** Generated using the [PTS](https://github.com/codelion/pts) tool
 - **Model:** {model_name or "Unknown"}
 - **Minimum probability delta:** {min_prob_delta}
 - **Task types:** {set(token.get('task_type', 'unknown') for token in all_tokens)}
@@ -683,7 +683,7 @@ A dataset of activation-based steering vectors created using the Pivotal Token S
 ## Details
 
 - **Dataset size:** {len(steering_tokens)} vectors
-- **Source:** Generated using the [PTS](https://github.com/yourusername/pts) tool
+- **Source:** Generated using the [PTS](https://github.com/codelion/pts) tool
 - **Model:** {model_name}
 - **Layer:** {select_layer}
 - **Minimum probability delta:** {min_prob_delta}
@@ -710,11 +710,10 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 model = AutoModelForCausalLM.from_pretrained("{model_name}")
 tokenizer = AutoTokenizer.from_pretrained("{model_name}")
 
-# Load steering vectors
-vectors = []
-with open("steering_vectors.jsonl", "r") as f:
-    for line in f:
-        vectors.append(json.loads(line))
+# Load steering vectors directly from Hugging Face
+from datasets import load_dataset
+dataset = load_dataset("codelion/pts-steering-vectors")
+vectors = [json.loads(example) for example in dataset["train"]]
 
 # Define a hook to apply steering
 def steering_hook(module, input, output):
@@ -733,7 +732,7 @@ result = tokenizer.decode(output[0])
 print(result)
 ```
 
-See the ThinkDeeper documentation for more detailed examples of using steering vectors.
+See the OptiLLM documentation (https://github.com/codelion/optillm) for more detailed examples of using steering vectors.
                 """
                 
                 # Create temporary README file
