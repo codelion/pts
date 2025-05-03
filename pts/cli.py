@@ -237,7 +237,7 @@ A dataset of activation-based steering vectors created using the Pivotal Token S
 
 ## Details
 
-- **Source:** Generated using the [PTS](https://github.com/yourusername/pts) tool
+- **Source:** Generated using the [PTS](https://github.com/codelion/pts) tool
 - **Model:** {args.model or "Unknown"}
 
 ## Usage
@@ -251,7 +251,7 @@ A Direct Preference Optimization (DPO) dataset created using the Pivotal Token S
 
 ## Details
 
-- **Source:** Generated using the [PTS](https://github.com/yourusername/pts) tool
+- **Source:** Generated using the [PTS](https://github.com/codelion/pts) tool
 - **Model:** {args.model or "Unknown"}
 
 ## Format
@@ -269,7 +269,7 @@ A dataset of pivotal tokens discovered using the Pivotal Token Search (PTS) tech
 
 ## Details
 
-- **Source:** Generated using the [PTS](https://github.com/yourusername/pts) tool
+- **Source:** Generated using the [PTS](https://github.com/codelion/pts) tool
 - **Model:** {args.model or "Unknown"}
 
 ## Format
