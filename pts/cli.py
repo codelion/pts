@@ -113,6 +113,10 @@ def run_pts(args):
         ))
         
         if query_pivotal_tokens:
+            # Force save each token to storage explicitly
+            for token in query_pivotal_tokens:
+                storage.add_token(token)
+                
             successful_searches += 1
             total_pivotal_tokens += len(query_pivotal_tokens)
             logger.info(f"Found {len(query_pivotal_tokens)} pivotal tokens for example {i}")
@@ -120,12 +124,17 @@ def run_pts(args):
             logger.info(f"No pivotal tokens found for example {i}")
     
     # Save the tokens
-    storage.save()
-    
-    logger.info(f"Finished processing {args.max_examples} examples")
     logger.info(f"Found pivotal tokens in {successful_searches}/{args.max_examples} examples")
     logger.info(f"Total pivotal tokens found: {total_pivotal_tokens}")
-    logger.info(f"Saved tokens to {args.output_path}")
+    
+    # Make sure to save even if the tokens were added directly by the searcher
+    if total_pivotal_tokens > 0:
+        storage.save()
+        logger.info(f"Saved tokens to {args.output_path}")
+    else:
+        logger.info(f"No tokens found, no file saved")
+        
+    logger.info(f"Finished processing {args.max_examples} examples")
 
 
 def export_tokens(args):
@@ -210,68 +219,37 @@ def push_to_hf(args):
         
         logger.info(f"Pushed {args.input_path} to Hugging Face: {args.hf_repo_id}")
         
-        # Create README if it doesn't exist
-        if args.create_readme:
+        # If this is a steering vectors file, also push the metadata file
+        if filename.endswith('.jsonl') and ('steering' in filename):
+            metadata_file = os.path.splitext(args.input_path)[0] + '_metadata.json'
+            if os.path.exists(metadata_file):
+                metadata_filename = os.path.basename(metadata_file)
+                upload_file(
+                    path_or_fileobj=metadata_file,
+                    path_in_repo=metadata_filename,
+                    repo_id=args.hf_repo_id,
+                    repo_type="dataset"
+                )
+                logger.info(f"Also pushed metadata file {metadata_file} to Hugging Face")
+        
+        # Create README by default unless --no-readme flag is specified
+        if not args.no_readme:
             # Determine file type
             if filename.endswith("_vectors.jsonl") or "steering" in filename:
-                readme_type = "steering"
+                file_type = "steering"
             elif "dpo" in filename:
-                readme_type = "dpo"
+                file_type = "dpo"
             else:
-                readme_type = "tokens"
+                file_type = "tokens"
                 
-            # Create appropriate README
-            if readme_type == "steering":
-                readme_content = f"""# PTS Steering Vectors Dataset
-
-A dataset of activation-based steering vectors created using the Pivotal Token Search (PTS) technique.
-
-## Details
-
-- **Source:** Generated using the [PTS](https://github.com/yourusername/pts) tool
-- **Model:** {args.model or "Unknown"}
-
-## Usage
-
-These vectors can be used for activation-based steering during inference to guide language models toward particular reasoning patterns.
-                """
-            elif readme_type == "dpo":
-                readme_content = f"""# PTS DPO Dataset
-
-A Direct Preference Optimization (DPO) dataset created using the Pivotal Token Search (PTS) technique.
-
-## Details
-
-- **Source:** Generated using the [PTS](https://github.com/yourusername/pts) tool
-- **Model:** {args.model or "Unknown"}
-
-## Format
-
-Each example in the dataset consists of:
-- `prompt`: The context leading up to the pivotal token
-- `chosen`: The preferred token that increases success probability
-- `rejected`: The alternative token that decreases success probability
-- `metadata`: Additional information about the example
-                """
-            else:
-                readme_content = f"""# PTS Pivotal Tokens Dataset
-
-A dataset of pivotal tokens discovered using the Pivotal Token Search (PTS) technique.
-
-## Details
-
-- **Source:** Generated using the [PTS](https://github.com/yourusername/pts) tool
-- **Model:** {args.model or "Unknown"}
-
-## Format
-
-Each token in the dataset includes:
-- `query`: The original query that was processed
-- `pivot_context`: The context leading up to the pivotal token
-- `pivot_token`: The actual token that impacts success probability
-- `prob_delta`: The change in success probability caused by the token
-- Other metadata about the token
-                """
+            # Import the README generation function from exporters
+            from .exporters import generate_readme_content
+            
+            # Generate README content
+            readme_content = generate_readme_content(
+                file_type=file_type,
+                model_name=args.model
+            )
             
             # Create temporary README file
             readme_path = "README.md.tmp"
@@ -290,6 +268,8 @@ Each token in the dataset includes:
             os.remove(readme_path)
             
             logger.info(f"Created README for {args.hf_repo_id}")
+        else:
+            logger.info(f"Skipped README creation (--no-readme flag used)")
         
     except Exception as e:
         logger.error(f"Error pushing to Hugging Face: {e}")
@@ -359,7 +339,7 @@ def parse_args():
     push_parser.add_argument("--input-path", type=str, required=True, help="Input file path")
     push_parser.add_argument("--hf-repo-id", type=str, required=True, help="Hugging Face repository ID")
     push_parser.add_argument("--private", action="store_true", help="Make Hugging Face repository private")
-    push_parser.add_argument("--create-readme", action="store_true", help="Create a README file")
+    push_parser.add_argument("--no-readme", action="store_true", help="Skip creating a README file")
     push_parser.add_argument("--model", type=str, default=None, help="Model name for README")
     push_parser.add_argument("--log-level", type=str, default="INFO", choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"], help="Logging level")
     

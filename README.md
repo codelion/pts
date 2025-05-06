@@ -26,14 +26,21 @@ pip install -e .
 pts run --model="Qwen/Qwen3-0.6B" --dataset="codelion/optillmbench" --output-path="pivotal_tokens.jsonl"
 
 # Convert pivotal tokens to DPO dataset
-pts export --input-path="pivotal_tokens.jsonl" --format="dpo" --output-path="dpo_dataset.jsonl"
+pts export --input-path="pivotal_tokens.jsonl" --format="dpo" --output-path="dpo_dataset.jsonl" --model="Qwen/Qwen3-0.6B" --find-rejected-tokens
 
 # Convert pivotal tokens to steering vectors
 pts export --input-path="pivotal_tokens.jsonl" --format="steering" --output-path="steering_vectors.jsonl" --model="Qwen/Qwen3-0.6B"
 
-# Push dataset to Hugging Face
-pts push --input-path="dpo_dataset.jsonl" --hf-repo="username/pts-dpo-dataset"
+# Push dataset to Hugging Face (creates README by default)
+pts push --input-path="dpo_dataset.jsonl" --hf-repo="codelion/pts-dpo-dataset" --model="Qwen/Qwen3-0.6B"
 ```
+
+## Try Now
+
+| Use Case | Dataset | Link |
+|----------|----------|-------|
+| Fine-tuning the model | dpo dataset | [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/drive/1FggA9EQ1eFBjE0Qbsl0-EFzyWIxpdhlH?usp=sharing) |
+| Optimizing the inference | steering vectors | [optillm](https://github.com/codelion/optillm) |
 
 ## Core Concepts
 
@@ -48,6 +55,8 @@ A pivotal token significantly changes the probability of success when it appears
 
 PTS creates high-quality DPO datasets by isolating the specific token-level choices that lead to success or failure. This allows for more targeted and effective fine-tuning compared to using entire sequences.
 
+**Important:** When exporting to DPO format, you must provide a model using the `--model` parameter and enable the `--find-rejected-tokens` flag. This is necessary because DPO pairs require both a chosen token (the pivotal token that increases success probability) and a rejected token (an alternative token that decreases success probability).
+
 ### Steering Vectors
 
 The activation patterns associated with pivotal tokens can be used to guide models during generation, encouraging them to follow successful reasoning paths.
@@ -57,7 +66,7 @@ The activation patterns associated with pivotal tokens can be used to guide mode
 Different datasets use different field names for questions and answers. PTS automatically detects appropriate field names for common datasets, but you can also specify them manually:
 
 ```bash
-pts run --model="gpt2" --dataset="your-dataset" --query-key="question" --answer-key="answer"
+pts run --model="Qwen/Qwen3-0.6B" --dataset="your-dataset" --query-key="question" --answer-key="answer"
 ```
 
 For example:
@@ -119,6 +128,8 @@ Options:
 - `--input-path`: Path to file to push
 - `--hf-repo`: Hugging Face repository name
 - `--private`: Make the repository private (default: False)
+- `--no-readme`: Skip creating a README file (a README is created by default)
+- `--model`: Model name to include in the README (optional)
 
 ## Examples
 
@@ -162,10 +173,13 @@ pts run --model="Qwen/Qwen3-0.6B" \
     --top-k=20 \
     --min-p=0.0
 
-# Then export to DPO format
+# Then export to DPO format - MUST provide a model and find-rejected-tokens flag
 pts export --input-path="optillm_pivotal_tokens.jsonl" \
     --format="dpo" \
-    --output-path="optillm_dpo_dataset.jsonl"
+    --output-path="optillm_dpo_dataset.jsonl" \
+    --model="Qwen/Qwen3-0.6B" \
+    --find-rejected-tokens \
+    --min-prob-delta=0.1
 ```
 
 ### Extracting Steering Vectors

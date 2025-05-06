@@ -23,6 +23,154 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 logger = logging.getLogger(__name__)
 
 
+def generate_readme_content(file_type, model_name=None, dataset_info=None):
+    """
+    Generate README content for Hugging Face repositories.
+    
+    Args:
+        file_type: Type of file ('dpo', 'steering', or 'tokens')
+        model_name: Name of the model used
+        dataset_info: Additional dataset information
+        
+    Returns:
+        README content as a string
+    """
+    if file_type == "steering":
+        content = f"""# PTS Steering Vectors Dataset
+
+A dataset of activation-based steering vectors created using the Pivotal Token Search (PTS) technique.
+
+## Details
+
+- **Source:** Generated using the [PTS](https://github.com/codelion/pts) tool
+- **Model:** {model_name or "Unknown"}
+
+## Dataset Structure
+
+This dataset contains:
+- `steering_vectors.jsonl`: The main file with token-level steering vectors
+- `steering_vectors_metadata.json`: Metadata about clusters and reasoning patterns
+
+## Usage
+
+These vectors can be used for activation-based steering during inference to guide language models toward particular reasoning patterns.
+
+### Example Python Code
+
+```python
+import json
+import torch
+from transformers import AutoModelForCausalLM, AutoTokenizer
+
+# Load model
+model = AutoModelForCausalLM.from_pretrained("{model_name or 'MODEL_NAME'}")
+tokenizer = AutoTokenizer.from_pretrained("{model_name or 'MODEL_NAME'}")
+
+# Load steering vectors directly from Hugging Face
+from datasets import load_dataset
+dataset = load_dataset("USERNAME/REPO_NAME")
+vectors = [json.loads(example) for example in dataset["train"]]
+
+# Define a hook to apply steering
+def steering_hook(module, input, output):
+    # Add steering vector to activation
+    # Implementation depends on your specific use case
+    return output
+
+# Register hook on appropriate layer
+model.transformer.h[LAYER_NUM].register_forward_hook(steering_hook)
+
+# Generate text with steering
+input_text = "Your prompt here"
+input_ids = tokenizer.encode(input_text, return_tensors="pt")
+output = model.generate(input_ids, max_length=100)
+result = tokenizer.decode(output[0])
+print(result)
+```
+"""
+    elif file_type == "dpo":
+        content = f"""# PTS DPO Dataset
+
+A Direct Preference Optimization (DPO) dataset created using the Pivotal Token Search (PTS) technique.
+
+## Details
+
+- **Source:** Generated using the [PTS](https://github.com/codelion/pts) tool
+- **Model:** {model_name or "Unknown"}
+
+## Format
+
+Each example in the dataset consists of:
+- `prompt`: The context leading up to the pivotal token
+- `chosen`: The preferred token that increases success probability
+- `rejected`: The alternative token that decreases success probability
+- `metadata`: Additional information about the example
+
+## Usage
+
+This dataset can be used for fine-tuning language models with Direct Preference Optimization (DPO).
+
+```python
+from datasets import load_dataset
+
+# Load the dataset from Hugging Face
+dataset = load_dataset("USERNAME/REPO_NAME")
+
+# Use with your favorite DPO implementation
+# Example with TRL library:
+from trl import DPOTrainer
+
+trainer = DPOTrainer(
+    model=model,
+    args=training_args,
+    beta=0.1,
+    train_dataset=dataset,
+    tokenizer=tokenizer,
+    # ... other parameters
+)
+
+trainer.train()
+```
+"""
+    else:  # tokens or default
+        content = f"""# PTS Pivotal Tokens Dataset
+
+A dataset of pivotal tokens discovered using the Pivotal Token Search (PTS) technique.
+
+## Details
+
+- **Source:** Generated using the [PTS](https://github.com/codelion/pts) tool
+- **Model:** {model_name or "Unknown"}
+
+## Format
+
+Each token in the dataset includes:
+- `query`: The original query that was processed
+- `pivot_context`: The context leading up to the pivotal token
+- `pivot_token`: The actual token that impacts success probability
+- `prob_delta`: The change in success probability caused by the token
+- Other metadata about the token
+
+## Usage
+
+These pivotal tokens can be used for creating DPO datasets or extracting steering vectors:
+
+```bash
+# Export to DPO format
+pts export --input-path="pivotal_tokens.jsonl" --format="dpo" --output-path="dpo_dataset.jsonl" --model="MODEL_NAME" --find-rejected-tokens
+
+# Extract steering vectors
+pts export --input-path="pivotal_tokens.jsonl" --format="steering" --output-path="steering_vectors.jsonl" --model="MODEL_NAME"
+```
+"""
+        
+    # Add custom dataset info if provided
+    if dataset_info:
+        content += f"\n## Additional Information\n\n{dataset_info}\n"
+        
+    return content
+
+
 class TokenExporter:
     """
     Exporter for pivotal tokens to various formats.
@@ -215,7 +363,7 @@ class TokenExporter:
                 logger.warning(f"No rejected token found for token: {pivot_token}, skipping")
                 continue
                 
-            # Prepare pair
+            # Prepare pair - only include relevant fields
             if prob_delta > 0:
                 # Positive token with rejected alternative
                 if rejected_token and rejected_token != pivot_token:
@@ -300,30 +448,11 @@ class TokenExporter:
                 logger.info(f"Pushed DPO dataset to Hugging Face: {hf_repo_id}")
                 
                 # Create README if it doesn't exist
-                readme_content = f"""# PTS DPO Dataset
-
-A Direct Preference Optimization (DPO) dataset created using the Pivotal Token Search (PTS) technique.
-
-## Details
-
-- **Dataset size:** {len(pairs)} pairs
-- **Source:** Generated using the [PTS](https://github.com/yourusername/pts) tool
-- **Model:** {model_name or "Unknown"}
-- **Minimum probability delta:** {min_prob_delta}
-- **Task types:** {set(token.get('task_type', 'unknown') for token in all_tokens)}
-
-## Format
-
-Each example in the dataset consists of:
-- `prompt`: The context leading up to the pivotal token
-- `chosen`: The preferred token that increases success probability
-- `rejected`: The alternative token that decreases success probability
-- `metadata`: Additional information about the example
-
-## Usage
-
-This dataset can be used for fine-tuning language models with Direct Preference Optimization (DPO).
-                """
+                readme_content = generate_readme_content(
+                    file_type="dpo",
+                    model_name=model_name,
+                    dataset_info=f"- **Dataset size:** {len(pairs)} pairs\n- **Minimum probability delta:** {min_prob_delta}"
+                )
                 
                 # Create temporary README file
                 readme_path = "README.md.tmp"
@@ -603,25 +732,23 @@ This dataset can be used for fine-tuning language models with Direct Preference 
                     # Get the reasoning pattern for this cluster
                     reasoning_pattern = cluster_to_pattern.get(cluster_id, "unknown")
                     
-                    # Add steering data
-                    steering_token["steering_vector"] = layer_activations[i].tolist()
-                    steering_token["cluster_id"] = int(cluster_id)
-                    steering_token["reasoning_pattern"] = reasoning_pattern
-                    steering_token["cluster_vector"] = cluster_vectors[cluster_id]["vector"]
-                    
-                    # Compute positive/negative mean vectors
-                    positive_indices = [j for j, t in enumerate(token_data) if t.get("prob_delta", 0) > 0]
-                    negative_indices = [j for j, t in enumerate(token_data) if t.get("prob_delta", 0) < 0]
-                    
-                    positive_mean = layer_activations[positive_indices].mean(dim=0).tolist() if positive_indices else None
-                    negative_mean = layer_activations[negative_indices].mean(dim=0).tolist() if negative_indices else None
-                    
-                    steering_token["positive_mean"] = positive_mean
-                    steering_token["negative_mean"] = negative_mean
-                    
-                    # Add metadata
-                    steering_token["steering_layer"] = select_layer
-                    steering_token["vector_extracted"] = True
+                    # Add only necessary steering data
+                    steering_token = {
+                        "query": token.get("query", ""),
+                        "pivot_context": token.get("pivot_context", ""),
+                        "pivot_token": token.get("pivot_token", ""),
+                        "pivot_token_id": token.get("pivot_token_id", 0),
+                        "prob_before": token.get("prob_before", 0),
+                        "prob_after": token.get("prob_after", 0),
+                        "prob_delta": token.get("prob_delta", 0),
+                        "model_id": token.get("model_id", ""),
+                        "task_type": token.get("task_type", "unknown"),
+                        "steering_vector": layer_activations[i].tolist(),
+                        "cluster_id": int(cluster_id),
+                        "reasoning_pattern": reasoning_pattern,
+                        "cluster_vector": cluster_vectors[cluster_id]["vector"],
+                        "steering_layer": select_layer
+                    }
                     
                     break
             
@@ -634,8 +761,8 @@ This dataset can be used for fine-tuning language models with Direct Preference 
                 f.write(json.dumps(token) + '\n')
         
         # Save vectors data for analysis
-        vectors_file = os.path.splitext(output_path)[0] + '_vectors.json'
-        logger.info(f"Saving extracted vectors data to {vectors_file} for analysis")
+        vectors_file = os.path.splitext(output_path)[0] + '_metadata.json'
+        logger.info(f"Saving extracted vectors metadata to {vectors_file} for analysis")
         
         vectors_data = {
             "clusters": cluster_vectors,
@@ -668,9 +795,10 @@ This dataset can be used for fine-tuning language models with Direct Preference 
                     repo_type="dataset"
                 )
                 
+                # Upload metadata file
                 upload_file(
                     path_or_fileobj=vectors_file,
-                    path_in_repo="vectors_analysis.json",
+                    path_in_repo="steering_vectors_metadata.json",
                     repo_id=hf_repo_id,
                     repo_type="dataset"
                 )
@@ -678,65 +806,11 @@ This dataset can be used for fine-tuning language models with Direct Preference 
                 logger.info(f"Pushed steering vectors to Hugging Face: {hf_repo_id}")
                 
                 # Create README
-                readme_content = f"""# PTS Steering Vectors Dataset
-
-A dataset of activation-based steering vectors created using the Pivotal Token Search (PTS) technique.
-
-## Details
-
-- **Dataset size:** {len(steering_tokens)} vectors
-- **Source:** Generated using the [PTS](https://github.com/yourusername/pts) tool
-- **Model:** {model_name}
-- **Layer:** {select_layer}
-- **Minimum probability delta:** {min_prob_delta}
-- **Number of clusters:** {num_clusters}
-
-## Reasoning Patterns
-
-The dataset contains activation vectors for the following reasoning patterns:
-
-{chr(10).join(f"- **{pattern}**: Cluster {cluster_id}" for pattern, cluster_id in cluster_to_pattern.items())}
-
-## Usage
-
-These vectors can be used for activation-based steering during inference to guide language models toward particular reasoning patterns.
-
-### Example Python Code
-
-```python
-import json
-import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer
-
-# Load model
-model = AutoModelForCausalLM.from_pretrained("{model_name}")
-tokenizer = AutoTokenizer.from_pretrained("{model_name}")
-
-# Load steering vectors
-vectors = []
-with open("steering_vectors.jsonl", "r") as f:
-    for line in f:
-        vectors.append(json.loads(line))
-
-# Define a hook to apply steering
-def steering_hook(module, input, output):
-    # Add steering vector to activation
-    # Implementation depends on your specific use case
-    return output
-
-# Register hook on layer {select_layer}
-model.transformer.h[{select_layer}].register_forward_hook(steering_hook)
-
-# Generate text with steering
-input_text = "Your prompt here"
-input_ids = tokenizer.encode(input_text, return_tensors="pt")
-output = model.generate(input_ids, max_length=100)
-result = tokenizer.decode(output[0])
-print(result)
-```
-
-See the ThinkDeeper documentation for more detailed examples of using steering vectors.
-                """
+                readme_content = generate_readme_content(
+                    file_type="steering",
+                    model_name=model_name,
+                    dataset_info=f"- **Layer:** {select_layer}\n- **Number of clusters:** {num_clusters}\n- **Minimum probability delta:** {min_prob_delta}"
+                )
                 
                 # Create temporary README file
                 readme_path = "README.md.tmp"
