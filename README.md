@@ -32,8 +32,15 @@ pts export --input-path="pivotal_tokens.jsonl" --format="dpo" --output-path="dpo
 pts export --input-path="pivotal_tokens.jsonl" --format="steering" --output-path="steering_vectors.jsonl" --model="Qwen/Qwen3-0.6B"
 
 # Push dataset to Hugging Face
-pts push --input-path="dpo_dataset.jsonl" --hf-repo="username/pts-dpo-dataset"
+pts push --input-path="dpo_dataset.jsonl" --hf-repo="codelion/pts-dpo-dataset"
 ```
+
+## Try Now
+
+| Use Case | Dataset | Link |
+|----------|----------|-------|
+| Fine-tuning the model | dpo dataset | [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/drive/1FggA9EQ1eFBjE0Qbsl0-EFzyWIxpdhlH?usp=sharing) |
+| Optimizing the inference | steering vectors | [optillm](https://github.com/codelion/optillm) |
 
 ## Core Concepts
 
