@@ -803,6 +803,22 @@ class TokenExporter:
                     repo_type="dataset"
                 )
                 
+                # Create and upload a .dataset_ignore file to exclude metadata from dataset loading
+                ignore_content = "steering_vectors_metadata.json\n"
+                ignore_file_path = ".dataset_ignore.tmp"
+                with open(ignore_file_path, 'w') as f:
+                    f.write(ignore_content)
+                    
+                upload_file(
+                    path_or_fileobj=ignore_file_path,
+                    path_in_repo=".dataset_ignore",
+                    repo_id=hf_repo_id,
+                    repo_type="dataset"
+                )
+                
+                # Remove temporary file
+                os.remove(ignore_file_path)
+                
                 logger.info(f"Pushed steering vectors to Hugging Face: {hf_repo_id}")
                 
                 # Create README
