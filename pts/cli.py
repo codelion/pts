@@ -232,8 +232,8 @@ def push_to_hf(args):
                 )
                 logger.info(f"Also pushed metadata file {metadata_file} to Hugging Face")
         
-        # Create README if it doesn't exist
-        if args.create_readme:
+        # Create README by default unless --no-readme flag is specified
+        if not args.no_readme:
             # Determine file type
             if filename.endswith("_vectors.jsonl") or "steering" in filename:
                 file_type = "steering"
@@ -268,6 +268,8 @@ def push_to_hf(args):
             os.remove(readme_path)
             
             logger.info(f"Created README for {args.hf_repo_id}")
+        else:
+            logger.info(f"Skipped README creation (--no-readme flag used)")
         
     except Exception as e:
         logger.error(f"Error pushing to Hugging Face: {e}")
@@ -337,7 +339,7 @@ def parse_args():
     push_parser.add_argument("--input-path", type=str, required=True, help="Input file path")
     push_parser.add_argument("--hf-repo-id", type=str, required=True, help="Hugging Face repository ID")
     push_parser.add_argument("--private", action="store_true", help="Make Hugging Face repository private")
-    push_parser.add_argument("--create-readme", action="store_true", help="Create a README file")
+    push_parser.add_argument("--no-readme", action="store_true", help="Skip creating a README file")
     push_parser.add_argument("--model", type=str, default=None, help="Model name for README")
     push_parser.add_argument("--log-level", type=str, default="INFO", choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"], help="Logging level")
     

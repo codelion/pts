@@ -26,12 +26,12 @@ pip install -e .
 pts run --model="Qwen/Qwen3-0.6B" --dataset="codelion/optillmbench" --output-path="pivotal_tokens.jsonl"
 
 # Convert pivotal tokens to DPO dataset
-pts export --input-path="pivotal_tokens.jsonl" --format="dpo" --output-path="dpo_dataset.jsonl" --model="MODEL_NAME" --find-rejected-tokens
+pts export --input-path="pivotal_tokens.jsonl" --format="dpo" --output-path="dpo_dataset.jsonl" --model="Qwen/Qwen3-0.6B" --find-rejected-tokens
 
 # Convert pivotal tokens to steering vectors
 pts export --input-path="pivotal_tokens.jsonl" --format="steering" --output-path="steering_vectors.jsonl" --model="Qwen/Qwen3-0.6B"
 
-# Push dataset to Hugging Face
+# Push dataset to Hugging Face (creates README by default)
 pts push --input-path="dpo_dataset.jsonl" --hf-repo="codelion/pts-dpo-dataset"
 ```
 
@@ -128,6 +128,8 @@ Options:
 - `--input-path`: Path to file to push
 - `--hf-repo`: Hugging Face repository name
 - `--private`: Make the repository private (default: False)
+- `--no-readme`: Skip creating a README file (a README is created by default)
+- `--model`: Model name to include in the README (optional)
 
 ## Examples
 
