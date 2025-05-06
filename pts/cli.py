@@ -231,23 +231,6 @@ def push_to_hf(args):
                     repo_type="dataset"
                 )
                 logger.info(f"Also pushed metadata file {metadata_file} to Hugging Face")
-                
-                # Create and upload a .dataset_ignore file to exclude metadata from dataset loading
-                ignore_content = f"{metadata_filename}\n"
-                ignore_file_path = ".dataset_ignore.tmp"
-                with open(ignore_file_path, 'w') as f:
-                    f.write(ignore_content)
-                    
-                upload_file(
-                    path_or_fileobj=ignore_file_path,
-                    path_in_repo=".dataset_ignore",
-                    repo_id=args.hf_repo_id,
-                    repo_type="dataset"
-                )
-                
-                # Remove temporary file
-                os.remove(ignore_file_path)
-                logger.info(f"Created .dataset_ignore file to exclude metadata from dataset loading")
         
         # Create README by default unless --no-readme flag is specified
         if not args.no_readme:
