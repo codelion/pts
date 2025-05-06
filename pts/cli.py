@@ -223,14 +223,27 @@ def push_to_hf(args):
         if filename.endswith('.jsonl') and ('steering' in filename):
             metadata_file = os.path.splitext(args.input_path)[0] + '_metadata.json'
             if os.path.exists(metadata_file):
+                # Make sure the metadata directory exists
+                try:
+                    # Create metadata directory if it doesn't exist
+                    upload_file(
+                        path_or_fileobj="",  # Empty file to create directory
+                        path_in_repo="metadata/.gitkeep",
+                        repo_id=args.hf_repo_id,
+                        repo_type="dataset"
+                    )
+                except:
+                    # Directory might already exist, continue
+                    pass
+                    
                 metadata_filename = os.path.basename(metadata_file)
                 upload_file(
                     path_or_fileobj=metadata_file,
-                    path_in_repo=metadata_filename,
+                    path_in_repo="metadata/" + metadata_filename,
                     repo_id=args.hf_repo_id,
                     repo_type="dataset"
                 )
-                logger.info(f"Also pushed metadata file {metadata_file} to Hugging Face")
+                logger.info(f"Also pushed metadata file {metadata_file} to Hugging Face in metadata/ directory")
         
         # Create README by default unless --no-readme flag is specified
         if not args.no_readme:

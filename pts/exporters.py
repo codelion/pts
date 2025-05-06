@@ -795,10 +795,10 @@ class TokenExporter:
                     repo_type="dataset"
                 )
                 
-                # Upload metadata file
+                # Upload metadata file to a separate metadata directory
                 upload_file(
                     path_or_fileobj=vectors_file,
-                    path_in_repo="steering_vectors_metadata.json",
+                    path_in_repo="metadata/steering_vectors_metadata.json",
                     repo_id=hf_repo_id,
                     repo_type="dataset"
                 )
