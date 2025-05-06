@@ -32,7 +32,7 @@ pts export --input-path="pivotal_tokens.jsonl" --format="dpo" --output-path="dpo
 pts export --input-path="pivotal_tokens.jsonl" --format="steering" --output-path="steering_vectors.jsonl" --model="Qwen/Qwen3-0.6B"
 
 # Push dataset to Hugging Face (creates README by default)
-pts push --input-path="dpo_dataset.jsonl" --hf-repo="codelion/pts-dpo-dataset"
+pts push --input-path="dpo_dataset.jsonl" --hf-repo="codelion/pts-dpo-dataset" --model="Qwen/Qwen3-0.6B"
 ```
 
 ## Try Now
