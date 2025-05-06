@@ -42,6 +42,8 @@ pts push --input-path="dpo_dataset.jsonl" --hf-repo="codelion/pts-dpo-dataset" -
 | Fine-tuning the model | dpo dataset | [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/drive/1FggA9EQ1eFBjE0Qbsl0-EFzyWIxpdhlH?usp=sharing) |
 | Optimizing the inference | steering vectors | [optillm](https://github.com/codelion/optillm) |
 
+You can also check out the [datasets](https://huggingface.co/datasets?other=pts) and [models](https://huggingface.co/models?other=pts) created with pts.
+
 ## Core Concepts
 
 ### Pivotal Tokens
