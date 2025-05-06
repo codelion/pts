@@ -632,8 +632,8 @@ This dataset can be used for fine-tuning language models with Direct Preference 
                 f.write(json.dumps(token) + '\n')
         
         # Save vectors data for analysis
-        vectors_file = os.path.splitext(output_path)[0] + '_vectors.json'
-        logger.info(f"Saving extracted vectors data to {vectors_file} for analysis")
+        vectors_file = os.path.splitext(output_path)[0] + '_metadata.json'
+        logger.info(f"Saving extracted vectors metadata to {vectors_file} for analysis")
         
         vectors_data = {
             "clusters": cluster_vectors,
@@ -666,9 +666,10 @@ This dataset can be used for fine-tuning language models with Direct Preference 
                     repo_type="dataset"
                 )
                 
+                # Upload metadata file
                 upload_file(
                     path_or_fileobj=vectors_file,
-                    path_in_repo="vectors_analysis.json",
+                    path_in_repo="steering_vectors_metadata.json",
                     repo_id=hf_repo_id,
                     repo_type="dataset"
                 )

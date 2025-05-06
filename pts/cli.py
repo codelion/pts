@@ -219,6 +219,19 @@ def push_to_hf(args):
         
         logger.info(f"Pushed {args.input_path} to Hugging Face: {args.hf_repo_id}")
         
+        # If this is a steering vectors file, also push the metadata file
+        if filename.endswith('.jsonl') and ('steering' in filename):
+            metadata_file = os.path.splitext(args.input_path)[0] + '_metadata.json'
+            if os.path.exists(metadata_file):
+                metadata_filename = os.path.basename(metadata_file)
+                upload_file(
+                    path_or_fileobj=metadata_file,
+                    path_in_repo=metadata_filename,
+                    repo_id=args.hf_repo_id,
+                    repo_type="dataset"
+                )
+                logger.info(f"Also pushed metadata file {metadata_file} to Hugging Face")
+        
         # Create README if it doesn't exist
         if args.create_readme:
             # Determine file type
