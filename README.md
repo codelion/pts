@@ -26,7 +26,7 @@ pip install -e .
 pts run --model="Qwen/Qwen3-0.6B" --dataset="codelion/optillmbench" --output-path="pivotal_tokens.jsonl"
 
 # Convert pivotal tokens to DPO dataset
-pts export --input-path="pivotal_tokens.jsonl" --format="dpo" --output-path="dpo_dataset.jsonl"
+pts export --input-path="pivotal_tokens.jsonl" --format="dpo" --output-path="dpo_dataset.jsonl" --model="MODEL_NAME" --find-rejected-tokens
 
 # Convert pivotal tokens to steering vectors
 pts export --input-path="pivotal_tokens.jsonl" --format="steering" --output-path="steering_vectors.jsonl" --model="Qwen/Qwen3-0.6B"
@@ -47,6 +47,8 @@ A pivotal token significantly changes the probability of success when it appears
 ### DPO Datasets
 
 PTS creates high-quality DPO datasets by isolating the specific token-level choices that lead to success or failure. This allows for more targeted and effective fine-tuning compared to using entire sequences.
+
+**Important:** When exporting to DPO format, you must provide a model using the `--model` parameter and enable the `--find-rejected-tokens` flag. This is necessary because DPO pairs require both a chosen token (the pivotal token that increases success probability) and a rejected token (an alternative token that decreases success probability).
 
 ### Steering Vectors
 
@@ -162,10 +164,13 @@ pts run --model="Qwen/Qwen3-0.6B" \
     --top-k=20 \
     --min-p=0.0
 
-# Then export to DPO format
+# Then export to DPO format - MUST provide a model and find-rejected-tokens flag
 pts export --input-path="optillm_pivotal_tokens.jsonl" \
     --format="dpo" \
-    --output-path="optillm_dpo_dataset.jsonl"
+    --output-path="optillm_dpo_dataset.jsonl" \
+    --model="Qwen/Qwen3-0.6B" \
+    --find-rejected-tokens \
+    --min-prob-delta=0.1
 ```
 
 ### Extracting Steering Vectors
