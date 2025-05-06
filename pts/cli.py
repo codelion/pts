@@ -236,64 +236,20 @@ def push_to_hf(args):
         if args.create_readme:
             # Determine file type
             if filename.endswith("_vectors.jsonl") or "steering" in filename:
-                readme_type = "steering"
+                file_type = "steering"
             elif "dpo" in filename:
-                readme_type = "dpo"
+                file_type = "dpo"
             else:
-                readme_type = "tokens"
+                file_type = "tokens"
                 
-            # Create appropriate README
-            if readme_type == "steering":
-                readme_content = f"""# PTS Steering Vectors Dataset
-
-A dataset of activation-based steering vectors created using the Pivotal Token Search (PTS) technique.
-
-## Details
-
-- **Source:** Generated using the [PTS](https://github.com/codelion/pts) tool
-- **Model:** {args.model or "Unknown"}
-
-## Usage
-
-These vectors can be used for activation-based steering during inference to guide language models toward particular reasoning patterns.
-                """
-            elif readme_type == "dpo":
-                readme_content = f"""# PTS DPO Dataset
-
-A Direct Preference Optimization (DPO) dataset created using the Pivotal Token Search (PTS) technique.
-
-## Details
-
-- **Source:** Generated using the [PTS](https://github.com/codelion/pts) tool
-- **Model:** {args.model or "Unknown"}
-
-## Format
-
-Each example in the dataset consists of:
-- `prompt`: The context leading up to the pivotal token
-- `chosen`: The preferred token that increases success probability
-- `rejected`: The alternative token that decreases success probability
-- `metadata`: Additional information about the example
-                """
-            else:
-                readme_content = f"""# PTS Pivotal Tokens Dataset
-
-A dataset of pivotal tokens discovered using the Pivotal Token Search (PTS) technique.
-
-## Details
-
-- **Source:** Generated using the [PTS](https://github.com/codelion/pts) tool
-- **Model:** {args.model or "Unknown"}
-
-## Format
-
-Each token in the dataset includes:
-- `query`: The original query that was processed
-- `pivot_context`: The context leading up to the pivotal token
-- `pivot_token`: The actual token that impacts success probability
-- `prob_delta`: The change in success probability caused by the token
-- Other metadata about the token
-                """
+            # Import the README generation function from exporters
+            from .exporters import generate_readme_content
+            
+            # Generate README content
+            readme_content = generate_readme_content(
+                file_type=file_type,
+                model_name=args.model
+            )
             
             # Create temporary README file
             readme_path = "README.md.tmp"
