@@ -281,7 +281,7 @@ def parse_args():
     run_parser.add_argument("--top-k", type=int, default=20, help="Top-k sampling parameter")
     run_parser.add_argument("--min-p", type=float, default=0.0, help="Min-p sampling parameter")
     run_parser.add_argument("--max-new-tokens", type=int, default=512, help="Maximum number of new tokens to generate")
-    run_parser.add_argument("--num-samples", type=int, default=10, help="Number of samples for probability estimation")
+    run_parser.add_argument("--num-samples", type=int, default=50, help="Number of samples for probability estimation")
     run_parser.add_argument("--batch-size", type=int, default=5, help="Batch size for generation")
     run_parser.add_argument("--sample-size", type=int, default=None, help="Number of examples to sample from dataset")
     run_parser.add_argument("--max-examples", type=int, default=100, help="Maximum number of examples to process")
