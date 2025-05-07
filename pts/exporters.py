@@ -113,6 +113,9 @@ Each example in the dataset consists of:
 
 This dataset can be used for fine-tuning language models with Direct Preference Optimization (DPO).
 
+For a quick start, you can use our Google Colab notebook to fine-tune a model using this DPO dataset:
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/drive/1FggA9EQ1eFBjE0Qbsl0-EFzyWIxpdhlH?usp=sharing)
+
 ```python
 from datasets import load_dataset
 
