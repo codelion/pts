@@ -49,11 +49,14 @@ A dataset of activation-based steering vectors created using the Pivotal Token S
 
 This dataset contains:
 - `steering_vectors.jsonl`: The main file with token-level steering vectors
-- `steering_vectors_metadata.json`: Metadata about clusters and reasoning patterns
 
 ## Usage
 
-These vectors can be used for activation-based steering during inference to guide language models toward particular reasoning patterns.
+These steering vectors can be used for activation-based steering during inference to guide language models toward particular reasoning patterns.
+
+### OptiLLM Integration
+
+You can use these steering vectors with the open-source [OptiLLM](https://github.com/codelion/optillm) library for optimizing inference via the `autothink` approach. OptiLLM provides a proxy server that can apply steering techniques to improve model performance.
 
 ### Example Python Code
 
