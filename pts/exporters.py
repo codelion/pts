@@ -49,11 +49,14 @@ A dataset of activation-based steering vectors created using the Pivotal Token S
 
 This dataset contains:
 - `steering_vectors.jsonl`: The main file with token-level steering vectors
-- `steering_vectors_metadata.json`: Metadata about clusters and reasoning patterns
 
 ## Usage
 
-These vectors can be used for activation-based steering during inference to guide language models toward particular reasoning patterns.
+These steering vectors can be used for activation-based steering during inference to guide language models toward particular reasoning patterns.
+
+### OptiLLM Integration
+
+You can use these steering vectors with the open-source [OptiLLM](https://github.com/codelion/optillm) library for optimizing inference via the `autothink` approach. OptiLLM provides a proxy server that can apply steering techniques to improve model performance.
 
 ### Example Python Code
 
@@ -109,6 +112,9 @@ Each example in the dataset consists of:
 ## Usage
 
 This dataset can be used for fine-tuning language models with Direct Preference Optimization (DPO).
+
+For a quick start, you can use our Google Colab notebook to fine-tune a model using this DPO dataset:
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/drive/1FggA9EQ1eFBjE0Qbsl0-EFzyWIxpdhlH?usp=sharing)
 
 ```python
 from datasets import load_dataset
@@ -760,19 +766,17 @@ class TokenExporter:
             for token in steering_tokens:
                 f.write(json.dumps(token) + '\n')
         
-        # Save vectors data for analysis
-        vectors_file = os.path.splitext(output_path)[0] + '_metadata.json'
-        logger.info(f"Saving extracted vectors metadata to {vectors_file} for analysis")
+        # Generate metadata summary for README
+        metadata_summary = f"- **Layer used:** {select_layer}\n"
+        metadata_summary += f"- **Number of clusters:** {num_clusters}\n"
+        metadata_summary += f"- **Number of vectors:** {len(steering_tokens)}\n"
+        metadata_summary += "- **Clusters:**\n"
         
-        vectors_data = {
-            "clusters": cluster_vectors,
-            "reasoning_patterns": {pattern: cluster_id for cluster_id, pattern in cluster_to_pattern.items()},
-            "layer": select_layer,
-            "model": model_name
-        }
-        
-        with open(vectors_file, 'w') as f:
-            json.dump(vectors_data, f)
+        # Add information about each cluster
+        for cluster_id, pattern_name in cluster_to_pattern.items():
+            cluster_size = len(cluster_vectors[cluster_id]["indices"])
+            positive_ratio = cluster_vectors[cluster_id]["positive_ratio"]
+            metadata_summary += f"  - Cluster {cluster_id}: {pattern_name} ({cluster_size} vectors, {positive_ratio:.2f} positive ratio)\n"
         
         # Push to Hugging Face if requested
         if hf_push and hf_repo_id:
@@ -795,21 +799,13 @@ class TokenExporter:
                     repo_type="dataset"
                 )
                 
-                # Upload metadata file
-                upload_file(
-                    path_or_fileobj=vectors_file,
-                    path_in_repo="steering_vectors_metadata.json",
-                    repo_id=hf_repo_id,
-                    repo_type="dataset"
-                )
-                
                 logger.info(f"Pushed steering vectors to Hugging Face: {hf_repo_id}")
                 
                 # Create README
                 readme_content = generate_readme_content(
                     file_type="steering",
                     model_name=model_name,
-                    dataset_info=f"- **Layer:** {select_layer}\n- **Number of clusters:** {num_clusters}\n- **Minimum probability delta:** {min_prob_delta}"
+                    dataset_info=metadata_summary
                 )
                 
                 # Create temporary README file
