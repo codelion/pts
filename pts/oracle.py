@@ -91,7 +91,9 @@ class MathOracle(Oracle):
         extract_answer_regex: str = r'(?:answer(?:\s+)?(?:is|:)?(?:\s+)?|=(?:\s+)?)(?P<answer>[^.,]+)',
         extract_boxed_regex: str = r'\\boxed{([^}]+)}',
         tolerance: float = 1e-6,
-        exact_match: bool = False
+        exact_match: bool = False,
+        dataset_format: Optional[str] = None,
+        debug_mode: bool = False
     ):
         """
         Initialize the math oracle.
@@ -108,17 +110,49 @@ class MathOracle(Oracle):
         self.extract_boxed_regex = extract_boxed_regex
         self.tolerance = tolerance
         self.exact_match = exact_match
+        self.dataset_format = dataset_format
+        self.debug_mode = debug_mode
         
     def add_answer(self, query: str, answer: Union[str, List[str]]):
         """Add or update an answer for a query."""
         self.answers[query] = answer
+        
+    def extract_gsm8k_answer(self, response: str) -> Optional[str]:
+        """
+        Extract the answer from a GSM8k-formatted response (after ####).
+        
+        Args:
+            response: The model's response
+            
+        Returns:
+            Extracted numerical answer or None if not found
+        """
+        import re
+        # Look for numbers after ####
+        match = re.search(r'####\s*(-?[\d,]+(?:\.\d+)?)', response)
+        if match:
+            # Remove commas and return
+            return match.group(1).replace(',', '')
+        return None
     
     def extract_answer(self, response: str) -> Optional[str]:
         """Extract the answer from a response using regular expressions."""
-        # First check for boxed answers (common in LaTeX math)
+        # Handle different dataset formats
+        if self.dataset_format == 'gsm8k':
+            # Try to extract answer after #### pattern first
+            gsm8k_answer = self.extract_gsm8k_answer(response)
+            if gsm8k_answer:
+                return gsm8k_answer
+                
+        # Check for boxed answers (common in LaTeX math)
         boxed_match = re.search(self.extract_boxed_regex, response, re.IGNORECASE)
         if boxed_match:
             return boxed_match.group(1).strip()
+        
+        # Check for GSM8k pattern (even if not specifically set as format)
+        gsm8k_answer = self.extract_gsm8k_answer(response)
+        if gsm8k_answer:
+            return gsm8k_answer
             
         # Then check for answers with standard patterns
         answer_match = re.search(self.extract_answer_regex, response, re.IGNORECASE)
@@ -242,11 +276,18 @@ class MathOracle(Oracle):
         extracted = self.extract_answer(final_response)
         
         if extracted is None:
-            logger.debug(f"Could not extract answer from response: {final_response}")
-            return False
+            logger.debug(f"Could not extract answer from final response: {final_response}")
+            # Try extracting from the full response as a fallback
+            # This handles cases where the answer might be before the </think> tag
+            extracted = self.extract_answer(response)
+            if extracted is None:
+                if self.debug_mode:
+                    logger.debug(f"Could not extract answer from full response: {response}")
+                return False
             
         result = self.compare_answers(extracted, expected)
-        logger.debug(f"Query: {query}\nExtracted: {extracted}\nExpected: {expected}\nResult: {result}")
+        if self.debug_mode:
+            logger.debug(f"Query: {query}\nExtracted: {extracted}\nExpected: {expected}\nResult: {result}")
         return result
 
 
@@ -566,12 +607,13 @@ class OptiBenchOracle(Oracle):
         else:
             return f"Question: {question}"
         
-    def extract_gsm8k_answer(self, text: str) -> Optional[float]:
+    def extract_gsm8k_answer(self, text: str) -> Optional[str]:
         """Extract numerical answer after ### from GSM8K responses."""
-        match = re.search(r'###\s*(-?\d*\.?\d+)', text)
+        match = re.search(r'####\s*(-?[\d,]+(?:\.\d+)?)', text)
         if match:
             try:
-                return float(match.group(1))
+                # Remove commas and return as string
+                return match.group(1).replace(',', '')
             except ValueError:
                 return None
         return None
@@ -603,7 +645,11 @@ class OptiBenchOracle(Oracle):
                 return response_clean == ground_truth_clean
                 
             # Compare with small tolerance for floating point
-            return abs(response_num - ground_truth_num) < 1e-6
+            try:
+                return abs(float(response_num) - float(ground_truth_num)) < 1e-6
+            except ValueError:
+                # If conversion fails, fall back to string comparison
+                return response_num == ground_truth_num
         else:
             # For other categories, exact match is required
             # Clean up both strings for comparison
@@ -622,11 +668,20 @@ class OptiBenchOracle(Oracle):
         Returns:
             Boolean indicating success
         """
+        # Extract the final response (after thinking tags if present)
+        final_response = self.extract_final_response(response)
+        
         # Find the category for this query
         for category, examples in self.examples_with_categories.items():
             if query in examples:
                 ground_truth = examples[query]
-                result = self.evaluate_response(response, ground_truth, category)
+                
+                # First try with the final response
+                result = self.evaluate_response(final_response, ground_truth, category)
+                
+                # If that fails, try the full response (in case the answer is in the thinking part)
+                if not result:
+                    result = self.evaluate_response(response, ground_truth, category)
                 
                 if self.debug_mode:
                     prompt = self.get_prompt_for_category(query, category)
