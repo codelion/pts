@@ -2,6 +2,13 @@
 
 A tool for discovering pivotal tokens in large language model generations and creating DPO datasets and steering vectors from them.
 
+## Features
+
+- Identifies pivotal tokens in language model generations
+- Supports various dataset formats including GSM8k, MATH, and custom datasets
+- Handles chain-of-thought reasoning output with `<think></think>` tags
+- Extracts answers from common formats like GSM8k's #### pattern and LaTeX's \boxed{} notation
+
 ## What is Pivotal Token Search?
 
 Pivotal Token Search (PTS) is a technique described in the [Phi-4 Technical Report](https://arxiv.org/abs/2412.08905) that identifies tokens in a language model's generation that significantly impact the probability of success for the task at hand. These "pivotal tokens" are decision points where the model's choice can dramatically alter the course of the solution.
