@@ -5,6 +5,7 @@ This module provides functionality for loading and managing datasets for PTS.
 """
 
 import logging
+import re
 from typing import Dict, List, Any, Optional, Union, Tuple, Callable
 from datasets import load_dataset as hf_load_dataset
 import random
@@ -130,6 +131,7 @@ def create_oracle_from_dataset(
     
     Args:
         examples: List of dataset examples
+        debug_mode: Whether to enable debug mode
         
     Returns:
         Oracle instance for the dataset
@@ -137,12 +139,22 @@ def create_oracle_from_dataset(
     try:
         # Check if it's optillmbench by looking at metadata
         is_optillmbench = False
+        is_gsm8k = False
         has_categories = False
         
-        if examples and examples[0]["dataset_id"] == "codelion/optillmbench":
-            is_optillmbench = True
-            if examples[0]["metadata"] and "category" in examples[0]["metadata"]:
-                has_categories = True
+        # Determine dataset type
+        if examples and "dataset_id" in examples[0]:
+            dataset_id = examples[0]["dataset_id"]
+            
+            # Check for optillmbench
+            if dataset_id == "codelion/optillmbench":
+                is_optillmbench = True
+                if examples[0]["metadata"] and "category" in examples[0]["metadata"]:
+                    has_categories = True
+            
+            # Check for GSM8k
+            elif "gsm8k" in dataset_id.lower():
+                is_gsm8k = True
         
         # Use the specialized OptiBenchOracle for optillmbench dataset
         if is_optillmbench and has_categories:
@@ -161,6 +173,26 @@ def create_oracle_from_dataset(
                     examples_with_categories[category][example["query"]] = example["answer"]
             
             return OptiBenchOracle(examples_with_categories=examples_with_categories, debug_mode=debug_mode)
+            
+        # Special case for GSM8k - use MathOracle with GSM8k format
+        elif is_gsm8k:
+            from .oracle import MathOracle
+            
+            # Create answer dictionary
+            answers = {}
+            for example in examples:
+                if example.get("query") and example.get("answer"):
+                    # Extract the numerical answer from GSM8k answer
+                    if isinstance(example["answer"], str):
+                        gsm8k_match = re.search(r'####\s*(-?[\d,]+(?:\.\d+)?)', example["answer"])
+                        if gsm8k_match:
+                            answers[example["query"]] = gsm8k_match.group(1).replace(',', '')
+                        else:
+                            answers[example["query"]] = example["answer"]
+                    else:
+                        answers[example["query"]] = example["answer"]
+            
+            return MathOracle(answers=answers, dataset_format="gsm8k", debug_mode=debug_mode)
             
         else:
             # Default to QAOracle for other datasets
