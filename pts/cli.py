@@ -46,6 +46,7 @@ def run_pts(args):
     examples = load_dataset(
         dataset_name=args.dataset,
         split=args.split,
+        config=args.config,
         sample_size=args.sample_size,
         seed=args.seed,
         query_key=args.query_key,
@@ -272,6 +273,7 @@ def parse_args():
     run_parser = subparsers.add_parser("run", help="Run PTS on a dataset")
     run_parser.add_argument("--model", type=str, required=True, help="Model name or path")
     run_parser.add_argument("--dataset", type=str, default="codelion/optillmbench", help="Dataset name or path")
+    run_parser.add_argument("--config", type=str, default=None, help="Dataset configuration name (if applicable)")
     run_parser.add_argument("--split", type=str, default="train", help="Dataset split to use")
     run_parser.add_argument("--output-path", type=str, default="pivotal_tokens.jsonl", help="Output file path")
     run_parser.add_argument("--device", type=str, default=None, help="Device to run on (cuda, cpu)")
