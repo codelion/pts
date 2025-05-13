@@ -93,6 +93,7 @@ pts run --model="MODEL_NAME" --dataset="DATASET_NAME" [options]
 Options:
 - `--model`: Model to use for generation
 - `--dataset`: Dataset to search (default: "codelion/optillmbench")
+- `--config`: Dataset configuration name (if applicable, e.g., "main" for openai/gsm8k)
 - `--output-path`: Path to save pivotal tokens (default: "pivotal_tokens.jsonl")
 - `--query-key`: Key for question/instruction field in dataset (auto-detected if not specified)
 - `--answer-key`: Key for answer/output field in dataset (auto-detected if not specified)
@@ -161,6 +162,19 @@ pts run --model="Qwen/Qwen3-0.6B" \
     --top-p=0.95 \
     --top-k=20 \
     --min-p=0.0
+```
+
+### Working with a Dataset Requiring Configuration
+
+```bash
+pts run --model="Qwen/Qwen3-0.6B" \
+    --dataset="openai/gsm8k" \
+    --config="main" \
+    --split="train" \
+    --output-path="gsm8k_pivotal_tokens.jsonl" \
+    --prob-threshold=0.2 \
+    --temperature=0.6 \
+    --max-examples=10
 ```
 
 ### Creating a DPO Dataset

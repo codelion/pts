@@ -15,6 +15,7 @@ logger = logging.getLogger(__name__)
 def load_dataset(
     dataset_name: str = "codelion/optillmbench",
     split: str = "train",
+    config: Optional[str] = None,
     sample_size: Optional[int] = None,
     filter_fn: Optional[Callable[[Dict[str, Any]], bool]] = None,
     seed: int = 42,
@@ -36,11 +37,17 @@ def load_dataset(
     Returns:
         List of dataset examples
     """
-    logger.info(f"Loading dataset {dataset_name} (split: {split})")
+    if config:
+        logger.info(f"Loading dataset {dataset_name} (config: {config}, split: {split})")
+    else:
+        logger.info(f"Loading dataset {dataset_name} (split: {split})")
     
     try:
-        # Load the dataset
-        dataset = hf_load_dataset(dataset_name, split=split)
+        # Load the dataset with configuration if provided
+        if config:
+            dataset = hf_load_dataset(dataset_name, config, split=split)
+        else:
+            dataset = hf_load_dataset(dataset_name, split=split)
         logger.info(f"Loaded {len(dataset)} examples")
         
         # Convert to list of dictionaries
