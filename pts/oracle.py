@@ -37,24 +37,6 @@ class Oracle:
             return think_match.group(1).strip()
         # If no thinking tags, return the original response
         return response
-        
-    def extract_gsm8k_answer(self, response: str) -> Optional[str]:
-        """
-        Extract the answer from a GSM8k-formatted response (after ####).
-        
-        Args:
-            response: The model's response
-            
-        Returns:
-            Extracted numerical answer or None if not found
-        """
-        import re
-        # Look for numbers after ####
-        match = re.search(r'####\s*(-?[\d,]+(?:\.\d+)?)', response)
-        if match:
-            # Remove commas and return
-            return match.group(1).replace(',', '')
-        return None
     
     def check_success(self, query: str, response: str) -> bool:
         """
@@ -110,7 +92,8 @@ class MathOracle(Oracle):
         extract_boxed_regex: str = r'\\boxed{([^}]+)}',
         tolerance: float = 1e-6,
         exact_match: bool = False,
-        dataset_format: Optional[str] = None
+        dataset_format: Optional[str] = None,
+        debug_mode: bool = False
     ):
         """
         Initialize the math oracle.
@@ -121,7 +104,6 @@ class MathOracle(Oracle):
             extract_boxed_regex: Regex pattern to extract LaTeX boxed answers
             tolerance: Floating point comparison tolerance
             exact_match: Whether to require exact string matches for non-numeric answers
-            dataset_format: Format of the dataset (e.g., 'gsm8k', 'math')
         """
         self.answers = answers or {}
         self.extract_answer_regex = extract_answer_regex
@@ -129,10 +111,29 @@ class MathOracle(Oracle):
         self.tolerance = tolerance
         self.exact_match = exact_match
         self.dataset_format = dataset_format
+        self.debug_mode = debug_mode
         
     def add_answer(self, query: str, answer: Union[str, List[str]]):
         """Add or update an answer for a query."""
         self.answers[query] = answer
+        
+    def extract_gsm8k_answer(self, response: str) -> Optional[str]:
+        """
+        Extract the answer from a GSM8k-formatted response (after ####).
+        
+        Args:
+            response: The model's response
+            
+        Returns:
+            Extracted numerical answer or None if not found
+        """
+        import re
+        # Look for numbers after ####
+        match = re.search(r'####\s*(-?[\d,]+(?:\.\d+)?)', response)
+        if match:
+            # Remove commas and return
+            return match.group(1).replace(',', '')
+        return None
     
     def extract_answer(self, response: str) -> Optional[str]:
         """Extract the answer from a response using regular expressions."""
@@ -275,15 +276,18 @@ class MathOracle(Oracle):
         extracted = self.extract_answer(final_response)
         
         if extracted is None:
-            logger.debug(f"Could not extract answer from response: {final_response}")
+            logger.debug(f"Could not extract answer from final response: {final_response}")
             # Try extracting from the full response as a fallback
             # This handles cases where the answer might be before the </think> tag
             extracted = self.extract_answer(response)
             if extracted is None:
+                if self.debug_mode:
+                    logger.debug(f"Could not extract answer from full response: {response}")
                 return False
             
         result = self.compare_answers(extracted, expected)
-        logger.debug(f"Query: {query}\nExtracted: {extracted}\nExpected: {expected}\nResult: {result}")
+        if self.debug_mode:
+            logger.debug(f"Query: {query}\nExtracted: {extracted}\nExpected: {expected}\nResult: {result}")
         return result
 
 
@@ -417,12 +421,8 @@ class CodeOracle(Oracle):
         # Extract code from the response
         code = self.extract_code(final_response)
         if not code:
-            logger.debug("Could not extract code from final response, trying full response")
-            # Try to extract from the full response as a fallback
-            code = self.extract_code(response)
-            if not code:
-                logger.debug("Could not extract code from response")
-                return False
+            logger.debug("Could not extract code from response")
+            return False
             
         # Run all test cases
         for test_case in self.test_cases[query]:
@@ -537,10 +537,6 @@ class QAOracle(Oracle):
         expected = self.answers[query]
         extracted = self.extract_answer(final_response)
         
-        # If we couldn't extract an answer, try the full response
-        if not extracted:
-            extracted = self.extract_answer(response)
-        
         if self.debug_mode:
             print(f"\nDEBUG [QAOracle]:\nQuery: {query}\nExtracted answer: {extracted}\nExpected answer: {expected}")
         
@@ -649,7 +645,11 @@ class OptiBenchOracle(Oracle):
                 return response_clean == ground_truth_clean
                 
             # Compare with small tolerance for floating point
-            return abs(float(response_num) - float(ground_truth_num)) < 1e-6
+            try:
+                return abs(float(response_num) - float(ground_truth_num)) < 1e-6
+            except ValueError:
+                # If conversion fails, fall back to string comparison
+                return response_num == ground_truth_num
         else:
             # For other categories, exact match is required
             # Clean up both strings for comparison
