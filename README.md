@@ -50,6 +50,7 @@ pts push --input-path="dpo_dataset.jsonl" --hf-repo="codelion/pts-dpo-dataset" -
 | Optimizing the inference | steering vectors | [optillm](https://github.com/codelion/optillm) |
 
 You can also check out the [datasets](https://huggingface.co/datasets?other=pts) and [models](https://huggingface.co/models?other=pts) created with pts.
+It was used for the `autothink` approach in [optillm](https://github.com/codelion/optillm) as described in this [paper](https://papers.ssrn.com/sol3/papers.cfm?abstract_id=5253327).
 
 ## Core Concepts
 
