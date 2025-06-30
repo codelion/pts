@@ -32,11 +32,17 @@ pip install -e .
 # Find pivotal tokens in a dataset and save to file
 pts run --model="Qwen/Qwen3-0.6B" --dataset="codelion/optillmbench" --output-path="pivotal_tokens.jsonl"
 
+# Generate thought anchors dataset for reasoning analysis
+pts run --model="Qwen/Qwen3-0.6B" --dataset="codelion/optillmbench" --output-path="thought_anchors.jsonl" --generate-thought-anchors
+
 # Convert pivotal tokens to DPO dataset
 pts export --input-path="pivotal_tokens.jsonl" --format="dpo" --output-path="dpo_dataset.jsonl" --model="Qwen/Qwen3-0.6B" --find-rejected-tokens
 
 # Convert pivotal tokens to steering vectors
 pts export --input-path="pivotal_tokens.jsonl" --format="steering" --output-path="steering_vectors.jsonl" --model="Qwen/Qwen3-0.6B"
+
+# Export thought anchors for inference systems
+pts export --input-path="thought_anchors.jsonl" --format="thought_anchors" --output-path="thought_anchors_export.jsonl"
 
 # Push dataset to Hugging Face (creates README by default)
 pts push --input-path="dpo_dataset.jsonl" --hf-repo="codelion/pts-dpo-dataset" --model="Qwen/Qwen3-0.6B"
@@ -71,6 +77,21 @@ PTS creates high-quality DPO datasets by isolating the specific token-level choi
 
 The activation patterns associated with pivotal tokens can be used to guide models during generation, encouraging them to follow successful reasoning paths.
 
+### Thought Anchors
+
+Thought anchors are critical reasoning steps that have outsized importance in guiding the subsequent reasoning process. Based on the [Thought Anchors paper](https://arxiv.org/abs/2506.19143), this technique identifies sentences in reasoning traces that significantly impact success probability. 
+
+Key features:
+1. **Sentence-level analysis**: Instead of tokens, analyzes complete sentences in reasoning traces
+2. **Counterfactual importance**: Measures how sentence changes affect final success probability
+3. **Reasoning pattern classification**: Categorizes sentences (planning, backtracking, verification, etc.)
+4. **Alternative testing**: Generates semantically different sentences to measure impact
+
+Thought anchors are typically:
+- **Planning sentences**: "I'll solve this by applying the area formula"
+- **Backtracking sentences**: "Wait, I made a mistake earlier. Let me reconsider..."
+- **Verification sentences**: "Let me verify: π×r² = π×5² = 25π. Correct."
+
 ## Dataset Field Customization
 
 Different datasets use different field names for questions and answers. PTS automatically detects appropriate field names for common datasets, but you can also specify them manually:
@@ -92,7 +113,7 @@ If not specified, PTS will attempt to automatically detect the appropriate field
 
 ### `pts run`
 
-Find pivotal tokens in a dataset:
+Find pivotal tokens or thought anchors in a dataset:
 
 ```bash
 pts run --model="MODEL_NAME" --dataset="DATASET_NAME" [options]
@@ -112,10 +133,11 @@ Options:
 - `--min-p`: Min-p sampling parameter (default: 0.0)
 - `--num-samples`: Number of samples for probability estimation (default: 10)
 - `--max-pairs`: Maximum number of pairs to generate (default: 1000)
+- `--generate-thought-anchors`: Generate thought anchors dataset instead of pivotal tokens
 
 ### `pts export`
 
-Export pivotal tokens to different formats:
+Export pivotal tokens or thought anchors to different formats:
 
 ```bash
 pts export --input-path="TOKENS_PATH" --format="FORMAT" [options]
@@ -123,7 +145,7 @@ pts export --input-path="TOKENS_PATH" --format="FORMAT" [options]
 
 Options:
 - `--input-path`: Path to pivotal tokens file
-- `--format`: Export format ("dpo" or "steering")
+- `--format`: Export format ("dpo", "steering", or "thought_anchors")
 - `--output-path`: Path to save exported data
 - `--model`: Model to use for extracting steering vectors (required for "steering" format)
 
@@ -214,6 +236,29 @@ pts export --input-path="pivotal_tokens.jsonl" \
     --output-path="steering_vectors.jsonl" \
     --model="Qwen/Qwen3-0.6B" \
     --layer-nums=19,23,27
+```
+
+### Generating Thought Anchors
+
+```bash
+# Generate thought anchors dataset
+pts run --model="Qwen/Qwen3-0.6B" \
+    --dataset="codelion/optillmbench" \
+    --output-path="thought_anchors.jsonl" \
+    --generate-thought-anchors \
+    --prob-threshold=0.2 \
+    --temperature=0.6 \
+    --num-samples=20
+
+# Export thought anchors for inference systems
+pts export --input-path="thought_anchors.jsonl" \
+    --format="thought_anchors" \
+    --output-path="thought_anchors_export.jsonl"
+
+# Push to Hugging Face
+pts push --input-path="thought_anchors_export.jsonl" \
+    --hf-repo="username/thought-anchors-dataset" \
+    --model="Qwen/Qwen3-0.6B"
 ```
 
 ## Citation
