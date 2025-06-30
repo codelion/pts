@@ -490,7 +490,13 @@ class ThoughtAnchorSearcher:
         # Tokenize prompt
         tokenized = self.tokenizer(prompt, return_tensors="pt", padding=True)
         input_ids = tokenized.input_ids.to(self.device)
-        attention_mask = tokenized.attention_mask.to(self.device) if "attention_mask" in tokenized else None
+        
+        # Ensure attention mask is properly set
+        if "attention_mask" in tokenized:
+            attention_mask = tokenized.attention_mask.to(self.device)
+        else:
+            # Create attention mask manually if not provided
+            attention_mask = torch.ones_like(input_ids, device=self.device)
         
         # Generate completions in batches
         success_count = 0
@@ -590,9 +596,16 @@ class ThoughtAnchorSearcher:
                 tokenized = self.tokenizer(prompt_to_use, return_tensors="pt", padding=True)
                 input_ids = tokenized.input_ids.to(self.device)
                 
+                # Ensure attention mask is properly set
+                if "attention_mask" in tokenized:
+                    attention_mask = tokenized.attention_mask.to(self.device)
+                else:
+                    attention_mask = torch.ones_like(input_ids, device=self.device)
+                
                 with torch.no_grad():
                     outputs = self.model.generate(
                         input_ids,
+                        attention_mask=attention_mask,
                         do_sample=True,
                         max_new_tokens=50,  # Shorter for single sentence
                         temperature=self.temperature * 1.2,  # Slightly higher temperature for diversity
