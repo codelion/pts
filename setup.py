@@ -17,6 +17,7 @@ setup(
         "tqdm>=4.65.0",
         "huggingface_hub>=0.16.0",
         "accelerate",
+        "sentence-transformers>=2.2.0",
     ],
     entry_points={
         "console_scripts": [

@@ -26,25 +26,25 @@ logger = logging.getLogger(__name__)
 class ThoughtAnchor:
     """Represents a thought anchor - a sentence that significantly impacts success probability."""
     
-    # Core fields
+    # Core fields (required)
     query: str
     sentence: str  # The full sentence text
     sentence_id: int  # Position in the reasoning trace
     prefix_context: str  # All sentences before this one
     
-    # Probability metrics
+    # Probability metrics (required)
     prob_with_sentence: float  # Success probability with this sentence
     prob_without_sentence: float  # Success probability when sentence is resampled with different meaning
     prob_delta: float  # Change in success probability (with - without)
     
-    # Sentence analysis
+    # Metadata (required)
+    model_id: str
+    task_type: str
+    
+    # Optional fields with defaults
     sentence_category: Optional[str] = None  # e.g., "plan_generation", "uncertainty_management"
     alternatives_tested: List[str] = field(default_factory=list)  # Alternative sentences tested
     dependency_sentences: List[int] = field(default_factory=list)  # Other sentence IDs this depends on
-    
-    # Metadata
-    model_id: str
-    task_type: str
     dataset_id: Optional[str] = None
     dataset_item_id: Optional[str] = None
     timestamp: str = field(default_factory=lambda: time.strftime("%Y-%m-%dT%H:%M:%S"))
