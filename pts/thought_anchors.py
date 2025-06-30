@@ -121,32 +121,45 @@ class SentenceSegmenter:
         # Remove thinking tags if present
         text = self._extract_final_response(text)
         
-        # Basic sentence splitting on punctuation
-        sentences = re.split(r'[.!?]+', text)
+        # Enhanced sentence splitting for math problems
+        # Split on periods, exclamation, question marks, and newlines
+        # Also split on common math conclusion patterns
+        sentences = re.split(r'[.!?]+|\n+|(?:Therefore)|(?:Thus)|(?:So,)|(?:Hence)', text)
         
-        # Clean and filter sentences
+        # Also split on equation lines that start a new thought
+        additional_splits = []
+        for sentence in sentences:
+            # Split on lines that start with "=" or contain standalone equations
+            parts = re.split(r'\n(?=[=])|(?<=[0-9])\s*\n(?=[0-9])', sentence)
+            additional_splits.extend(parts)
+        sentences = additional_splits
+        
+        # Clean and filter sentences with more lenient criteria for math
         cleaned_sentences = []
         for sentence in sentences:
             sentence = sentence.strip()
             
-            # Skip very short sentences
-            if len(sentence) < 10:
-                continue
-                
-            # Skip sentences that are just numbers or single words
-            if len(sentence.split()) < 3:
+            # Skip empty sentences
+            if not sentence:
                 continue
                 
             # Skip purely formatting sentences
             if re.match(r'^[=\-#*]+$', sentence.strip()):
                 continue
                 
-            cleaned_sentences.append(sentence)
+            # For math problems, keep shorter sentences that contain numbers or operations
+            if re.search(r'\d|[+\-*/=]|\\boxed|answer|result', sentence, re.IGNORECASE):
+                # Keep math-related sentences even if short
+                if len(sentence) >= 5:  # Very minimal length requirement
+                    cleaned_sentences.append(sentence)
+            elif len(sentence) >= 15 and len(sentence.split()) >= 3:
+                # For non-math sentences, use original criteria
+                cleaned_sentences.append(sentence)
         
-        # Merge sentences that seem incomplete
-        merged_sentences = self._merge_incomplete_sentences(cleaned_sentences)
+        # Don't merge sentences for math problems to preserve step structure
+        # merged_sentences = self._merge_incomplete_sentences(cleaned_sentences)
         
-        return merged_sentences
+        return cleaned_sentences
     
     def _extract_final_response(self, response: str) -> str:
         """Extract the final response after thinking tags if present."""
