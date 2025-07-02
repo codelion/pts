@@ -41,7 +41,25 @@ class ThoughtAnchor:
     model_id: str
     task_type: str
     
-    # Optional fields with defaults
+    # Enhanced contextual fields
+    suffix_context: str = ""  # What comes after this sentence
+    full_reasoning_trace: str = ""  # Complete reasoning trace for context
+    
+    # Semantic representations
+    sentence_embedding: List[float] = field(default_factory=list)  # Vector representation of sentence
+    alternatives_embeddings: List[List[float]] = field(default_factory=list)  # Embeddings of alternatives
+    
+    # Enhanced dependency modeling
+    causal_dependencies: List[int] = field(default_factory=list)  # Which sentences this logically depends on
+    causal_dependents: List[int] = field(default_factory=list)   # Which sentences depend on this
+    logical_relationship: Optional[str] = None  # "premise", "conclusion", "elaboration", "contradiction"
+    
+    # Failure analysis
+    failure_mode: Optional[str] = None  # "logical_error", "computational_mistake", "missing_step", "hallucination"
+    error_type: Optional[str] = None    # More specific error classification
+    correction_suggestion: Optional[str] = None  # How to fix if negative
+    
+    # Optional fields with defaults (existing)
     sentence_category: Optional[str] = None  # e.g., "plan_generation", "uncertainty_management"
     alternatives_tested: List[str] = field(default_factory=list)  # Alternative sentences tested
     dependency_sentences: List[int] = field(default_factory=list)  # Other sentence IDs this depends on
@@ -60,6 +78,7 @@ class ThoughtAnchor:
     def to_dict(self) -> Dict[str, Any]:
         """Convert the thought anchor to a dictionary for storage."""
         return {
+            # Core fields
             "model_id": self.model_id,
             "query": self.query,
             "sentence": self.sentence,
@@ -68,12 +87,34 @@ class ThoughtAnchor:
             "prob_with_sentence": self.prob_with_sentence,
             "prob_without_sentence": self.prob_without_sentence,
             "prob_delta": self.prob_delta,
+            "task_type": self.task_type,
+            
+            # Enhanced contextual fields
+            "suffix_context": self.suffix_context,
+            "full_reasoning_trace": self.full_reasoning_trace,
+            
+            # Semantic representations
+            "sentence_embedding": self.sentence_embedding,
+            "alternatives_embeddings": self.alternatives_embeddings,
+            
+            # Enhanced dependency modeling
+            "causal_dependencies": self.causal_dependencies,
+            "causal_dependents": self.causal_dependents,
+            "logical_relationship": self.logical_relationship,
+            
+            # Failure analysis
+            "failure_mode": self.failure_mode,
+            "error_type": self.error_type,
+            "correction_suggestion": self.correction_suggestion,
+            
+            # Computed fields
             "importance_score": self.importance_score(),
             "is_positive": self.is_positive(),
+            
+            # Legacy/existing fields
             "sentence_category": self.sentence_category,
             "alternatives_tested": self.alternatives_tested,
             "dependency_sentences": self.dependency_sentences,
-            "task_type": self.task_type,
             "dataset_id": self.dataset_id,
             "dataset_item_id": self.dataset_item_id,
             "timestamp": self.timestamp
@@ -408,6 +449,125 @@ class ThoughtAnchorSearcher:
         # Cache for memoizing probability estimates
         self.prob_cache = {}
     
+    def _analyze_dependencies(self, sentence: str, sentence_id: int, all_sentences: List[str]) -> Tuple[List[int], List[int], Optional[str]]:
+        """
+        Analyze causal dependencies and logical relationships for a sentence.
+        
+        Args:
+            sentence: The sentence to analyze
+            sentence_id: Position of sentence in reasoning trace
+            all_sentences: All sentences in the reasoning trace
+            
+        Returns:
+            Tuple of (causal_dependencies, causal_dependents, logical_relationship)
+        """
+        causal_deps = []
+        causal_dependents = []
+        logical_relationship = None
+        
+        # Keywords that indicate logical relationships
+        premise_indicators = ["because", "since", "given that", "if", "suppose", "assume"]
+        conclusion_indicators = ["therefore", "thus", "hence", "so", "consequently"]
+        elaboration_indicators = ["specifically", "for example", "in other words", "that is"]
+        contradiction_indicators = ["but", "however", "although", "despite", "on the other hand"]
+        
+        sentence_lower = sentence.lower()
+        
+        # Identify logical relationship type
+        if any(ind in sentence_lower for ind in conclusion_indicators):
+            logical_relationship = "conclusion"
+        elif any(ind in sentence_lower for ind in premise_indicators):
+            logical_relationship = "premise"
+        elif any(ind in sentence_lower for ind in elaboration_indicators):
+            logical_relationship = "elaboration"
+        elif any(ind in sentence_lower for ind in contradiction_indicators):
+            logical_relationship = "contradiction"
+        
+        # Find causal dependencies (sentences this one depends on)
+        for i in range(sentence_id):
+            prev_sentence = all_sentences[i].lower()
+            # Check for mathematical dependencies (references to previous calculations)
+            if any(word in sentence_lower for word in ["result", "answer", "total", "sum", "product", "this", "that"]):
+                # Check if previous sentence contains numbers or calculations
+                if re.search(r'\d+|=|\+|\-|\*|/', prev_sentence):
+                    causal_deps.append(i)
+            
+            # Check for logical dependencies (explicit references)
+            if any(ref in sentence_lower for ref in ["above", "previously", "earlier", "before"]):
+                causal_deps.append(i)
+        
+        # Find causal dependents (sentences that depend on this one)
+        for i in range(sentence_id + 1, len(all_sentences)):
+            next_sentence = all_sentences[i].lower()
+            # Check if later sentences reference this one
+            if any(word in next_sentence for word in ["result", "answer", "total", "this", "that"]):
+                # Check if current sentence contains numbers or calculations
+                if re.search(r'\d+|=|\+|\-|\*|/', sentence_lower):
+                    causal_dependents.append(i)
+        
+        return causal_deps, causal_dependents, logical_relationship
+    
+    def _analyze_failure_mode(self, sentence: str, prob_delta: float, alternatives: List[str]) -> Tuple[Optional[str], Optional[str], Optional[str]]:
+        """
+        Analyze failure mode for negative impact sentences.
+        
+        Args:
+            sentence: The sentence to analyze
+            prob_delta: Impact on success probability
+            alternatives: Alternative sentences that were tested
+            
+        Returns:
+            Tuple of (failure_mode, error_type, correction_suggestion)
+        """
+        if prob_delta >= 0:
+            return None, None, None
+        
+        sentence_lower = sentence.lower()
+        failure_mode = None
+        error_type = None
+        correction_suggestion = None
+        
+        # Identify failure modes based on content patterns
+        if re.search(r'\b\d+\s*[+\-*/]\s*\d+\s*=\s*\d+', sentence):
+            # Contains mathematical calculation - check if correct
+            failure_mode = "computational_mistake"
+            error_type = "arithmetic_error"
+            correction_suggestion = "Verify mathematical calculations step by step"
+        
+        elif any(word in sentence_lower for word in ["but", "however", "although", "wrong", "incorrect", "mistake"]):
+            failure_mode = "logical_error" 
+            error_type = "contradiction"
+            correction_suggestion = "Resolve logical inconsistency"
+        
+        elif len(sentence.strip()) < 10:
+            failure_mode = "missing_step"
+            error_type = "incomplete_reasoning"
+            correction_suggestion = "Provide more detailed explanation"
+        
+        elif any(word in sentence_lower for word in ["maybe", "perhaps", "possibly", "might", "could be"]):
+            failure_mode = "logical_error"
+            error_type = "excessive_uncertainty"
+            correction_suggestion = "Provide more definitive reasoning"
+        
+        elif sentence.count("=") > 1 and "=" in sentence:
+            failure_mode = "computational_mistake"
+            error_type = "calculation_confusion"
+            correction_suggestion = "Separate calculations into distinct steps"
+        
+        else:
+            failure_mode = "logical_error"
+            error_type = "reasoning_error"
+            correction_suggestion = "Revise reasoning logic"
+        
+        # Suggest specific correction if good alternatives exist
+        if alternatives:
+            # Find the most different alternative (likely a better approach)
+            best_alt = max(alternatives, key=lambda alt: len(alt.split()))
+            if len(best_alt) > len(sentence):
+                correction_suggestion = f"Consider more detailed approach: '{best_alt[:100]}...'"
+        
+        return failure_mode, error_type, correction_suggestion
+
     def compute_sentence_similarity(self, sentence1: str, sentence2: str) -> float:
         """
         Compute semantic similarity between two sentences using embeddings.
@@ -759,6 +919,27 @@ class ThoughtAnchorSearcher:
                 # Classify the sentence
                 sentence_category = self.classifier.classify_sentence(sentence)
                 
+                # Enhanced analysis for comprehensive dataset
+                suffix_sentences = sentences[i+1:] if i+1 < len(sentences) else []
+                suffix_context = " ".join(suffix_sentences)
+                
+                # Generate embeddings
+                sentence_embedding = self.embedding_model.encode(sentence).tolist()
+                alternatives_embeddings = [
+                    self.embedding_model.encode(alt).tolist() 
+                    for alt in alternatives_tested
+                ]
+                
+                # Analyze dependencies and relationships
+                causal_deps, causal_dependents, logical_rel = self._analyze_dependencies(
+                    sentence, i, sentences
+                )
+                
+                # Failure analysis for negative anchors
+                failure_mode, error_type, correction = self._analyze_failure_mode(
+                    sentence, prob_delta, alternatives_tested
+                )
+                
                 # Create thought anchor object
                 thought_anchor = ThoughtAnchor(
                     query=query,
@@ -768,11 +949,26 @@ class ThoughtAnchorSearcher:
                     prob_with_sentence=prob_with,
                     prob_without_sentence=prob_without,
                     prob_delta=prob_delta,
-                    sentence_category=sentence_category,
-                    alternatives_tested=alternatives_tested,
-                    dependency_sentences=[],  # Could be enhanced with dependency analysis
                     model_id=self.model_name,
                     task_type=task_type,
+                    # Enhanced contextual fields
+                    suffix_context=suffix_context,
+                    full_reasoning_trace=reasoning_trace,
+                    # Semantic representations
+                    sentence_embedding=sentence_embedding,
+                    alternatives_embeddings=alternatives_embeddings,
+                    # Enhanced dependency modeling
+                    causal_dependencies=causal_deps,
+                    causal_dependents=causal_dependents,
+                    logical_relationship=logical_rel,
+                    # Failure analysis
+                    failure_mode=failure_mode,
+                    error_type=error_type,
+                    correction_suggestion=correction,
+                    # Existing fields
+                    sentence_category=sentence_category,
+                    alternatives_tested=alternatives_tested,
+                    dependency_sentences=[],  # Legacy field
                     dataset_id=dataset_id,
                     dataset_item_id=item_id
                 )
