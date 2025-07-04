@@ -81,16 +81,43 @@ The activation patterns associated with pivotal tokens can be used to guide mode
 
 Thought anchors are critical reasoning steps that have outsized importance in guiding the subsequent reasoning process. Based on the [Thought Anchors paper](https://arxiv.org/abs/2506.19143), this technique identifies sentences in reasoning traces that significantly impact success probability. 
 
+```bash
+# Generate comprehensive thought anchors dataset
+pts run --model="Qwen/Qwen3-0.6B" \
+    --dataset="openai/gsm8k" \
+    --output-path="thought_anchors.jsonl" \
+    --generate-thought-anchors \
+    --prob-threshold=0.15 \
+    --num-samples=10
+```
+
+**Enhanced Dataset Fields:**
+- **Contextual**: `prefix_context`, `suffix_context`, `full_reasoning_trace`
+- **Semantic**: `sentence_embedding`, `alternatives_embeddings` (768-dim vectors)
+- **Dependencies**: `causal_dependencies`, `causal_dependents`, `logical_relationship`
+- **Failure Analysis**: `failure_mode`, `error_type`, `correction_suggestion`
+- **Impact**: `prob_delta`, `importance_score`, `is_positive`
+- **Classification**: `sentence_category` (planning, computation, verification, etc.)
+
 Key features:
 1. **Sentence-level analysis**: Instead of tokens, analyzes complete sentences in reasoning traces
 2. **Counterfactual importance**: Measures how sentence changes affect final success probability
 3. **Reasoning pattern classification**: Categorizes sentences (planning, backtracking, verification, etc.)
 4. **Alternative testing**: Generates semantically different sentences to measure impact
+5. **Semantic embeddings**: Provides vector representations for similarity matching
+6. **Dependency analysis**: Identifies causal relationships between reasoning steps
+7. **Failure mode analysis**: Classifies why negative anchors hurt performance
 
 Thought anchors are typically:
 - **Planning sentences**: "I'll solve this by applying the area formula"
 - **Backtracking sentences**: "Wait, I made a mistake earlier. Let me reconsider..."
 - **Verification sentences**: "Let me verify: π×r² = π×5² = 25π. Correct."
+
+**Inference Applications:**
+- **Guided Generation**: Use positive anchors as reasoning templates
+- **Quality Control**: Score reasoning steps against anchor database
+- **Self-Correction**: Detect negative patterns and suggest alternatives
+- **Adaptive Sampling**: Adjust generation parameters near critical reasoning points
 
 ## Dataset Field Customization
 

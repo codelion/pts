@@ -8,6 +8,8 @@ critical reasoning steps that have outsized importance in model reasoning traces
 import time
 import logging
 import re
+import gc
+import psutil
 from typing import List, Dict, Tuple, Any, Optional, Callable, Generator
 import torch
 from tqdm import tqdm
@@ -399,9 +401,14 @@ class ThoughtAnchorSearcher:
         self.segmenter = SentenceSegmenter()
         self.classifier = SentenceClassifier()
         
-        # Load sentence embedding model for semantic similarity
-        self.logger.info("Loading sentence embedding model...")
-        self.embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
+        # Load sentence embedding model for semantic similarity (unless skipped)
+        self.skip_embeddings = getattr(oracle, 'skip_embeddings', False) if oracle else False
+        if not self.skip_embeddings:
+            self.logger.info("Loading sentence embedding model...")
+            self.embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
+        else:
+            self.logger.info("Skipping embedding model loading for faster processing")
+            self.embedding_model = None
         
         # Check if flash attention is available
         use_flash_attention = False
@@ -446,8 +453,9 @@ class ThoughtAnchorSearcher:
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
         
-        # Cache for memoizing probability estimates
+        # Cache for memoizing probability estimates with size limit
         self.prob_cache = {}
+        self.max_cache_size = 1000  # Limit cache to prevent memory issues
     
     def _analyze_dependencies(self, sentence: str, sentence_id: int, all_sentences: List[str]) -> Tuple[List[int], List[int], Optional[str]]:
         """
@@ -579,6 +587,10 @@ class ThoughtAnchorSearcher:
         Returns:
             Cosine similarity score (0.0 to 1.0)
         """
+        if self.skip_embeddings or self.embedding_model is None:
+            # Simple heuristic: return 0.0 to always consider alternatives as different
+            return 0.0
+            
         try:
             embeddings = self.embedding_model.encode([sentence1, sentence2])
             similarity = np.dot(embeddings[0], embeddings[1]) / (
@@ -620,6 +632,14 @@ class ThoughtAnchorSearcher:
         cache_key = (query, sentence_prefix, num_samples, system_prompt)
         if cache_key in self.prob_cache:
             return self.prob_cache[cache_key]
+        
+        # Manage cache size to prevent memory issues
+        if len(self.prob_cache) > self.max_cache_size:
+            # Remove oldest entries (simple FIFO)
+            keys_to_remove = list(self.prob_cache.keys())[:self.max_cache_size // 2]
+            for key in keys_to_remove:
+                del self.prob_cache[key]
+            self.logger.debug(f"Cleared {len(keys_to_remove)} entries from cache")
         
         num_samples = num_samples or self.num_samples
         self.logger.debug(f"Estimating success probability with {num_samples} samples")
@@ -858,7 +878,25 @@ class ThoughtAnchorSearcher:
         # Analyze each sentence
         thought_anchors_found = []
         
+        # Monitor memory usage
+        process = psutil.Process()
+        initial_memory = process.memory_info().rss / 1024 / 1024  # MB
+        
         for i, sentence in enumerate(sentences):
+            # Check memory usage periodically
+            if i % 10 == 0:
+                current_memory = process.memory_info().rss / 1024 / 1024  # MB
+                memory_increase = current_memory - initial_memory
+                
+                if memory_increase > 1000:  # If memory increased by >1GB
+                    self.logger.warning(f"High memory usage detected: {current_memory:.1f}MB. Running garbage collection.")
+                    gc.collect()
+                    torch.cuda.empty_cache() if torch.cuda.is_available() else None
+                    
+                    # Clear some caches
+                    if len(self.prob_cache) > self.max_cache_size / 2:
+                        self.prob_cache.clear()
+                        self.logger.info("Cleared probability cache to free memory")
             self.logger.info(f"Analyzing sentence {i+1}/{len(sentences)}: {sentence[:50]}...")
             
             # Get prefix sentences (all sentences before this one)
@@ -876,7 +914,7 @@ class ThoughtAnchorSearcher:
             alternatives_tested = []
             prob_without_list = []
             
-            for attempt in range(3):  # Try 3 alternative sentences
+            for attempt in range(2):  # Try 2 alternative sentences for speed
                 alternative = self.generate_alternative_sentence(
                     sentence, prefix_sentences, query
                 )
@@ -923,12 +961,21 @@ class ThoughtAnchorSearcher:
                 suffix_sentences = sentences[i+1:] if i+1 < len(sentences) else []
                 suffix_context = " ".join(suffix_sentences)
                 
-                # Generate embeddings
-                sentence_embedding = self.embedding_model.encode(sentence).tolist()
-                alternatives_embeddings = [
-                    self.embedding_model.encode(alt).tolist() 
-                    for alt in alternatives_tested
-                ]
+                # Generate embeddings with memory management
+                if hasattr(self, 'skip_embeddings') and self.skip_embeddings:
+                    sentence_embedding = []
+                    alternatives_embeddings = []
+                else:
+                    try:
+                        sentence_embedding = self.embedding_model.encode(sentence).tolist()
+                        alternatives_embeddings = [
+                            self.embedding_model.encode(alt).tolist() 
+                            for alt in alternatives_tested
+                        ]
+                    except Exception as e:
+                        self.logger.warning(f"Embedding generation failed: {e}. Using empty embeddings.")
+                        sentence_embedding = []
+                        alternatives_embeddings = []
                 
                 # Analyze dependencies and relationships
                 causal_deps, causal_dependents, logical_rel = self._analyze_dependencies(
@@ -952,8 +999,8 @@ class ThoughtAnchorSearcher:
                     model_id=self.model_name,
                     task_type=task_type,
                     # Enhanced contextual fields
-                    suffix_context=suffix_context,
-                    full_reasoning_trace=reasoning_trace,
+                    suffix_context=suffix_context[:1000],  # Limit suffix length
+                    full_reasoning_trace=reasoning_trace[:3000],  # Limit trace length to prevent memory issues
                     # Semantic representations
                     sentence_embedding=sentence_embedding,
                     alternatives_embeddings=alternatives_embeddings,

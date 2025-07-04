@@ -167,6 +167,11 @@ def run_thought_anchors(args):
     # Create oracle from dataset
     oracle = create_oracle_from_dataset(examples, debug_mode=args.debug)
     
+    # Pass skip_embeddings flag through oracle
+    if hasattr(args, 'skip_embeddings') and args.skip_embeddings:
+        oracle.skip_embeddings = True
+        logger.info("Embeddings will be skipped for faster processing")
+    
     # Create storage for thought anchors
     storage = ThoughtAnchorStorage(filepath=args.output_path)
     
@@ -482,6 +487,7 @@ def parse_args():
     run_parser.add_argument("--log-level", type=str, default="INFO", choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"], help="Logging level")
     run_parser.add_argument("--debug", action="store_true", help="Enable debug mode to print questions and responses")
     run_parser.add_argument("--generate-thought-anchors", action="store_true", help="Generate thought anchors dataset instead of pivotal tokens")
+    run_parser.add_argument("--skip-embeddings", action="store_true", help="Skip embedding generation for faster processing (thought anchors only)")
     
     # Export subcommand
     export_parser = subparsers.add_parser("export", help="Export tokens to different formats")
