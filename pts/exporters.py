@@ -93,7 +93,6 @@ print(result)
 """
     elif file_type == "thought_anchors":
         content = f"""---
-license: mit
 language:
 - en
 tags:
@@ -174,7 +173,6 @@ A dataset of thought anchors - critical reasoning steps - identified using the T
 
 - **Source:** Generated using the [PTS](https://github.com/codelion/pts) tool
 - **Model:** {model_name or "Unknown"}
-- **Paper:** [Thought Anchors: Which LLM Reasoning Steps Matter?](https://arxiv.org/abs/2506.19143)
 - **Tags:** `pts`, `thought-anchors`, `reasoning`, `llm-analysis`
 
 ## Dataset Structure
@@ -273,18 +271,15 @@ Thought anchors can be used to:
 3. **Guide beam search** to prefer paths containing high-value anchor sentences
 4. **Improve CoT prompting** by incorporating successful anchor patterns
 
-## Citation
+### OptiLLM Integration
 
-If you use this dataset, please cite the Thought Anchors paper:
+You can use these thought anchors with the open-source [OptiLLM](https://github.com/codelion/optillm) library for optimizing inference via the autothink approach. OptiLLM provides a proxy server that can apply thought anchor techniques to improve model reasoning performance by:
 
-```bibtex
-@article{{thought_anchors_2025,
-  title={{Thought Anchors: Which LLM Reasoning Steps Matter?}},
-  author={{Paul C. Bogdan and Uzay Macar and Neel Nanda and Arthur Conmy}},
-  journal={{arXiv preprint arXiv:2506.19143}},
-  year={{2025}}
-}}
-```
+- **Guided reasoning**: Using positive anchors as templates for better reasoning paths
+- **Quality monitoring**: Detecting negative anchor patterns to avoid poor reasoning
+- **Adaptive prompting**: Incorporating successful anchor patterns into prompts
+- **Real-time optimization**: Applying anchor insights during model inference
+
 """
     elif file_type == "dpo":
         content = f"""# PTS DPO Dataset

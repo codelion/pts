@@ -413,13 +413,32 @@ def push_to_hf(args):
         
         # Create README by default unless --no-readme flag is specified
         if not args.no_readme:
-            # Determine file type
+            # Determine file type by filename and content
+            file_type = "tokens"  # default
+            
             if filename.endswith("_vectors.jsonl") or "steering" in filename:
                 file_type = "steering"
             elif "dpo" in filename:
                 file_type = "dpo"
+            elif "thought_anchor" in filename or "anchor" in filename:
+                file_type = "thought_anchors"
             else:
-                file_type = "tokens"
+                # Check file content to detect thought anchors
+                try:
+                    with open(args.input_path, 'r') as f:
+                        first_line = f.readline().strip()
+                        if first_line:
+                            import json
+                            data = json.loads(first_line)
+                            # Check for thought anchor specific fields
+                            if "sentence_embedding" in data or "prob_with_sentence" in data or "suffix_context" in data:
+                                file_type = "thought_anchors"
+                            elif "chosen" in data and "rejected" in data:
+                                file_type = "dpo"
+                            elif "steering_vector" in data or "activation_vector" in data:
+                                file_type = "steering"
+                except Exception:
+                    pass  # Fall back to default if content check fails
                 
             # Import the README generation function from exporters
             from .exporters import generate_readme_content
