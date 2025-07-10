@@ -192,6 +192,9 @@ def run_thought_anchors(args):
         debug_mode=args.debug
     )
     
+    # Pass storage to searcher for periodic saving
+    searcher.storage = storage
+    
     # Process each example
     successful_searches = 0
     total_thought_anchors = 0

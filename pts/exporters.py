@@ -92,7 +92,81 @@ print(result)
 ```
 """
     elif file_type == "thought_anchors":
-        content = f"""# PTS Thought Anchors Dataset
+        content = f"""---
+license: mit
+language:
+- en
+tags:
+- pts
+- thought-anchors
+- reasoning
+- llm-analysis
+- sentence-level-analysis
+- pivotal-token-search
+size_categories:
+- n<1K
+task_categories:
+- other
+pretty_name: "PTS Thought Anchors Dataset"
+dataset_info:
+  config_name: default
+  features:
+  - name: model_id
+    dtype: string
+  - name: query
+    dtype: string
+  - name: sentence
+    dtype: string
+  - name: sentence_id
+    dtype: int64
+  - name: prefix_context
+    dtype: string
+  - name: suffix_context
+    dtype: string
+  - name: prob_with_sentence
+    dtype: float64
+  - name: prob_without_sentence
+    dtype: float64
+  - name: prob_delta
+    dtype: float64
+  - name: importance_score
+    dtype: float64
+  - name: is_positive
+    dtype: bool
+  - name: sentence_category
+    dtype: string
+  - name: logical_relationship
+    dtype: string
+  - name: failure_mode
+    dtype: string
+  - name: error_type
+    dtype: string
+  - name: correction_suggestion
+    dtype: string
+  - name: alternatives_tested
+    sequence: string
+  - name: sentence_embedding
+    sequence: float32
+  - name: alternatives_embeddings
+    sequence:
+      sequence: float32
+  - name: causal_dependencies
+    sequence: int64
+  - name: causal_dependents
+    sequence: int64
+  - name: full_reasoning_trace
+    dtype: string
+  - name: task_type
+    dtype: string
+  - name: dataset_id
+    dtype: string
+  - name: dataset_item_id
+    dtype: string
+  - name: timestamp
+    dtype: string
+---
+
+# PTS Thought Anchors Dataset
 
 A dataset of thought anchors - critical reasoning steps - identified using the Thought Anchors technique from the PTS tool.
 
@@ -101,6 +175,7 @@ A dataset of thought anchors - critical reasoning steps - identified using the T
 - **Source:** Generated using the [PTS](https://github.com/codelion/pts) tool
 - **Model:** {model_name or "Unknown"}
 - **Paper:** [Thought Anchors: Which LLM Reasoning Steps Matter?](https://arxiv.org/abs/2506.19143)
+- **Tags:** `pts`, `thought-anchors`, `reasoning`, `llm-analysis`
 
 ## Dataset Structure
 
@@ -109,13 +184,44 @@ This dataset contains thought anchors identified from reasoning traces. Each anc
 ## Fields
 
 Each thought anchor contains:
-- `anchor_id`: Unique identifier for the anchor
-- `query`: The original query that was processed
+
+### Core Fields
+- `model_id`: The model used to generate the reasoning trace
+- `query`: The original problem/question that was processed
 - `sentence`: The actual sentence that serves as a thought anchor
-- `sentence_category`: Category of the sentence (planning, uncertainty_management, etc.)
-- `importance_score`: Absolute importance score of this anchor
-- `prob_delta`: Change in success probability caused by this sentence
-- `reasoning_pattern`: Classified reasoning pattern (planning, backtracking, etc.)
+- `sentence_id`: Position of the sentence in the reasoning trace
+- `prob_with_sentence`: Success probability when this sentence is included
+- `prob_without_sentence`: Success probability when this sentence is replaced/removed
+- `prob_delta`: Change in success probability (with - without)
+- `importance_score`: Absolute impact score of this anchor
+- `is_positive`: Whether this sentence helps (true) or hurts (false) success
+
+### Context Fields
+- `prefix_context`: All sentences that come before this one
+- `suffix_context`: All sentences that come after this one
+- `full_reasoning_trace`: Complete reasoning trace for context
+
+### Semantic Analysis
+- `sentence_embedding`: 384-dimensional vector representation of the sentence
+- `alternatives_embeddings`: Vector representations of alternative sentences tested
+- `alternatives_tested`: List of alternative sentences that were tested
+
+### Dependency Analysis
+- `causal_dependencies`: Sentence IDs this sentence logically depends on
+- `causal_dependents`: Sentence IDs that depend on this sentence
+- `logical_relationship`: Type of logical relationship ("premise", "conclusion", etc.)
+
+### Failure Analysis (for negative anchors)
+- `failure_mode`: Type of failure ("logical_error", "computational_mistake", etc.)
+- `error_type`: More specific error classification
+- `correction_suggestion`: How to improve the sentence
+
+### Classification
+- `sentence_category`: Type of reasoning step ("plan_generation", "active_computation", etc.)
+- `task_type`: Type of task being solved
+- `dataset_id`: Source dataset identifier
+- `dataset_item_id`: Specific item ID from the dataset
+- `timestamp`: When the anchor was generated
 
 ## Usage
 
@@ -132,22 +238,31 @@ import json
 from datasets import load_dataset
 
 # Load thought anchors from Hugging Face
-dataset = load_dataset("USERNAME/REPO_NAME")
-anchors = [json.loads(line) for line in dataset["train"]]
+dataset = load_dataset("codelion/Qwen3-0.6B-pts-thought-anchors")
+anchors = [json.loads(line) for line in open("thought_anchors.jsonl")]
 
-# Find high-importance planning sentences
-planning_anchors = [
+# Find high-impact positive anchors
+positive_anchors = [
     anchor for anchor in anchors 
-    if anchor["reasoning_pattern"] == "planning" and anchor["importance_score"] > 0.3
+    if anchor["is_positive"] and anchor["importance_score"] > 0.3
 ]
 
-# Analyze sentence categories
-categories = {{}}
-for anchor in anchors:
-    cat = anchor["sentence_category"]
-    categories[cat] = categories.get(cat, 0) + 1
+# Find planning-related sentences
+planning_anchors = [
+    anchor for anchor in anchors
+    if anchor["sentence_category"] == "plan_generation"
+]
 
-print("Category distribution:", categories)
+# Analyze failure modes for negative anchors
+failure_analysis = {{}}
+for anchor in anchors:
+    if not anchor["is_positive"] and anchor["failure_mode"]:
+        mode = anchor["failure_mode"]
+        failure_analysis[mode] = failure_analysis.get(mode, 0) + 1
+
+print("Failure modes:", failure_analysis)
+print(f"Found {{len(positive_anchors)}} positive anchors")
+print(f"Found {{len(planning_anchors)}} planning anchors")
 ```
 
 ### Integration with Inference Systems

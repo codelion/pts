@@ -883,20 +883,36 @@ class ThoughtAnchorSearcher:
         initial_memory = process.memory_info().rss / 1024 / 1024  # MB
         
         for i, sentence in enumerate(sentences):
-            # Check memory usage periodically
-            if i % 10 == 0:
+            # Check memory usage periodically - more aggressive
+            if i % 5 == 0:  # Check more frequently
                 current_memory = process.memory_info().rss / 1024 / 1024  # MB
                 memory_increase = current_memory - initial_memory
                 
-                if memory_increase > 1000:  # If memory increased by >1GB
-                    self.logger.warning(f"High memory usage detected: {current_memory:.1f}MB. Running garbage collection.")
-                    gc.collect()
-                    torch.cuda.empty_cache() if torch.cuda.is_available() else None
+                if memory_increase > 500:  # Lower threshold - 500MB
+                    self.logger.warning(f"High memory usage detected: {current_memory:.1f}MB. Running aggressive cleanup.")
                     
-                    # Clear some caches
-                    if len(self.prob_cache) > self.max_cache_size / 2:
-                        self.prob_cache.clear()
-                        self.logger.info("Cleared probability cache to free memory")
+                    # Clear ALL caches
+                    self.prob_cache.clear()
+                    
+                    # Force garbage collection
+                    gc.collect()
+                    gc.collect()  # Run twice for thorough cleanup
+                    
+                    # Clear PyTorch caches
+                    if torch.cuda.is_available():
+                        torch.cuda.empty_cache()
+                        torch.cuda.synchronize()
+                    
+                    # Delete large variables if they exist
+                    if 'reasoning_trace' in locals():
+                        del reasoning_trace
+                    if 'sentences' in locals() and i > len(sentences) / 2:
+                        # Clear already processed sentences
+                        for j in range(min(i-10, len(sentences)//2)):
+                            if j < len(sentences):
+                                sentences[j] = ""
+                    
+                    self.logger.info("Aggressive memory cleanup completed")
             self.logger.info(f"Analyzing sentence {i+1}/{len(sentences)}: {sentence[:50]}...")
             
             # Get prefix sentences (all sentences before this one)
@@ -999,8 +1015,8 @@ class ThoughtAnchorSearcher:
                     model_id=self.model_name,
                     task_type=task_type,
                     # Enhanced contextual fields
-                    suffix_context=suffix_context[:1000],  # Limit suffix length
-                    full_reasoning_trace=reasoning_trace[:3000],  # Limit trace length to prevent memory issues
+                    suffix_context=suffix_context,
+                    full_reasoning_trace=reasoning_trace[:3000],  # Keep reasonable limit for trace
                     # Semantic representations
                     sentence_embedding=sentence_embedding,
                     alternatives_embeddings=alternatives_embeddings,
@@ -1023,6 +1039,15 @@ class ThoughtAnchorSearcher:
                 thought_anchors_found.append(thought_anchor)
                 
                 self.logger.info(f"Found thought anchor: {sentence[:50]}... (Δp={prob_delta:.3f})")
+                
+                # Save and clear periodically to prevent memory buildup
+                if len(thought_anchors_found) >= 10:
+                    if hasattr(self, 'storage') and self.storage:
+                        for anchor in thought_anchors_found:
+                            self.storage.add_thought_anchor(anchor)
+                        self.storage.save()
+                        thought_anchors_found.clear()
+                        self.logger.info("Saved batch of thought anchors to disk")
                 
                 yield thought_anchor
         
