@@ -120,20 +120,27 @@ dataset_info:
     dtype: int64
   - name: prefix_context
     dtype: string
-  - name: suffix_context
-    dtype: string
   - name: prob_with_sentence
     dtype: float64
   - name: prob_without_sentence
     dtype: float64
   - name: prob_delta
     dtype: float64
-  - name: importance_score
-    dtype: float64
-  - name: is_positive
-    dtype: bool
-  - name: sentence_category
+  - name: task_type
     dtype: string
+  - name: suffix_context
+    dtype: string
+  - name: full_reasoning_trace
+    dtype: string
+  - name: sentence_embedding
+    sequence: float64
+  - name: alternatives_embeddings
+    sequence:
+      sequence: float64
+  - name: causal_dependencies
+    sequence: int64
+  - name: causal_dependents
+    sequence: int64
   - name: logical_relationship
     dtype: string
   - name: failure_mode
@@ -142,27 +149,22 @@ dataset_info:
     dtype: string
   - name: correction_suggestion
     dtype: string
+  - name: importance_score
+    dtype: float64
+  - name: is_positive
+    dtype: bool
+  - name: sentence_category
+    dtype: string
   - name: alternatives_tested
     sequence: string
-  - name: sentence_embedding
-    sequence: float32
-  - name: alternatives_embeddings
-    sequence:
-      sequence: float32
-  - name: causal_dependencies
+  - name: dependency_sentences
     sequence: int64
-  - name: causal_dependents
-    sequence: int64
-  - name: full_reasoning_trace
-    dtype: string
-  - name: task_type
-    dtype: string
   - name: dataset_id
     dtype: string
   - name: dataset_item_id
     dtype: string
   - name: timestamp
-    dtype: string
+    dtype: timestamp[s]
 ---
 
 # PTS Thought Anchors Dataset
@@ -232,35 +234,37 @@ These thought anchors can be used for:
 ### Example Usage
 
 ```python
-import json
 from datasets import load_dataset
 
 # Load thought anchors from Hugging Face
 dataset = load_dataset("codelion/Qwen3-0.6B-pts-thought-anchors")
-anchors = [json.loads(line) for line in open("thought_anchors.jsonl")]
+anchors = dataset['train']
 
 # Find high-impact positive anchors
-positive_anchors = [
-    anchor for anchor in anchors 
-    if anchor["is_positive"] and anchor["importance_score"] > 0.3
-]
+positive_anchors = anchors.filter(
+    lambda x: x["is_positive"] and x["importance_score"] > 0.3
+)
 
 # Find planning-related sentences
-planning_anchors = [
-    anchor for anchor in anchors
-    if anchor["sentence_category"] == "plan_generation"
-]
+planning_anchors = anchors.filter(
+    lambda x: x["sentence_category"] == "plan_generation"
+)
 
 # Analyze failure modes for negative anchors
 failure_analysis = {{}}
-for anchor in anchors:
-    if not anchor["is_positive"] and anchor["failure_mode"]:
-        mode = anchor["failure_mode"]
-        failure_analysis[mode] = failure_analysis.get(mode, 0) + 1
+negative_anchors = anchors.filter(lambda x: not x["is_positive"] and x["failure_mode"])
+for anchor in negative_anchors:
+    mode = anchor["failure_mode"]
+    failure_analysis[mode] = failure_analysis.get(mode, 0) + 1
 
 print("Failure modes:", failure_analysis)
 print(f"Found {{len(positive_anchors)}} positive anchors")
 print(f"Found {{len(planning_anchors)}} planning anchors")
+
+# Example: Access embeddings for similarity search
+sample_anchor = anchors[0]
+embedding = sample_anchor["sentence_embedding"]  # 384-dim vector
+print(f"Embedding dimension: {{len(embedding)}}")
 ```
 
 ### Integration with Inference Systems
