@@ -99,7 +99,7 @@ class PivotalTokenSearcher:
         top_p: float = 0.95,
         top_k: int = 20,
         min_p: float = 0.0,
-        max_new_tokens: int = 512,
+        max_new_tokens: int = 8192,
         num_samples: int = 10,
         batch_size: int = 5,
         trust_remote_code: bool = True,

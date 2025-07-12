@@ -91,6 +91,200 @@ result = tokenizer.decode(output[0])
 print(result)
 ```
 """
+    elif file_type == "thought_anchors":
+        content = f"""---
+language:
+- en
+tags:
+- pts
+- thought-anchors
+- reasoning
+- llm-analysis
+- sentence-level-analysis
+- pivotal-token-search
+size_categories:
+- n<1K
+task_categories:
+- other
+pretty_name: "PTS Thought Anchors Dataset"
+dataset_info:
+  config_name: default
+  features:
+  - name: model_id
+    dtype: string
+  - name: query
+    dtype: string
+  - name: sentence
+    dtype: string
+  - name: sentence_id
+    dtype: int64
+  - name: prefix_context
+    dtype: string
+  - name: prob_with_sentence
+    dtype: float64
+  - name: prob_without_sentence
+    dtype: float64
+  - name: prob_delta
+    dtype: float64
+  - name: task_type
+    dtype: string
+  - name: suffix_context
+    dtype: string
+  - name: full_reasoning_trace
+    dtype: string
+  - name: sentence_embedding
+    sequence: float64
+  - name: alternatives_embeddings
+    sequence:
+      sequence: float64
+  - name: causal_dependencies
+    sequence: int64
+  - name: causal_dependents
+    sequence: int64
+  - name: logical_relationship
+    dtype: string
+  - name: failure_mode
+    dtype: string
+  - name: error_type
+    dtype: string
+  - name: correction_suggestion
+    dtype: string
+  - name: importance_score
+    dtype: float64
+  - name: is_positive
+    dtype: bool
+  - name: sentence_category
+    dtype: string
+  - name: alternatives_tested
+    sequence: string
+  - name: dependency_sentences
+    sequence: int64
+  - name: dataset_id
+    dtype: string
+  - name: dataset_item_id
+    dtype: string
+  - name: timestamp
+    dtype: timestamp[s]
+---
+
+# PTS Thought Anchors Dataset
+
+A dataset of thought anchors - critical reasoning steps - identified using the Thought Anchors technique from the PTS tool.
+
+## Details
+
+- **Source:** Generated using the [PTS](https://github.com/codelion/pts) tool
+- **Model:** {model_name or "Unknown"}
+- **Tags:** `pts`, `thought-anchors`, `reasoning`, `llm-analysis`
+
+## Dataset Structure
+
+This dataset contains thought anchors identified from reasoning traces. Each anchor represents a sentence that significantly impacts the success probability of the reasoning process.
+
+## Fields
+
+Each thought anchor contains:
+
+### Core Fields
+- `model_id`: The model used to generate the reasoning trace
+- `query`: The original problem/question that was processed
+- `sentence`: The actual sentence that serves as a thought anchor
+- `sentence_id`: Position of the sentence in the reasoning trace
+- `prob_with_sentence`: Success probability when this sentence is included
+- `prob_without_sentence`: Success probability when this sentence is replaced/removed
+- `prob_delta`: Change in success probability (with - without)
+- `importance_score`: Absolute impact score of this anchor
+- `is_positive`: Whether this sentence helps (true) or hurts (false) success
+
+### Context Fields
+- `prefix_context`: All sentences that come before this one
+- `suffix_context`: All sentences that come after this one
+- `full_reasoning_trace`: Complete reasoning trace for context
+
+### Semantic Analysis
+- `sentence_embedding`: 384-dimensional vector representation of the sentence
+- `alternatives_embeddings`: Vector representations of alternative sentences tested
+- `alternatives_tested`: List of alternative sentences that were tested
+
+### Dependency Analysis
+- `causal_dependencies`: Sentence IDs this sentence logically depends on
+- `causal_dependents`: Sentence IDs that depend on this sentence
+- `logical_relationship`: Type of logical relationship ("premise", "conclusion", etc.)
+
+### Failure Analysis (for negative anchors)
+- `failure_mode`: Type of failure ("logical_error", "computational_mistake", etc.)
+- `error_type`: More specific error classification
+- `correction_suggestion`: How to improve the sentence
+
+### Classification
+- `sentence_category`: Type of reasoning step ("plan_generation", "active_computation", etc.)
+- `task_type`: Type of task being solved
+- `dataset_id`: Source dataset identifier
+- `dataset_item_id`: Specific item ID from the dataset
+- `timestamp`: When the anchor was generated
+
+## Usage
+
+These thought anchors can be used for:
+- Understanding which reasoning steps matter most
+- Guiding inference systems to focus on critical reasoning steps
+- Analyzing reasoning patterns in language models
+- Building better reasoning evaluation metrics
+
+### Example Usage
+
+```python
+from datasets import load_dataset
+
+# Load thought anchors from Hugging Face
+dataset = load_dataset("codelion/Qwen3-0.6B-pts-thought-anchors")
+anchors = dataset['train']
+
+# Find high-impact positive anchors
+positive_anchors = anchors.filter(
+    lambda x: x["is_positive"] and x["importance_score"] > 0.3
+)
+
+# Find planning-related sentences
+planning_anchors = anchors.filter(
+    lambda x: x["sentence_category"] == "plan_generation"
+)
+
+# Analyze failure modes for negative anchors
+failure_analysis = {{}}
+negative_anchors = anchors.filter(lambda x: not x["is_positive"] and x["failure_mode"])
+for anchor in negative_anchors:
+    mode = anchor["failure_mode"]
+    failure_analysis[mode] = failure_analysis.get(mode, 0) + 1
+
+print("Failure modes:", failure_analysis)
+print(f"Found {{len(positive_anchors)}} positive anchors")
+print(f"Found {{len(planning_anchors)}} planning anchors")
+
+# Example: Access embeddings for similarity search
+sample_anchor = anchors[0]
+embedding = sample_anchor["sentence_embedding"]  # 384-dim vector
+print(f"Embedding dimension: {{len(embedding)}}")
+```
+
+### Integration with Inference Systems
+
+Thought anchors can be used to:
+1. **Focus attention** on critical reasoning steps during generation
+2. **Validate reasoning** by checking for presence of important anchor patterns
+3. **Guide beam search** to prefer paths containing high-value anchor sentences
+4. **Improve CoT prompting** by incorporating successful anchor patterns
+
+### OptiLLM Integration
+
+You can use these thought anchors with the open-source [OptiLLM](https://github.com/codelion/optillm) library for optimizing inference via the autothink approach. OptiLLM provides a proxy server that can apply thought anchor techniques to improve model reasoning performance by:
+
+- **Guided reasoning**: Using positive anchors as templates for better reasoning paths
+- **Quality monitoring**: Detecting negative anchor patterns to avoid poor reasoning
+- **Adaptive prompting**: Incorporating successful anchor patterns into prompts
+- **Real-time optimization**: Applying anchor insights during model inference
+
+"""
     elif file_type == "dpo":
         content = f"""# PTS DPO Dataset
 
@@ -826,3 +1020,232 @@ class TokenExporter:
                 
             except Exception as e:
                 logger.error(f"Error pushing to Hugging Face: {e}")
+    def export_thought_anchors(
+        self,
+        output_path: str,
+        filter_criteria: Optional[Dict[str, Any]] = None,
+        min_importance_score: float = 0.1,
+        max_anchors: Optional[int] = None,
+        sort_by_importance: bool = True,
+        include_alternatives: bool = True,
+        hf_push: bool = False,
+        hf_repo_id: Optional[str] = None,
+        private: bool = False,
+        model_name: Optional[str] = None
+    ):
+        """
+        Export thought anchors for use in inference systems.
+        
+        Args:
+            output_path: Path to save the thought anchors dataset
+            filter_criteria: Criteria to filter anchors
+            min_importance_score: Minimum importance score for inclusion
+            max_anchors: Maximum number of anchors to export
+            sort_by_importance: Whether to sort by importance score
+            include_alternatives: Whether to include alternative sentences tested
+            hf_push: Whether to push to Hugging Face
+            hf_repo_id: Hugging Face repository ID
+            private: Whether to make the repository private
+            model_name: Model name for metadata
+        """
+        logger.info(f"Exporting thought anchors to {output_path}")
+        
+        # Load thought anchors from storage
+        if hasattr(self.token_storage, 'tokens'):
+            anchors = self.token_storage.tokens
+        else:
+            logger.error("No thought anchors found in storage")
+            return
+            
+        if not anchors:
+            logger.warning("No thought anchors to export")
+            return
+            
+        logger.info(f"Found {len(anchors)} thought anchors in storage")
+        
+        # Apply filters
+        filtered_anchors = []
+        for anchor in anchors:
+            # Check minimum importance score
+            importance_score = anchor.get("importance_score", 0)
+            if importance_score < min_importance_score:
+                continue
+                
+            # Apply any custom filter criteria
+            if filter_criteria:
+                skip_anchor = False
+                for key, value in filter_criteria.items():
+                    if key not in anchor or anchor[key] != value:
+                        skip_anchor = True
+                        break
+                if skip_anchor:
+                    continue
+                    
+            filtered_anchors.append(anchor)
+        
+        logger.info(f"Filtered to {len(filtered_anchors)} thought anchors")
+        
+        # Sort by importance if requested
+        if sort_by_importance:
+            filtered_anchors.sort(key=lambda x: x.get("importance_score", 0), reverse=True)
+        
+        # Limit number of anchors if specified
+        if max_anchors:
+            filtered_anchors = filtered_anchors[:max_anchors]
+            logger.info(f"Limited to top {len(filtered_anchors)} thought anchors")
+        
+        # Prepare export format optimized for inference
+        export_data = []
+        for anchor in filtered_anchors:
+            export_item = {
+                # Core identification
+                "anchor_id": f"{anchor.get('dataset_id', 'unknown')}_{anchor.get('dataset_item_id', 'unknown')}_{anchor.get('sentence_id', 0)}",
+                "query": anchor.get("query", ""),
+                "sentence": anchor.get("sentence", ""),
+                "sentence_id": anchor.get("sentence_id", 0),
+                
+                # Context and positioning
+                "prefix_context": anchor.get("prefix_context", ""),
+                "sentence_category": anchor.get("sentence_category", "unknown"),
+                
+                # Importance metrics
+                "importance_score": anchor.get("importance_score", 0),
+                "prob_delta": anchor.get("prob_delta", 0),
+                "prob_with_sentence": anchor.get("prob_with_sentence", 0),
+                "prob_without_sentence": anchor.get("prob_without_sentence", 0),
+                "is_positive": anchor.get("is_positive", False),
+                
+                # Metadata for inference systems
+                "task_type": anchor.get("task_type", "generic"),
+                "model_id": anchor.get("model_id", model_name or "unknown"),
+                "timestamp": anchor.get("timestamp", ""),
+                
+                # Reasoning patterns (useful for inference guidance)
+                "reasoning_pattern": self._classify_reasoning_pattern(anchor),
+            }
+            
+            # Optionally include alternatives tested
+            if include_alternatives and "alternatives_tested" in anchor:
+                export_item["alternatives_tested"] = anchor["alternatives_tested"]
+                export_item["num_alternatives"] = len(anchor.get("alternatives_tested", []))
+            
+            export_data.append(export_item)
+        
+        # Generate summary statistics
+        summary_stats = self._generate_anchor_summary(export_data)
+        
+        # Save to JSONL format
+        with open(output_path, 'w') as f:
+            for item in export_data:
+                f.write(json.dumps(item) + '\n')
+        
+        logger.info(f"Exported {len(export_data)} thought anchors to {output_path}")
+        logger.info(f"Summary: {summary_stats}")
+        
+        # Push to Hugging Face if requested
+        if hf_push and hf_repo_id:
+            try:
+                from huggingface_hub import create_repo, upload_file
+                
+                # Create repo if it doesn't exist
+                create_repo(
+                    hf_repo_id,
+                    private=private,
+                    repo_type="dataset",
+                    exist_ok=True
+                )
+                
+                # Upload thought anchors file
+                filename = os.path.basename(output_path)
+                upload_file(
+                    path_or_fileobj=output_path,
+                    path_in_repo=filename,
+                    repo_id=hf_repo_id,
+                    repo_type="dataset"
+                )
+                
+                logger.info(f"Pushed thought anchors to Hugging Face: {hf_repo_id}")
+                
+                # Create README
+                readme_content = generate_readme_content(
+                    file_type="thought_anchors",
+                    model_name=model_name,
+                    dataset_info=summary_stats
+                )
+                
+                # Create temporary README file
+                readme_path = "README.md.tmp"
+                with open(readme_path, 'w') as f:
+                    f.write(readme_content)
+                
+                # Upload README
+                upload_file(
+                    path_or_fileobj=readme_path,
+                    path_in_repo="README.md",
+                    repo_id=hf_repo_id,
+                    repo_type="dataset"
+                )
+                
+                # Delete temporary file
+                os.remove(readme_path)
+                
+            except Exception as e:
+                logger.error(f"Error pushing to Hugging Face: {e}")
+    
+    def _classify_reasoning_pattern(self, anchor: Dict[str, Any]) -> str:
+        """Classify the reasoning pattern of a thought anchor."""
+        sentence = anchor.get("sentence", "").lower()
+        category = anchor.get("sentence_category", "")
+        
+        # Pattern classification based on the paper's taxonomy
+        if category == "plan_generation":
+            return "planning"
+        elif category == "uncertainty_management":
+            if any(word in sentence for word in ["wait", "actually", "hmm", "reconsider"]):
+                return "backtracking"
+            else:
+                return "uncertainty_management"
+        elif category == "self_checking":
+            return "verification"
+        elif category == "active_computation":
+            return "computation"
+        elif category == "fact_retrieval":
+            return "knowledge_access"
+        elif category == "result_consolidation":
+            return "consolidation"
+        elif category == "final_answer_emission":
+            return "answer_emission"
+        elif category == "problem_setup":
+            return "problem_understanding"
+        else:
+            return "other"
+    
+    def _generate_anchor_summary(self, anchors: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """Generate summary statistics for exported thought anchors."""
+        if not anchors:
+            return {"total_anchors": 0}
+        
+        # Count by category and pattern
+        category_counts = {}
+        pattern_counts = {}
+        importance_scores = []
+        
+        for anchor in anchors:
+            category = anchor.get("sentence_category", "unknown")
+            pattern = anchor.get("reasoning_pattern", "unknown")
+            importance = anchor.get("importance_score", 0)
+            
+            category_counts[category] = category_counts.get(category, 0) + 1
+            pattern_counts[pattern] = pattern_counts.get(pattern, 0) + 1
+            importance_scores.append(importance)
+        
+        return {
+            "total_anchors": len(anchors),
+            "category_distribution": category_counts,
+            "reasoning_pattern_distribution": pattern_counts,
+            "average_importance": sum(importance_scores) / len(importance_scores) if importance_scores else 0,
+            "max_importance": max(importance_scores) if importance_scores else 0,
+            "min_importance": min(importance_scores) if importance_scores else 0,
+            "positive_anchors": sum(1 for a in anchors if a.get("is_positive", False)),
+            "negative_anchors": sum(1 for a in anchors if not a.get("is_positive", False))
+        }

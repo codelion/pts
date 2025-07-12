@@ -11,12 +11,14 @@ import sys
 import os
 from typing import Dict, List, Any, Optional, Union, Tuple
 import json
+import torch
 from tqdm import tqdm
 
 from .core import PivotalTokenSearcher
 from .storage import TokenStorage
 from .exporters import TokenExporter
 from .dataset import load_dataset, create_oracle_from_dataset
+from .thought_anchors import ThoughtAnchorSearcher, ThoughtAnchorStorage
 
 
 def setup_logging(log_level: str = "INFO"):
@@ -138,6 +140,182 @@ def run_pts(args):
     logger.info(f"Finished processing {args.max_examples} examples")
 
 
+def run_thought_anchors(args):
+    """Run the Thought Anchor Search algorithm."""
+    setup_logging(args.log_level)
+    logger = logging.getLogger(__name__)
+    
+    logger.info(f"Running Thought Anchor Search with model {args.model}")
+    
+    # Load dataset
+    examples = load_dataset(
+        dataset_name=args.dataset,
+        split=args.split,
+        config=args.config,
+        sample_size=args.sample_size,
+        seed=args.seed,
+        query_key=args.query_key,
+        answer_key=args.answer_key
+    )
+    
+    if not examples:
+        logger.error(f"No examples loaded from dataset {args.dataset}")
+        return
+    
+    logger.info(f"Loaded {len(examples)} examples from {args.dataset}")
+    
+    # Create oracle from dataset
+    oracle = create_oracle_from_dataset(examples, debug_mode=args.debug)
+    
+    # Pass skip_embeddings flag through oracle
+    if hasattr(args, 'skip_embeddings') and args.skip_embeddings:
+        oracle.skip_embeddings = True
+        logger.info("Embeddings will be skipped for faster processing")
+    
+    # Create storage for thought anchors
+    storage = ThoughtAnchorStorage(filepath=args.output_path)
+    
+    # Create thought anchor searcher
+    searcher = ThoughtAnchorSearcher(
+        model_name=args.model,
+        oracle=oracle,
+        device=args.device,
+        prob_threshold=args.prob_threshold,
+        temperature=args.temperature,
+        top_p=args.top_p,
+        top_k=args.top_k,
+        min_p=args.min_p,
+        max_new_tokens=args.max_new_tokens,
+        num_samples=args.num_samples,
+        batch_size=args.batch_size,
+        log_level=getattr(logging, args.log_level.upper()),
+        debug_mode=args.debug
+    )
+    
+    # Pass storage to searcher for periodic saving
+    searcher.storage = storage
+    
+    # Process each example
+    successful_searches = 0
+    total_thought_anchors = 0
+    
+    for i, example in enumerate(tqdm(examples[:args.max_examples], desc="Processing examples")):
+        if i >= args.max_examples:
+            break
+            
+        logger.info(f"Processing example {i+1}/{min(len(examples), args.max_examples)}")
+        
+        query = example["query"]
+        
+        # Skip empty queries
+        if not query.strip():
+            logger.warning(f"Skipping empty query in example {i}")
+            continue
+        
+        # Generate a reasoning trace first
+        logger.info(f"Generating reasoning trace for analysis...")
+        
+        # Format the prompt
+        if args.system_prompt:
+            messages = [
+                {"role": "system", "content": args.system_prompt},
+                {"role": "user", "content": query}
+            ]
+            prompt = searcher.tokenizer.apply_chat_template(
+                messages,
+                tokenize=False,
+                add_generation_prompt=True
+            )
+        else:
+            # Use category-specific formatting if available 
+            category = example.get("metadata", {}).get("category", None)
+            if category and hasattr(oracle, 'get_prompt_for_category'):
+                prompt = oracle.get_prompt_for_category(query, category)
+            else:
+                prompt = query
+        
+        # Generate a reasoning trace
+        tokenized = searcher.tokenizer(prompt, return_tensors="pt", padding=True)
+        input_ids = tokenized.input_ids.to(searcher.device)
+        attention_mask = tokenized.attention_mask.to(searcher.device) if "attention_mask" in tokenized else None
+        
+        try:
+            with torch.no_grad():
+                outputs = searcher.model.generate(
+                    input_ids,
+                    attention_mask=attention_mask,
+                    do_sample=True,
+                    max_new_tokens=args.max_new_tokens,
+                    temperature=args.temperature,
+                    top_p=args.top_p,
+                    top_k=args.top_k,
+                    min_p=args.min_p,
+                    pad_token_id=searcher.tokenizer.pad_token_id,
+                    return_dict_in_generate=True
+                )
+            
+            # Extract the reasoning trace
+            reasoning_trace = searcher.tokenizer.decode(
+                outputs.sequences[0][input_ids.shape[1]:], 
+                skip_special_tokens=True
+            )
+            
+            if not reasoning_trace.strip():
+                logger.warning(f"Empty reasoning trace for example {i}, skipping")
+                continue
+            
+            logger.info(f"Generated reasoning trace with {len(reasoning_trace)} characters")
+            
+            # Search for thought anchors in the reasoning trace
+            query_thought_anchors = list(searcher.search_thought_anchors(
+                query=query,
+                reasoning_trace=reasoning_trace,
+                system_prompt=args.system_prompt,
+                task_type="generic",
+                dataset_id=args.dataset,
+                item_id=example.get("item_id", str(i)),
+                min_prob=args.min_prob,
+                max_prob=args.max_prob,
+                category=example.get("metadata", {}).get("category", None)
+            ))
+            
+            if query_thought_anchors:
+                # Add thought anchors to storage
+                for anchor in query_thought_anchors:
+                    storage.add_thought_anchor(anchor)
+                    
+                successful_searches += 1
+                total_thought_anchors += len(query_thought_anchors)
+                logger.info(f"Found {len(query_thought_anchors)} thought anchors for example {i}")
+            else:
+                logger.info(f"No thought anchors found for example {i}")
+                
+        except Exception as e:
+            logger.error(f"Error processing example {i}: {e}")
+            continue
+    
+    # Save the thought anchors
+    logger.info(f"Found thought anchors in {successful_searches}/{args.max_examples} examples")
+    logger.info(f"Total thought anchors found: {total_thought_anchors}")
+    
+    if total_thought_anchors > 0:
+        storage.save()
+        logger.info(f"Saved thought anchors to {args.output_path}")
+        
+        # Generate and print summary
+        summary = storage.get_anchor_summary()
+        logger.info(f"Thought Anchor Summary:")
+        logger.info(f"  Total anchors: {summary['total_anchors']}")
+        logger.info(f"  Positive anchors: {summary['positive_anchors']}")
+        logger.info(f"  Negative anchors: {summary['negative_anchors']}")
+        logger.info(f"  Average importance: {summary['average_importance']:.3f}")
+        logger.info(f"  Category distribution: {summary['category_distribution']}")
+    else:
+        logger.info(f"No thought anchors found, no file saved")
+        
+    logger.info(f"Finished processing {args.max_examples} examples")
+
+
 def export_tokens(args):
     """Export pivotal tokens to different formats."""
     setup_logging(args.log_level)
@@ -184,6 +362,19 @@ def export_tokens(args):
             hf_repo_id=args.hf_repo_id,
             private=args.private
         )
+    elif args.format == "thought_anchors":
+        logger.info(f"Exporting to thought anchors format")
+        exporter.export_thought_anchors(
+            output_path=args.output_path,
+            min_importance_score=getattr(args, 'min_prob_delta', 0.1),
+            max_anchors=args.max_pairs,
+            sort_by_importance=True,
+            include_alternatives=True,
+            hf_push=args.hf_push,
+            hf_repo_id=args.hf_repo_id,
+            private=args.private,
+            model_name=args.model
+        )
     else:
         logger.error(f"Unsupported export format: {args.format}")
         sys.exit(1)
@@ -222,13 +413,32 @@ def push_to_hf(args):
         
         # Create README by default unless --no-readme flag is specified
         if not args.no_readme:
-            # Determine file type
+            # Determine file type by filename and content
+            file_type = "tokens"  # default
+            
             if filename.endswith("_vectors.jsonl") or "steering" in filename:
                 file_type = "steering"
             elif "dpo" in filename:
                 file_type = "dpo"
+            elif "thought_anchor" in filename or "anchor" in filename:
+                file_type = "thought_anchors"
             else:
-                file_type = "tokens"
+                # Check file content to detect thought anchors
+                try:
+                    with open(args.input_path, 'r') as f:
+                        first_line = f.readline().strip()
+                        if first_line:
+                            import json
+                            data = json.loads(first_line)
+                            # Check for thought anchor specific fields
+                            if "sentence_embedding" in data or "prob_with_sentence" in data or "suffix_context" in data:
+                                file_type = "thought_anchors"
+                            elif "chosen" in data and "rejected" in data:
+                                file_type = "dpo"
+                            elif "steering_vector" in data or "activation_vector" in data:
+                                file_type = "steering"
+                except Exception:
+                    pass  # Fall back to default if content check fails
                 
             # Import the README generation function from exporters
             from .exporters import generate_readme_content
@@ -298,12 +508,14 @@ def parse_args():
                            help="Key for answer field in dataset (e.g., 'answer', 'output', 'solution'). Auto-detected if not specified.")
     run_parser.add_argument("--log-level", type=str, default="INFO", choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"], help="Logging level")
     run_parser.add_argument("--debug", action="store_true", help="Enable debug mode to print questions and responses")
+    run_parser.add_argument("--generate-thought-anchors", action="store_true", help="Generate thought anchors dataset instead of pivotal tokens")
+    run_parser.add_argument("--skip-embeddings", action="store_true", help="Skip embedding generation for faster processing (thought anchors only)")
     
     # Export subcommand
     export_parser = subparsers.add_parser("export", help="Export tokens to different formats")
     export_parser.add_argument("--input-path", type=str, required=True, help="Input tokens file path")
     export_parser.add_argument("--output-path", type=str, required=True, help="Output file path")
-    export_parser.add_argument("--format", type=str, required=True, choices=["dpo", "steering"], help="Export format")
+    export_parser.add_argument("--format", type=str, required=True, choices=["dpo", "steering", "thought_anchors"], help="Export format")
     export_parser.add_argument("--model", type=str, default=None, help="Model name or path (required for steering)")
     export_parser.add_argument("--min-prob-delta", type=float, default=0.1, help="Minimum probability delta")
     export_parser.add_argument("--balance", action="store_true", help="Balance positive and negative examples")
@@ -340,7 +552,10 @@ def main():
     args = parse_args()
     
     if args.command == "run":
-        run_pts(args)
+        if hasattr(args, 'generate_thought_anchors') and args.generate_thought_anchors:
+            run_thought_anchors(args)
+        else:
+            run_pts(args)
     elif args.command == "export":
         export_tokens(args)
     elif args.command == "push":
