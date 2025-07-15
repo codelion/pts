@@ -6,13 +6,13 @@
 
 Understanding how language models reason has become one of the most important challenges in AI safety and interpretability. While we can observe model outputs, the internal reasoning processes that lead to those outputs remain largely opaque. This study introduces a novel approach to peer inside the "black box" of model reasoning using **thought anchors** - critical sentences that significantly impact the probability of successful task completion.
 
-Building on the original thought anchors concept introduced by [Raina et al. (2024)](https://arxiv.org/abs/2506.19143), we implemented this methodology using our [Pivotal Token Search (PTS) library](https://github.com/codelion/pts) to analyze two distinct language models: Qwen3-0.6B and DeepSeek-R1-Distill-Qwen-1.5B. Our findings reveal unexpected insights about how reasoning capabilities have evolved between these models.
+Building on the original thought anchors concept introduced by [Bogdan et al. (2025)](https://arxiv.org/abs/2506.19143), we implemented this methodology using our [Pivotal Token Search (PTS) library](https://github.com/codelion/pts) to analyze two distinct language models: Qwen3-0.6B and DeepSeek-R1-Distill-Qwen-1.5B. Our findings reveal unexpected insights about how reasoning capabilities have evolved between these models.
 
 ## What Are Thought Anchors?
 
 Thought anchors are sentences within a model's reasoning trace that have a significant causal impact on the success probability of completing a task. Unlike traditional interpretability methods that focus on individual tokens or attention patterns, thought anchors capture sentence-level reasoning steps that matter most for task completion.
 
-The methodology, as introduced by Raina et al. (2024), works by:
+The methodology, as introduced by Bogdan et al. (2025), works by:
 1. **Generating reasoning traces** using chain-of-thought prompting with `<think>` tags
 2. **Identifying critical sentences** using counterfactual analysis
 3. **Measuring impact** by comparing success probabilities with and without each sentence
@@ -278,11 +278,11 @@ The thought anchors methodology, implemented through our PTS library, provides a
 
 ## Acknowledgments
 
-This work builds on the original thought anchors concept introduced by Raina et al. (2024) and extends it through the Pivotal Token Search methodology. We thank the broader AI safety and interpretability communities for their foundational work in this area.
+This work builds on the original thought anchors concept introduced by Bogdan et al. (2025) and extends it through the Pivotal Token Search methodology. We thank the broader AI safety and interpretability communities for their foundational work in this area.
 
 ## References
 
-- Raina, S., Koh, P. W., & Hashimoto, T. (2024). Thought Anchors: Which LLM Reasoning Steps Matter? *arXiv preprint arXiv:2506.19143*. Retrieved from https://arxiv.org/abs/2506.19143
+- Bogdan, P. C., Macar, U., Nanda, N., & Conmy, A. (2025). Thought Anchors: Which LLM Reasoning Steps Matter? *arXiv preprint arXiv:2506.19143*. Retrieved from https://arxiv.org/abs/2506.19143
 
 ## Resources
 
