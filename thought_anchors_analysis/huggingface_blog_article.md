@@ -289,7 +289,7 @@ This work builds on the original thought anchors concept introduced by Raina et 
 - **PTS Library**: [https://github.com/codelion/pts](https://github.com/codelion/pts)
 - **Qwen3 Dataset**: [codelion/Qwen3-0.6B-pts-thought-anchors](https://huggingface.co/datasets/codelion/Qwen3-0.6B-pts-thought-anchors)
 - **DeepSeek Dataset**: [codelion/DeepSeek-R1-Distill-Qwen-1.5B-pts-thought-anchors](https://huggingface.co/datasets/codelion/DeepSeek-R1-Distill-Qwen-1.5B-pts-thought-anchors)
-- **Analysis Code**: Available in the study repository
+- **Analysis Code**: [https://github.com/codelion/pts/tree/main/thought_anchors_analysis](https://github.com/codelion/pts/tree/main/thought_anchors_analysis)
 
 ---
 
