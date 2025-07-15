@@ -129,23 +129,6 @@ The embedding analysis reveals distinct clustering patterns, suggesting the mode
 
 ![Embedding Clusters](images/embedding_clusters.png)
 
-### Implications for AI Safety and System Design
-
-These findings reveal important considerations for AI safety and system design:
-
-**Reliability vs Innovation Trade-off**:
-- **DeepSeek-R1 approach**: Prioritizes predictable, consistent reasoning - ideal for safety-critical applications
-- **Qwen3 approach**: Enables experimental reasoning with higher variance - valuable for research and creative tasks
-
-**Different Safety Profiles**:
-- **DeepSeek-R1**: Lower risk of unexpected failures, but potential blind spots due to focused failure modes
-- **Qwen3**: Higher variance introduces uncertainty, but diverse failure modes provide better coverage of potential issues
-
-**System Design Implications**:
-- Choose reasoning architecture based on application requirements
-- Consider hybrid approaches that combine both strategies
-- Develop monitoring systems adapted to each reasoning style
-
 ## Case Studies: Reasoning in Action
 
 ### Most Impactful Positive Examples
@@ -173,40 +156,6 @@ These findings reveal important considerations for AI safety and system design:
 - Critical sentence: "Adding 25 and 50 gives 75..."
 - Failure mode: logical_error
 - Impact: Incorrect arithmetic leads to wrong conclusion
-
-## Practical Recommendations
-
-### For AI Practitioners
-
-**Choose DeepSeek-R1 for**:
-- Production systems requiring consistent performance
-- Safety-critical applications
-- Tasks where reliability > creativity
-
-**Choose Qwen3 for**:
-- Research and exploration tasks
-- Creative problem-solving scenarios
-- Applications where breakthrough insights are valued
-
-### For Researchers
-
-**Study DeepSeek-R1's mechanisms**:
-- Investigate what drives its consistency
-- Understand its risk-averse reasoning patterns
-- Explore applications in safe AI systems
-
-**Investigate Qwen3's experimental nature**:
-- Analyze its diverse failure modes
-- Study its high-variance reasoning patterns
-- Develop better failure detection systems
-
-### For Future Model Development
-
-**Design Considerations**:
-- Balance consistency vs. exploration in reasoning
-- Implement failure mode detection for diverse error types
-- Consider reasoning granularity in architecture design
-- Develop hybrid approaches combining both strengths
 
 ## Methodology and Reproducibility
 
@@ -268,17 +217,7 @@ This study demonstrates the power of thought anchors as a mechanistic interpreta
 3. **Complexity-reliability trade-offs**: More complex reasoning leads to diverse capabilities but also diverse failure modes
 4. **Context-dependent superiority**: Neither approach is universally superior - performance depends on application requirements
 
-These insights have profound implications for AI safety, model selection, and future development. Rather than seeking a single "best" reasoning approach, we should:
-- **Understand trade-offs**: Recognize that different reasoning architectures serve different purposes
-- **Match models to tasks**: Choose reasoning styles based on application requirements
-- **Design hybrid systems**: Combine concentrated and distributed reasoning approaches
-- **Develop adaptive monitoring**: Create safety systems tailored to each reasoning style
-
 The thought anchors methodology, implemented through our PTS library, provides a scalable approach to understanding model reasoning that can be applied across different architectures, scales, and domains. We encourage the community to build upon this work to develop better interpretability tools and more effective AI systems.
-
-## Acknowledgments
-
-This work builds on the original thought anchors concept introduced by Bogdan et al. (2025) and extends it through the Pivotal Token Search methodology. We thank the broader AI safety and interpretability communities for their foundational work in this area.
 
 ## References
 
