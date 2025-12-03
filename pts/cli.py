@@ -189,7 +189,8 @@ def run_thought_anchors(args):
         num_samples=args.num_samples,
         batch_size=args.batch_size,
         log_level=getattr(logging, args.log_level.upper()),
-        debug_mode=args.debug
+        debug_mode=args.debug,
+        enable_verification=getattr(args, 'enable_verification', False)
     )
     
     # Pass storage to searcher for periodic saving
@@ -510,7 +511,8 @@ def parse_args():
     run_parser.add_argument("--debug", action="store_true", help="Enable debug mode to print questions and responses")
     run_parser.add_argument("--generate-thought-anchors", action="store_true", help="Generate thought anchors dataset instead of pivotal tokens")
     run_parser.add_argument("--skip-embeddings", action="store_true", help="Skip embedding generation for faster processing (thought anchors only)")
-    
+    run_parser.add_argument("--enable-verification", action="store_true", help="Enable CRV-inspired arithmetic verification with attention analysis (thought anchors only)")
+
     # Export subcommand
     export_parser = subparsers.add_parser("export", help="Export tokens to different formats")
     export_parser.add_argument("--input-path", type=str, required=True, help="Input tokens file path")
