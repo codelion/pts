@@ -60,7 +60,14 @@ class ThoughtAnchor:
     failure_mode: Optional[str] = None  # "logical_error", "computational_mistake", "missing_step", "hallucination"
     error_type: Optional[str] = None    # More specific error classification
     correction_suggestion: Optional[str] = None  # How to fix if negative
-    
+
+    # Verification fields (CRV-inspired, for interpretability research)
+    verification_score: Optional[float] = None       # 0.0 = wrong, 1.0 = correct
+    verification_method: Optional[str] = None        # "ground_truth", "attention", "combined"
+    arithmetic_errors: List[Dict[str, Any]] = field(default_factory=list)  # Detected arithmetic errors
+    attention_entropy: Optional[float] = None        # Lower = more focused/confident
+    attention_focus_score: Optional[float] = None    # How much attention to operands
+
     # Optional fields with defaults (existing)
     sentence_category: Optional[str] = None  # e.g., "plan_generation", "uncertainty_management"
     alternatives_tested: List[str] = field(default_factory=list)  # Alternative sentences tested
@@ -108,7 +115,14 @@ class ThoughtAnchor:
             "failure_mode": self.failure_mode,
             "error_type": self.error_type,
             "correction_suggestion": self.correction_suggestion,
-            
+
+            # Verification fields (CRV-inspired)
+            "verification_score": self.verification_score,
+            "verification_method": self.verification_method,
+            "arithmetic_errors": self.arithmetic_errors,
+            "attention_entropy": self.attention_entropy,
+            "attention_focus_score": self.attention_focus_score,
+
             # Computed fields
             "importance_score": self.importance_score(),
             "is_positive": self.is_positive(),
@@ -126,6 +140,7 @@ class ThoughtAnchor:
     def from_dict(cls, data: Dict[str, Any]) -> 'ThoughtAnchor':
         """Create a ThoughtAnchor instance from a dictionary."""
         return cls(
+            # Core fields
             model_id=data["model_id"],
             query=data["query"],
             sentence=data["sentence"],
@@ -134,10 +149,37 @@ class ThoughtAnchor:
             prob_with_sentence=data["prob_with_sentence"],
             prob_without_sentence=data["prob_without_sentence"],
             prob_delta=data["prob_delta"],
+            task_type=data["task_type"],
+
+            # Enhanced contextual fields
+            suffix_context=data.get("suffix_context", ""),
+            full_reasoning_trace=data.get("full_reasoning_trace", ""),
+
+            # Semantic representations
+            sentence_embedding=data.get("sentence_embedding", []),
+            alternatives_embeddings=data.get("alternatives_embeddings", []),
+
+            # Enhanced dependency modeling
+            causal_dependencies=data.get("causal_dependencies", []),
+            causal_dependents=data.get("causal_dependents", []),
+            logical_relationship=data.get("logical_relationship"),
+
+            # Failure analysis
+            failure_mode=data.get("failure_mode"),
+            error_type=data.get("error_type"),
+            correction_suggestion=data.get("correction_suggestion"),
+
+            # Verification fields (CRV-inspired)
+            verification_score=data.get("verification_score"),
+            verification_method=data.get("verification_method"),
+            arithmetic_errors=data.get("arithmetic_errors", []),
+            attention_entropy=data.get("attention_entropy"),
+            attention_focus_score=data.get("attention_focus_score"),
+
+            # Legacy/existing fields
             sentence_category=data.get("sentence_category"),
             alternatives_tested=data.get("alternatives_tested", []),
             dependency_sentences=data.get("dependency_sentences", []),
-            task_type=data["task_type"],
             dataset_id=data.get("dataset_id"),
             dataset_item_id=data.get("dataset_item_id"),
             timestamp=data.get("timestamp", time.strftime("%Y-%m-%dT%H:%M:%S"))
@@ -345,11 +387,12 @@ class ThoughtAnchorSearcher:
         similarity_threshold: float = 0.8,
         trust_remote_code: bool = True,
         log_level: int = logging.INFO,
-        debug_mode: bool = False
+        debug_mode: bool = False,
+        enable_verification: bool = False
     ):
         """
         Initialize the ThoughtAnchorSearcher.
-        
+
         Args:
             model_name: HuggingFace model ID or path to local model
             tokenizer_name: HuggingFace tokenizer ID (if different from model)
@@ -364,6 +407,7 @@ class ThoughtAnchorSearcher:
             trust_remote_code: Whether to trust remote code in model loading
             log_level: Logging level (e.g., logging.INFO)
             debug_mode: Whether to enable debug output
+            enable_verification: Enable CRV-inspired arithmetic verification with attention analysis
         """
         logging.basicConfig(level=log_level)
         self.logger = logging.getLogger(__name__)
@@ -435,8 +479,12 @@ class ThoughtAnchorSearcher:
                 # Use float16 for older GPUs
                 model_kwargs["torch_dtype"] = torch.float16
                 self.logger.info("Using float16 precision with Flash Attention")
-                
+
             model_kwargs["attn_implementation"] = "flash_attention_2"
+        elif self.device == "mps":
+            # Use float32 on MPS for stability (float16 can cause crashes)
+            model_kwargs["torch_dtype"] = torch.float32
+            self.logger.info("Using float32 precision on MPS for stability")
         
         # Load model and tokenizer
         self.logger.info(f"Loading model {model_name} on {self.device}")
@@ -456,7 +504,15 @@ class ThoughtAnchorSearcher:
         # Cache for memoizing probability estimates with size limit
         self.prob_cache = {}
         self.max_cache_size = 1000  # Limit cache to prevent memory issues
-    
+
+        # Initialize CRV-inspired arithmetic verifier if enabled
+        self.enable_verification = enable_verification
+        self.verifier = None
+        if enable_verification:
+            from .verification import ArithmeticVerifier
+            self.verifier = ArithmeticVerifier(self.model, self.tokenizer, self.device)
+            self.logger.info("Arithmetic verification enabled (CRV-inspired)")
+
     def _analyze_dependencies(self, sentence: str, sentence_id: int, all_sentences: List[str]) -> Tuple[List[int], List[int], Optional[str]]:
         """
         Analyze causal dependencies and logical relationships for a sentence.
@@ -1002,7 +1058,45 @@ class ThoughtAnchorSearcher:
                 failure_mode, error_type, correction = self._analyze_failure_mode(
                     sentence, prob_delta, alternatives_tested
                 )
-                
+
+                # CRV-inspired verification for arithmetic operations
+                verification_score = None
+                verification_method = None
+                arithmetic_errors = []
+                attention_entropy = None
+                attention_focus_score = None
+
+                if self.enable_verification and self.verifier:
+                    # Always compute attention metrics for cross-model comparison research
+                    # This captures attention patterns for ALL thought anchors
+                    attention_entropy, attention_focus_score = self.verifier.compute_attention_metrics(
+                        sentence, " ".join(prefix_sentences)
+                    )
+
+                    # Check if sentence contains arithmetic for verification
+                    if sentence_category == "active_computation" or \
+                       re.search(r'\d+\s*[+\-*/]\s*\d+\s*=', sentence):
+                        verification_result = self.verifier.verify_sentence(
+                            sentence, " ".join(prefix_sentences)
+                        )
+
+                        if verification_result["has_arithmetic"]:
+                            verification_score = verification_result["verification_score"]
+                            verification_method = verification_result["verification_method"]
+                            arithmetic_errors = verification_result["arithmetic_errors"]
+                            # Use the attention metrics from verification if available
+                            # (they should be the same, but keep consistency)
+                            if verification_result["attention_entropy"] is not None:
+                                attention_entropy = verification_result["attention_entropy"]
+                                attention_focus_score = verification_result["attention_focus_score"]
+
+                            # Enhance failure analysis with ground truth from verification
+                            if verification_result["arithmetic_errors"]:
+                                failure_mode = "computational_mistake"
+                                error_type = "arithmetic_error"
+                                err = verification_result["arithmetic_errors"][0]
+                                correction = f"{err['expression']} should be {err['correct']}"
+
                 # Create thought anchor object
                 thought_anchor = ThoughtAnchor(
                     query=query,
@@ -1028,6 +1122,12 @@ class ThoughtAnchorSearcher:
                     failure_mode=failure_mode,
                     error_type=error_type,
                     correction_suggestion=correction,
+                    # Verification fields (CRV-inspired)
+                    verification_score=verification_score,
+                    verification_method=verification_method,
+                    arithmetic_errors=arithmetic_errors,
+                    attention_entropy=attention_entropy,
+                    attention_focus_score=attention_focus_score,
                     # Existing fields
                     sentence_category=sentence_category,
                     alternatives_tested=alternatives_tested,

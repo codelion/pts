@@ -149,6 +149,20 @@ dataset_info:
     dtype: string
   - name: correction_suggestion
     dtype: string
+  - name: verification_score
+    dtype: float64
+  - name: verification_method
+    dtype: string
+  - name: arithmetic_errors
+    sequence:
+      struct:
+        expression: string
+        stated: float64
+        correct: float64
+  - name: attention_entropy
+    dtype: float64
+  - name: attention_focus_score
+    dtype: float64
   - name: importance_score
     dtype: float64
   - name: is_positive
@@ -215,6 +229,13 @@ Each thought anchor contains:
 - `failure_mode`: Type of failure ("logical_error", "computational_mistake", etc.)
 - `error_type`: More specific error classification
 - `correction_suggestion`: How to improve the sentence
+
+### Verification Fields (CRV-inspired)
+- `verification_score`: Combined verification score (0.0 = wrong, 1.0 = correct)
+- `verification_method`: Method used ("ground_truth", "attention", "combined")
+- `arithmetic_errors`: List of detected arithmetic errors with expression, stated, and correct values
+- `attention_entropy`: Attention distribution entropy (lower = more focused/confident)
+- `attention_focus_score`: How concentrated the attention is on operands
 
 ### Classification
 - `sentence_category`: Type of reasoning step ("plan_generation", "active_computation", etc.)
@@ -1119,11 +1140,18 @@ class TokenExporter:
                 "task_type": anchor.get("task_type", "generic"),
                 "model_id": anchor.get("model_id", model_name or "unknown"),
                 "timestamp": anchor.get("timestamp", ""),
-                
+
                 # Reasoning patterns (useful for inference guidance)
                 "reasoning_pattern": self._classify_reasoning_pattern(anchor),
+
+                # Verification fields (CRV-inspired)
+                "verification_score": anchor.get("verification_score"),
+                "verification_method": anchor.get("verification_method"),
+                "arithmetic_errors": anchor.get("arithmetic_errors", []),
+                "attention_entropy": anchor.get("attention_entropy"),
+                "attention_focus_score": anchor.get("attention_focus_score"),
             }
-            
+
             # Optionally include alternatives tested
             if include_alternatives and "alternatives_tested" in anchor:
                 export_item["alternatives_tested"] = anchor["alternatives_tested"]

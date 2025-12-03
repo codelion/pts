@@ -8,3 +8,4 @@ huggingface_hub>=0.16.0
 accelerate
 sentence-transformers>=2.2.0
 psutil>=5.9.0
+math-verify[antlr4_13_2]>=0.1.0

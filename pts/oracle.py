@@ -15,6 +15,16 @@ import json
 
 logger = logging.getLogger(__name__)
 
+# Try to import math_verify for robust mathematical expression comparison
+try:
+    from math_verify import parse, verify as math_verify_check
+    from math_verify.parser import LatexExtractionConfig, ExprExtractionConfig
+    MATH_VERIFY_AVAILABLE = True
+    logger.info("math_verify library available for robust answer verification")
+except ImportError:
+    MATH_VERIFY_AVAILABLE = False
+    logger.debug("math_verify not available, falling back to regex-based verification")
+
 
 class Oracle:
     """Base class for oracles that determine success of model responses."""
@@ -239,17 +249,64 @@ class MathOracle(Oracle):
         # Single expected answer
         else:
             norm_expected = self.normalize_answer(expected)
-            
+
             # Try numeric comparison for numeric answers
             if self._is_numeric(norm_extracted) and self._is_numeric(norm_expected):
                 return self._compare_numeric(norm_extracted, norm_expected)
-                
+
             # String comparison
             elif self.exact_match:
                 return norm_extracted == norm_expected
             else:
                 return norm_extracted in norm_expected or norm_expected in norm_extracted
-    
+
+    def compare_answers_with_math_verify(
+        self, extracted: str, expected: Union[str, List[str]]
+    ) -> bool:
+        """
+        Use math_verify for robust symbolic comparison of mathematical expressions.
+
+        This handles LaTeX notation, equivalent expressions, and symbolic comparison
+        using SymPy under the hood.
+
+        Args:
+            extracted: The extracted answer
+            expected: Expected answer or list of valid answers
+
+        Returns:
+            Boolean indicating whether the answers match
+        """
+        if not MATH_VERIFY_AVAILABLE:
+            # Fall back to standard comparison
+            return self.compare_answers(extracted, expected)
+
+        if extracted is None:
+            return False
+
+        latex_config = LatexExtractionConfig()
+        expr_config = ExprExtractionConfig()
+
+        def try_math_verify(ext: str, exp: str) -> bool:
+            """Try math_verify comparison, fall back to standard on failure."""
+            try:
+                parsed_extracted = parse(ext, [latex_config, expr_config])
+                parsed_expected = parse(exp, [latex_config, expr_config])
+                if parsed_extracted is not None and parsed_expected is not None:
+                    return math_verify_check(parsed_extracted, parsed_expected)
+            except Exception as e:
+                logger.debug(f"math_verify comparison failed: {e}")
+            # Fall back to standard comparison
+            return self.compare_answers(ext, exp)
+
+        # Handle list of valid answers
+        if isinstance(expected, list):
+            for exp in expected:
+                if try_math_verify(extracted, exp):
+                    return True
+            return False
+        else:
+            return try_math_verify(extracted, expected)
+
     def check_success(self, query: str, response: str) -> bool:
         """
         Check if a math response has the correct answer.
@@ -285,7 +342,11 @@ class MathOracle(Oracle):
                     logger.debug(f"Could not extract answer from full response: {response}")
                 return False
             
-        result = self.compare_answers(extracted, expected)
+        # Use math_verify for robust comparison when available
+        if MATH_VERIFY_AVAILABLE:
+            result = self.compare_answers_with_math_verify(extracted, expected)
+        else:
+            result = self.compare_answers(extracted, expected)
         if self.debug_mode:
             logger.debug(f"Query: {query}\nExtracted: {extracted}\nExpected: {expected}\nResult: {result}")
         return result
