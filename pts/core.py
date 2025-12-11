@@ -252,7 +252,7 @@ class PivotalTokenSearcher:
                 prompt = query
             
         if prefix:
-            prompt = prompt + prefix
+            prompt = prefix
             
         # Tokenize prompt
         tokenized = self.tokenizer(prompt, return_tensors="pt", padding=True)
