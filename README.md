@@ -1,5 +1,7 @@
 # PTS: Pivotal Token Search
 
+[![Open in Spaces](https://huggingface.co/datasets/huggingface/badges/resolve/main/open-in-hf-spaces-sm.svg)](https://huggingface.co/spaces/codelion/pts-visualizer)
+
 A tool for discovering pivotal tokens in large language model generations and creating DPO datasets and steering vectors from them.
 
 ## Features
@@ -57,6 +59,26 @@ pts push --input-path="dpo_dataset.jsonl" --hf-repo="codelion/pts-dpo-dataset" -
 
 You can also check out the [datasets](https://huggingface.co/datasets?other=pts) and [models](https://huggingface.co/models?other=pts) created with pts.
 It was used for the `autothink` approach in [optillm](https://github.com/codelion/optillm) as described in this [paper](https://papers.ssrn.com/sol3/papers.cfm?abstract_id=5253327).
+
+## PTS Visualizer
+
+The [PTS Visualizer](https://huggingface.co/spaces/codelion/pts-visualizer) is an interactive web application inspired by [Neuronpedia](https://neuronpedia.org/) for exploring pivotal tokens, thought anchors, and reasoning circuits. Load datasets from HuggingFace or upload your own JSONL files to analyze how language models reason.
+
+### Visualizations
+
+| Tab | Description | Use Cases |
+|-----|-------------|-----------|
+| **Overview** | Dataset statistics with probability delta distribution and category breakdowns | Get a quick summary of your dataset, understand the balance of positive vs negative impacts, identify which task types or categories are most common |
+| **Token Explorer** | Examine individual pivotal tokens in their full context with highlighted impact | Debug specific model decisions, understand why certain tokens increase or decrease success probability, inspect the reasoning context around critical tokens |
+| **Reasoning Graph** | Interactive dependency graph showing causal relationships between reasoning steps | Visualize how reasoning flows through a problem, identify critical decision points, understand which steps depend on others (for thought anchors datasets) |
+| **Embedding Space** | t-SNE projection of token/sentence embeddings or probability space visualization | Discover clusters of similar reasoning patterns, identify outliers, explore the semantic relationships between pivotal tokens or thought anchors |
+| **Circuit Tracer** | Step-by-step walkthrough of reasoning traces with probability progression | Follow the model's reasoning process from start to finish, see how each step affects success probability, identify where reasoning goes wrong |
+
+### Supported Datasets
+
+- **Pivotal Tokens**: Token-level analysis showing which tokens significantly change success probability
+- **Thought Anchors**: Sentence-level analysis with causal dependencies and reasoning categorization
+- **Steering Vectors**: Activation patterns that can guide model generation
 
 ## Core Concepts
 
