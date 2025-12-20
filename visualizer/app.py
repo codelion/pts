@@ -933,6 +933,26 @@ def get_token_details(idx: int) -> Tuple[str, go.Figure]:
     return html, chart
 
 
+def get_original_query_from_label(label: str) -> str:
+    """Extract original query from truncated dropdown label like '[1] query...'"""
+    if not label or not isinstance(label, str):
+        return None
+
+    df = current_data["df"]
+    if df.empty or 'query' not in df.columns:
+        return None
+
+    # Extract index from "[N] query..." format
+    match = re.match(r'\[(\d+)\]', label)
+    if match:
+        idx = int(match.group(1)) - 1  # Convert to 0-based index
+        queries = df['query'].unique().tolist()
+        if 0 <= idx < len(queries):
+            return queries[idx]
+
+    return None
+
+
 def update_graph_visualization(query_dropdown: str = None):
     """Update the thought anchor graph."""
     dataset_type = current_data.get("type", "unknown")
@@ -945,7 +965,10 @@ def update_graph_visualization(query_dropdown: str = None):
         )
         fig.update_layout(template="plotly_dark", height=400)
         return fig
-    return create_thought_anchor_graph(current_data["df"], query_dropdown)
+
+    # Convert truncated label back to original query
+    original_query = get_original_query_from_label(query_dropdown)
+    return create_thought_anchor_graph(current_data["df"], original_query)
 
 
 def update_embedding_visualization(color_by: str):
@@ -989,21 +1012,19 @@ def get_query_list():
     """Get list of unique queries with truncated display labels."""
     df = current_data["df"]
     if df.empty or 'query' not in df.columns:
-        return gr.Dropdown(choices=[], value=None)
+        return gr.update(choices=[], value=None)
 
     queries = df['query'].unique().tolist()
-    # Return tuples of (truncated_label, full_value) for dropdown
-    # Gradio will show the label but pass the value
+    # Return simple truncated strings for dropdown choices
     truncated_queries = []
     for i, q in enumerate(queries):
         q_str = str(q) if q is not None else ""
         if len(q_str) > 80:
-            label = f"[{i+1}] {q_str[:77]}..."
+            truncated_queries.append(f"[{i+1}] {q_str[:77]}...")
         else:
-            label = f"[{i+1}] {q_str}"
-        truncated_queries.append((label, q_str))
+            truncated_queries.append(f"[{i+1}] {q_str}")
 
-    return gr.Dropdown(choices=truncated_queries, value=None)
+    return gr.update(choices=truncated_queries, value=None)
 
 
 def refresh_all():
@@ -1043,26 +1064,13 @@ HF_DATASETS = [
     "codelion/DeepSeek-R1-Distill-Qwen-1.5B-pts-steering-vectors",
 ]
 
-# Theme and CSS configuration
-THEME = gr.themes.Soft(
-    primary_hue="indigo",
-    secondary_hue="emerald",
-    neutral_hue="slate"
-)
+# CSS configuration
 CSS = """
 .gradio-container { max-width: 1400px !important; }
 .main-header { text-align: center; margin-bottom: 20px; }
 """
 
-# Use try/except for Gradio version compatibility
-try:
-    # Gradio 4.x style
-    demo_context = gr.Blocks(title="PTS Visualizer", theme=THEME, css=CSS)
-except TypeError:
-    # Gradio 6.x style (theme/css moved to launch)
-    demo_context = gr.Blocks(title="PTS Visualizer")
-
-with demo_context as demo:
+with gr.Blocks(title="PTS Visualizer", css=CSS) as demo:
 
     # Header
     gr.Markdown("""
@@ -1088,8 +1096,8 @@ with demo_context as demo:
             with gr.Column(scale=3):
                 dataset_dropdown = gr.Dropdown(
                     choices=HF_DATASETS,
+                    value=HF_DATASETS[0],
                     label="Select Dataset",
-                    allow_custom_value=True,
                     info="Choose a pre-defined dataset or enter your own HuggingFace dataset ID"
                 )
             with gr.Column(scale=1):
@@ -1139,8 +1147,8 @@ with demo_context as demo:
             with gr.Row():
                 query_filter = gr.Dropdown(
                     choices=[],
-                    label="Filter by Query",
-                    allow_custom_value=True
+                    value=None,
+                    label="Filter by Query"
                 )
             graph_plot = gr.Plot()
 
@@ -1168,49 +1176,58 @@ with demo_context as demo:
             circuit_html = gr.HTML()
             circuit_chart = gr.Plot()
 
-    # Event handlers
+    # Event handlers - using api_name=False to prevent schema generation issues
     load_btn.click(
         fn=load_dataset_action,
         inputs=[source_type, dataset_dropdown, file_upload],
-        outputs=[load_status, dataset_info]
+        outputs=[load_status, dataset_info],
+        api_name=False
     ).then(
         fn=refresh_all,
-        outputs=[stats_html, stats_chart, graph_plot, embed_plot, circuit_html, circuit_chart]
+        outputs=[stats_html, stats_chart, graph_plot, embed_plot, circuit_html, circuit_chart],
+        api_name=False
     ).then(
-        fn=lambda: gr.Slider(maximum=max(0, len(current_data["df"]) - 1)),
-        outputs=[token_slider]
+        fn=lambda: gr.update(maximum=max(0, len(current_data["df"]) - 1)),
+        outputs=[token_slider],
+        api_name=False
     ).then(
         fn=get_query_list,
-        outputs=[query_filter]
+        outputs=[query_filter],
+        api_name=False
     )
 
     refresh_btn.click(
         fn=refresh_all,
-        outputs=[stats_html, stats_chart, graph_plot, embed_plot, circuit_html, circuit_chart]
+        outputs=[stats_html, stats_chart, graph_plot, embed_plot, circuit_html, circuit_chart],
+        api_name=False
     )
 
     token_slider.change(
         fn=get_token_details,
         inputs=[token_slider],
-        outputs=[token_html, prob_chart]
+        outputs=[token_html, prob_chart],
+        api_name=False
     )
 
     query_filter.change(
         fn=update_graph_visualization,
         inputs=[query_filter],
-        outputs=[graph_plot]
+        outputs=[graph_plot],
+        api_name=False
     )
 
     color_dropdown.change(
         fn=update_embedding_visualization,
         inputs=[color_dropdown],
-        outputs=[embed_plot]
+        outputs=[embed_plot],
+        api_name=False
     )
 
     circuit_query_idx.change(
         fn=update_circuit_view,
         inputs=[circuit_query_idx],
-        outputs=[circuit_html, circuit_chart]
+        outputs=[circuit_html, circuit_chart],
+        api_name=False
     )
 
 
