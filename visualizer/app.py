@@ -499,9 +499,14 @@ def create_embedding_visualization(df: pd.DataFrame, color_by: str = 'is_positiv
 
     for idx, row in df.iterrows():
         emb = row.get(embedding_col, [])
-        if isinstance(emb, list) and len(emb) > 0:
-            embeddings.append(emb)
-            valid_indices.append(idx)
+        # Handle both list and numpy array formats
+        if emb is not None:
+            if isinstance(emb, np.ndarray) and len(emb) > 0:
+                embeddings.append(emb.tolist())
+                valid_indices.append(idx)
+            elif isinstance(emb, list) and len(emb) > 0:
+                embeddings.append(emb)
+                valid_indices.append(idx)
 
     if len(embeddings) < 3:
         fig = go.Figure()
