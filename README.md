@@ -66,13 +66,13 @@ The [PTS Visualizer](https://huggingface.co/spaces/codelion/pts-visualizer) is a
 
 ### Visualizations
 
-| Tab | Description | Use Cases |
-|-----|-------------|-----------|
-| **Overview** | Dataset statistics with probability delta distribution and category breakdowns | Get a quick summary of your dataset, understand the balance of positive vs negative impacts, identify which task types or categories are most common |
-| **Token Explorer** | Examine individual pivotal tokens in their full context with highlighted impact | Debug specific model decisions, understand why certain tokens increase or decrease success probability, inspect the reasoning context around critical tokens |
-| **Reasoning Graph** | Interactive dependency graph showing causal relationships between reasoning steps | Visualize how reasoning flows through a problem, identify critical decision points, understand which steps depend on others (for thought anchors datasets) |
-| **Embedding Space** | t-SNE projection of token/sentence embeddings or probability space visualization | Discover clusters of similar reasoning patterns, identify outliers, explore the semantic relationships between pivotal tokens or thought anchors |
-| **Circuit Tracer** | Step-by-step walkthrough of reasoning traces with probability progression | Follow the model's reasoning process from start to finish, see how each step affects success probability, identify where reasoning goes wrong |
+| Tab | Preview | Description | Use Cases |
+|-----|---------|-------------|-----------|
+| **Overview** | [![Overview](visualizer/images/overview.png)](visualizer/images/overview.png) | Dataset statistics with probability delta distribution and category breakdowns | Get a quick summary of your dataset, understand the balance of positive vs negative impacts, identify which task types or categories are most common |
+| **Token Explorer** | [![Token Explorer](visualizer/images/token_explorer.png)](visualizer/images/token_explorer.png) | Examine individual pivotal tokens in their full context with highlighted impact | Debug specific model decisions, understand why certain tokens increase or decrease success probability, inspect the reasoning context around critical tokens |
+| **Reasoning Graph** | [![Reasoning Graph](visualizer/images/reasoning_graph.png)](visualizer/images/reasoning_graph.png) | Interactive dependency graph showing causal relationships between reasoning steps | Visualize how reasoning flows through a problem, identify critical decision points, understand which steps depend on others (for thought anchors datasets) |
+| **Embedding Space** | [![Embedding Space](visualizer/images/embedding_space.png)](visualizer/images/embedding_space.png) | t-SNE projection of token/sentence embeddings or probability space visualization | Discover clusters of similar reasoning patterns, identify outliers, explore the semantic relationships between pivotal tokens or thought anchors |
+| **Circuit Tracer** | [![Circuit Tracer](visualizer/images/circuit_tracer.png)](visualizer/images/circuit_tracer.png) | Step-by-step walkthrough of reasoning traces with probability progression | Follow the model's reasoning process from start to finish, see how each step affects success probability, identify where reasoning goes wrong |
 
 ### Supported Datasets
 
