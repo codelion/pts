@@ -539,23 +539,81 @@ def create_embedding_visualization(df: pd.DataFrame, color_by: str = 'is_positiv
     if color_by not in plot_df.columns:
         color_by = 'is_positive' if 'is_positive' in plot_df.columns else None
 
-    if color_by and color_by in plot_df.columns:
-        fig = px.scatter(
-            plot_df, x='x', y='y',
-            color=color_by,
-            hover_data=['sentence' if 'sentence' in plot_df.columns else 'pivot_token'],
-            title="Embedding Space Visualization (t-SNE)",
-            template="plotly_dark"
-        )
-    else:
-        fig = px.scatter(
-            plot_df, x='x', y='y',
-            hover_data=['sentence' if 'sentence' in plot_df.columns else 'pivot_token'],
-            title="Embedding Space Visualization (t-SNE)",
-            template="plotly_dark"
-        )
+    fig = go.Figure()
 
-    fig.update_layout(height=500)
+    # Determine text field for hover
+    text_field = 'sentence' if 'sentence' in plot_df.columns else 'pivot_token'
+
+    if color_by and color_by in plot_df.columns:
+        # Group by color column for separate traces
+        if color_by == 'is_positive':
+            # Special handling for boolean is_positive
+            for is_pos in [True, False]:
+                mask = plot_df[color_by] == is_pos
+                subset = plot_df[mask]
+                if len(subset) > 0:
+                    hover_texts = [str(row.get(text_field, ''))[:100] for _, row in subset.iterrows()]
+                    fig.add_trace(go.Scatter(
+                        x=subset['x'].tolist(),
+                        y=subset['y'].tolist(),
+                        mode='markers',
+                        name='Positive' if is_pos else 'Negative',
+                        marker=dict(
+                            size=8,
+                            color='#22c55e' if is_pos else '#ef4444',
+                            opacity=0.7
+                        ),
+                        hovertext=hover_texts,
+                        hoverinfo='text'
+                    ))
+        else:
+            # Categorical coloring
+            unique_vals = plot_df[color_by].unique()
+            colors = ['#6366f1', '#22c55e', '#ef4444', '#f59e0b', '#8b5cf6',
+                      '#ec4899', '#14b8a6', '#f97316', '#06b6d4', '#84cc16']
+            for i, val in enumerate(unique_vals):
+                mask = plot_df[color_by] == val
+                subset = plot_df[mask]
+                if len(subset) > 0:
+                    hover_texts = [str(row.get(text_field, ''))[:100] for _, row in subset.iterrows()]
+                    fig.add_trace(go.Scatter(
+                        x=subset['x'].tolist(),
+                        y=subset['y'].tolist(),
+                        mode='markers',
+                        name=str(val),
+                        marker=dict(
+                            size=8,
+                            color=colors[i % len(colors)],
+                            opacity=0.7
+                        ),
+                        hovertext=hover_texts,
+                        hoverinfo='text'
+                    ))
+    else:
+        # No color grouping
+        hover_texts = [str(row.get(text_field, ''))[:100] for _, row in plot_df.iterrows()]
+        fig.add_trace(go.Scatter(
+            x=plot_df['x'].tolist(),
+            y=plot_df['y'].tolist(),
+            mode='markers',
+            name='Embeddings',
+            marker=dict(
+                size=8,
+                color='#6366f1',
+                opacity=0.7
+            ),
+            hovertext=hover_texts,
+            hoverinfo='text'
+        ))
+
+    fig.update_layout(
+        title="Embedding Space Visualization (t-SNE)",
+        xaxis_title="t-SNE 1",
+        yaxis_title="t-SNE 2",
+        template="plotly_dark",
+        height=500,
+        showlegend=True
+    )
 
     return fig
 
