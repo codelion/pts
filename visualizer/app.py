@@ -115,6 +115,10 @@ def create_probability_chart(prob_before: float, prob_after: float) -> go.Figure
     """Create a bar chart showing probability change."""
     fig = go.Figure()
 
+    # Ensure values are Python floats
+    prob_before = float(prob_before) if prob_before is not None else 0.0
+    prob_after = float(prob_after) if prob_after is not None else 0.0
+
     fig.add_trace(go.Bar(
         x=['Before Token', 'After Token'],
         y=[prob_before, prob_after],
@@ -171,13 +175,15 @@ def create_pivotal_token_flow(df: pd.DataFrame, selected_query: str = None) -> g
             f"Query: {str(row.get('query', ''))[:50]}..."
             for _, row in positive_df.iterrows()
         ]
+        y_vals = positive_df['prob_delta'].tolist()
+        sizes = [10 + abs(v) * 30 for v in y_vals]
         fig.add_trace(go.Scatter(
             x=list(range(len(positive_df))),
-            y=positive_df['prob_delta'].values,
+            y=y_vals,
             mode='markers',
             name='Positive Impact',
             marker=dict(
-                size=10 + positive_df['prob_delta'].abs().values * 30,
+                size=sizes,
                 color='#22c55e',
                 opacity=0.7
             ),
@@ -195,13 +201,15 @@ def create_pivotal_token_flow(df: pd.DataFrame, selected_query: str = None) -> g
             f"Query: {str(row.get('query', ''))[:50]}..."
             for _, row in negative_df.iterrows()
         ]
+        y_vals = negative_df['prob_delta'].tolist()
+        sizes = [10 + abs(v) * 30 for v in y_vals]
         fig.add_trace(go.Scatter(
             x=list(range(len(negative_df))),
-            y=negative_df['prob_delta'].values,
+            y=y_vals,
             mode='markers',
             name='Negative Impact',
             marker=dict(
-                size=10 + negative_df['prob_delta'].abs().values * 30,
+                size=sizes,
                 color='#ef4444',
                 opacity=0.7
             ),
@@ -290,8 +298,8 @@ def create_thought_anchor_graph(df: pd.DataFrame, selected_query: str = None) ->
     for edge in G.edges():
         x0, y0 = pos[edge[0]]
         x1, y1 = pos[edge[1]]
-        edge_x.extend([x0, x1, None])
-        edge_y.extend([y0, y1, None])
+        edge_x.extend([float(x0), float(x1), None])
+        edge_y.extend([float(y0), float(y1), None])
 
     edge_trace = go.Scatter(
         x=edge_x, y=edge_y,
@@ -309,12 +317,12 @@ def create_thought_anchor_graph(df: pd.DataFrame, selected_query: str = None) ->
 
     for node in G.nodes():
         x, y = pos[node]
-        node_x.append(x)
-        node_y.append(y)
+        node_x.append(float(x))
+        node_y.append(float(y))
 
         node_data = G.nodes[node]
         is_positive = node_data.get('is_positive', True)
-        importance = node_data.get('importance', 0.3)
+        importance = float(node_data.get('importance', 0.3))
 
         node_colors.append('#22c55e' if is_positive else '#ef4444')
         node_sizes.append(20 + importance * 50)
@@ -401,8 +409,8 @@ def create_probability_space_visualization(df: pd.DataFrame, color_by: str = 'is
         hover_texts.append(text)
 
     fig.add_trace(go.Scatter(
-        x=df['prob_before'],
-        y=df['prob_after'],
+        x=df['prob_before'].tolist(),
+        y=df['prob_after'].tolist(),
         mode='markers',
         marker=dict(
             size=8,
@@ -519,8 +527,8 @@ def create_embedding_visualization(df: pd.DataFrame, color_by: str = 'is_positiv
 
     # Create dataframe for plotting
     plot_df = df.iloc[valid_indices].copy()
-    plot_df['x'] = coords[:, 0]
-    plot_df['y'] = coords[:, 1]
+    plot_df['x'] = coords[:, 0].tolist()
+    plot_df['y'] = coords[:, 1].tolist()
 
     # Handle color column
     if color_by not in plot_df.columns:
@@ -618,6 +626,8 @@ def create_pivotal_token_trace(df: pd.DataFrame, selected_query: str) -> Tuple[s
     # Create probability delta chart
     fig = go.Figure()
 
+    # Ensure all values are Python native types
+    prob_deltas = [float(d) for d in prob_deltas]
     colors = ['#22c55e' if d > 0 else '#ef4444' for d in prob_deltas]
 
     fig.add_trace(go.Bar(
@@ -746,8 +756,8 @@ def create_circuit_visualization(df: pd.DataFrame, query_idx: int = 0) -> Tuple[
     colors = ['#22c55e' if p > 0.5 else '#ef4444' for p in prob_values]
 
     fig.add_trace(go.Scatter(
-        x=sentence_ids,
-        y=prob_values,
+        x=[int(s) if isinstance(s, (int, np.integer)) else s for s in sentence_ids],
+        y=[float(p) for p in prob_values],
         mode='lines+markers',
         name='Success Probability',
         line=dict(color='#6366f1', width=2),
@@ -815,29 +825,71 @@ def create_statistics_dashboard(df: pd.DataFrame) -> Tuple[str, go.Figure]:
 
     html_parts.append('</div>')
 
+    # Determine what to show in second chart
+    second_chart_title = "Category Distribution"
+    if 'sentence_category' in df.columns:
+        second_chart_title = "Sentence Category"
+    elif 'reasoning_pattern' in df.columns:
+        second_chart_title = "Reasoning Pattern"
+    elif 'task_type' in df.columns:
+        second_chart_title = "Task Type"
+    elif 'is_positive' in df.columns:
+        second_chart_title = "Positive vs Negative"
+
     # Create distribution charts
     fig = make_subplots(rows=1, cols=2,
-                        subplot_titles=("Probability Delta Distribution", "Category Distribution"))
+                        subplot_titles=("Probability Delta Distribution", second_chart_title))
 
-    if 'prob_delta' in df.columns:
+    # First chart: Probability Delta histogram (using numpy for binning)
+    if 'prob_delta' in df.columns and len(df['prob_delta'].dropna()) > 0:
+        prob_data = df['prob_delta'].dropna().values
+        # Create histogram manually using numpy
+        counts, bin_edges = np.histogram(prob_data, bins=30)
+        bin_centers = [(bin_edges[i] + bin_edges[i+1]) / 2 for i in range(len(bin_edges)-1)]
         fig.add_trace(
-            go.Histogram(x=df['prob_delta'], nbinsx=30, name="Prob Delta",
-                        marker_color='#6366f1'),
+            go.Bar(x=bin_centers, y=counts.tolist(), name="Prob Delta",
+                   marker_color='#6366f1', width=(bin_edges[1]-bin_edges[0])*0.9),
+            row=1, col=1
+        )
+    elif 'prob_after' in df.columns and len(df['prob_after'].dropna()) > 0:
+        # Fallback: show prob_after distribution
+        prob_data = df['prob_after'].dropna().values
+        counts, bin_edges = np.histogram(prob_data, bins=30)
+        bin_centers = [(bin_edges[i] + bin_edges[i+1]) / 2 for i in range(len(bin_edges)-1)]
+        fig.add_trace(
+            go.Bar(x=bin_centers, y=counts.tolist(), name="Prob After",
+                   marker_color='#6366f1', width=(bin_edges[1]-bin_edges[0])*0.9),
             row=1, col=1
         )
 
+    # Second chart: Categories, patterns, or task types
     if 'sentence_category' in df.columns:
         category_counts = df['sentence_category'].value_counts()
         fig.add_trace(
-            go.Bar(x=category_counts.index, y=category_counts.values, name="Categories",
+            go.Bar(x=category_counts.index.tolist(), y=category_counts.values.tolist(), name="Categories",
                   marker_color='#22c55e'),
             row=1, col=2
         )
     elif 'reasoning_pattern' in df.columns:
         pattern_counts = df['reasoning_pattern'].value_counts()
         fig.add_trace(
-            go.Bar(x=pattern_counts.index, y=pattern_counts.values, name="Patterns",
+            go.Bar(x=pattern_counts.index.tolist(), y=pattern_counts.values.tolist(), name="Patterns",
                   marker_color='#22c55e'),
+            row=1, col=2
+        )
+    elif 'task_type' in df.columns:
+        task_counts = df['task_type'].value_counts()
+        fig.add_trace(
+            go.Bar(x=task_counts.index.tolist(), y=task_counts.values.tolist(), name="Task Types",
+                  marker_color='#22c55e'),
+            row=1, col=2
+        )
+    elif 'is_positive' in df.columns:
+        pos_neg_counts = df['is_positive'].value_counts()
+        labels = ['Positive' if v else 'Negative' for v in pos_neg_counts.index.tolist()]
+        fig.add_trace(
+            go.Bar(x=labels, y=pos_neg_counts.values.tolist(), name="Impact",
+                  marker_color=['#22c55e' if l == 'Positive' else '#ef4444' for l in labels]),
             row=1, col=2
         )
 
@@ -858,21 +910,30 @@ def create_statistics_dashboard(df: pd.DataFrame) -> Tuple[str, go.Figure]:
 current_data = {"df": pd.DataFrame(), "type": "unknown"}
 
 
-def load_dataset_action(source_type: str, dataset_id: str, file_upload) -> Tuple[str, str]:
-    """Handle dataset loading."""
+def load_dataset_action(source_type: str, dataset_id: str, file_upload):
+    """Handle dataset loading and return all visualization updates."""
     global current_data
 
     if source_type == "HuggingFace Hub":
         if not dataset_id:
-            return "Please enter a dataset ID", ""
+            empty_fig = go.Figure()
+            empty_fig.update_layout(template="plotly_dark")
+            return ("Please enter a dataset ID", "", "No data", empty_fig, empty_fig, empty_fig, "No data", empty_fig,
+                    gr.update(maximum=0), gr.update(choices=[], value=None))
         df, msg = load_hf_dataset(dataset_id)
     else:  # Local File
         if file_upload is None:
-            return "Please upload a file", ""
+            empty_fig = go.Figure()
+            empty_fig.update_layout(template="plotly_dark")
+            return ("Please upload a file", "", "No data", empty_fig, empty_fig, empty_fig, "No data", empty_fig,
+                    gr.update(maximum=0), gr.update(choices=[], value=None))
         df, msg = load_jsonl_file(file_upload.name)
 
     if df.empty:
-        return msg, ""
+        empty_fig = go.Figure()
+        empty_fig.update_layout(template="plotly_dark")
+        return (msg, "", "No data", empty_fig, empty_fig, empty_fig, "No data", empty_fig,
+                gr.update(maximum=0), gr.update(choices=[], value=None))
 
     current_data["df"] = df
     current_data["type"] = detect_dataset_type(df)
@@ -881,7 +942,27 @@ def load_dataset_action(source_type: str, dataset_id: str, file_upload) -> Tuple
     if len(df.columns) > 10:
         columns_info += f" ... and {len(df.columns) - 10} more"
 
-    return msg, f"Dataset type: {current_data['type']}\n{columns_info}"
+    # Generate all visualizations
+    stats_html, stats_fig = create_statistics_dashboard(df)
+    graph_fig = create_thought_anchor_graph(df)
+    embed_fig = create_embedding_visualization(df)
+    circuit_html, circuit_fig = create_circuit_visualization(df)
+
+    # Generate query list
+    query_choices = []
+    if 'query' in df.columns:
+        queries = df['query'].unique().tolist()
+        for i, q in enumerate(queries):
+            q_str = str(q) if q is not None else ""
+            if len(q_str) > 80:
+                query_choices.append(f"[{i+1}] {q_str[:77]}...")
+            else:
+                query_choices.append(f"[{i+1}] {q_str}")
+
+    return (msg, f"Dataset type: {current_data['type']}\n{columns_info}",
+            stats_html, stats_fig, graph_fig, embed_fig, circuit_html, circuit_fig,
+            gr.update(maximum=max(0, len(df) - 1)),
+            gr.update(choices=query_choices, value=None))
 
 
 def get_token_details(idx: int) -> Tuple[str, go.Figure]:
@@ -1180,19 +1261,7 @@ with gr.Blocks(title="PTS Visualizer", css=CSS) as demo:
     load_btn.click(
         fn=load_dataset_action,
         inputs=[source_type, dataset_dropdown, file_upload],
-        outputs=[load_status, dataset_info],
-        api_name=False
-    ).then(
-        fn=refresh_all,
-        outputs=[stats_html, stats_chart, graph_plot, embed_plot, circuit_html, circuit_chart],
-        api_name=False
-    ).then(
-        fn=lambda: gr.update(maximum=max(0, len(current_data["df"]) - 1)),
-        outputs=[token_slider],
-        api_name=False
-    ).then(
-        fn=get_query_list,
-        outputs=[query_filter],
+        outputs=[load_status, dataset_info, stats_html, stats_chart, graph_plot, embed_plot, circuit_html, circuit_chart, token_slider, query_filter],
         api_name=False
     )
 
