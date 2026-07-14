@@ -49,6 +49,13 @@ class MetaTokenExtractor:
         self.watch_lexicon = {w.lower() for w in watch_lexicon} if watch_lexicon else None
         self.require_category = require_category
 
+        # Tracked so a run that filters away every readout can say so, rather
+        # than quietly writing an empty dataset that looks like "the model has
+        # no workspace activity".
+        self.seen = 0
+        self.kept = 0
+        self.max_seen_score = 0.0
+
     def _keep(self, result: ReadoutResult) -> bool:
         """Decide whether a readout token is worth emitting as an event.
 
@@ -57,6 +64,9 @@ class MetaTokenExtractor:
         either lands in a category we have a name for, or sits in an explicit
         watch lexicon.
         """
+        self.seen += 1
+        self.max_seen_score = max(self.max_seen_score, result.score)
+
         if result.score < self.min_score:
             return False
 
@@ -66,13 +76,25 @@ class MetaTokenExtractor:
 
         if self.watch_lexicon is not None:
             if token.lower().strip("Ġ▁ ") in self.watch_lexicon:
+                self.kept += 1
                 return True
 
         category = classify_event_label(result.token, "latent")
         if self.require_category and category is None:
             return False
 
+        self.kept += 1
         return True
+
+    def report_filtering(self) -> None:
+        """Say plainly when the thresholds ate everything."""
+        if self.seen and not self.kept:
+            logger.warning(
+                f"All {self.seen} readouts were filtered out. The highest score seen "
+                f"was {self.max_seen_score:.4g}, below --min-score={self.min_score:g}. "
+                "This is an empty result from thresholding, not evidence that the "
+                "model has no workspace activity. Lower --min-score and re-run."
+            )
 
     def extract_for_context(
         self,
@@ -238,5 +260,6 @@ def enrich_events_with_latent(
         f"Extracted {len(latent_events)} latent meta-token events from "
         f"{len(emitted)} emitted events across layers {workspace_layers}"
     )
+    extractor.report_filtering()
 
     return list(events) + latent_events

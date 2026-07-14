@@ -168,5 +168,7 @@ class LatentPTSSearcher(BasePTSSearcher):
                     self.event_storage.add_event(event)
                     yield event
 
+        self.extractor.report_filtering()
+
         if self.event_storage.filepath:
             self.event_storage.save()

@@ -17,7 +17,7 @@ times would triple the memory for no benefit.
 import logging
 from typing import Any, List, Optional, Sequence, Tuple
 
-from ..events import CausalReasoningEvent
+from ..events import EVENT_LATENT, CausalReasoningEvent
 from ..event_storage import EventStorage
 from ..linking import EventLinker
 from .base import BasePTSSearcher
@@ -144,15 +144,34 @@ class MultiScaleSearcher:
                 logger.info(f"Sentence PTS found {len(sentence_events)} events")
                 events.extend(sentence_events)
 
-        # Latent events are read from the contexts of the emitted events we just
-        # found, which is what makes them alignable with those events at all.
-        if self.latent_searcher is not None and events:
-            enriched = self.latent_searcher.enrich(
-                events, window_before=self.window_before, allow_model_mismatch=True
-            )
-            latent_events = [e for e in enriched if e.event_type == "latent_metatoken"]
+        if self.latent_searcher is not None:
+            if events:
+                # Read the workspace at the contexts of the emitted events we just
+                # found. Anchoring on those contexts is what makes the latent
+                # events alignable with them at all.
+                enriched = self.latent_searcher.enrich(
+                    events, window_before=self.window_before, allow_model_mismatch=True
+                )
+                latent_events = [e for e in enriched if e.event_type == EVENT_LATENT]
+                events = enriched
+            else:
+                # No emitted events to anchor on -- either latent is the only
+                # requested scale, or the other scales found nothing. Walk the
+                # trace and read the workspace as we go instead of returning
+                # nothing.
+                latent_events = list(
+                    self.latent_searcher.probe(
+                        query=query,
+                        system_prompt=system_prompt,
+                        task_type=task_type,
+                        dataset_id=dataset_id,
+                        item_id=item_id,
+                        category=category,
+                    )
+                )
+                events = latent_events
+
             logger.info(f"Latent PTS found {len(latent_events)} events")
-            events = enriched
 
         self.linker.link(events)
         self.event_storage.add_events(events)

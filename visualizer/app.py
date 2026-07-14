@@ -49,9 +49,30 @@ def load_jsonl_file(file_path: str) -> pd.DataFrame:
 
 
 def detect_dataset_type(df: pd.DataFrame) -> str:
-    """Detect the type of PTS dataset."""
+    """Detect the type of PTS dataset.
+
+    PTS v2 emits a single unified record type (``CausalReasoningEvent``) that
+    carries ``event_type`` + ``granularity``. Those are checked first; the v1
+    detection rules below them are unchanged so old datasets keep working.
+    """
     columns = set(df.columns)
 
+    # --- PTS v2 unified event schema -------------------------------------
+    if 'event_type' in columns:
+        event_types = set()
+        if not df.empty:
+            event_types = {
+                str(v) for v in df['event_type'].dropna().unique().tolist()
+            }
+        # A file containing nothing but latent meta-tokens (e.g. `pts export
+        # --format=metatokens`) gets its own type so the UI can lead with the
+        # workspace views instead of the probability views.
+        if event_types and event_types == {EVENT_LATENT}:
+            return 'latent_events'
+        if 'granularity' in columns:
+            return 'causal_events'
+
+    # --- PTS v1 ----------------------------------------------------------
     if 'sentence' in columns and 'sentence_id' in columns:
         return 'thought_anchors'
     elif 'steering_vector' in columns:
@@ -62,6 +83,227 @@ def detect_dataset_type(df: pd.DataFrame) -> str:
         return 'pivotal_tokens'
     else:
         return 'unknown'
+
+
+# ============================================================================
+# PTS v2 event schema: constants and helpers
+# ============================================================================
+
+EVENT_LATENT = "latent_metatoken"
+EVENT_TOKEN = "pivotal_token"
+EVENT_SENTENCE = "thought_anchor"
+
+GRANULARITY_FOR_EVENT_TYPE = {
+    EVENT_LATENT: "latent",
+    EVENT_TOKEN: "token",
+    EVENT_SENTENCE: "sentence",
+}
+
+V2_TYPES = ('causal_events', 'latent_events')
+
+# Green/red carry a claim about direction of effect. Latent events have no
+# measured effect (prob_delta is null by construction), so they are never
+# painted green or red -- purple means "observed, valence unknown".
+COLOR_POSITIVE = '#22c55e'
+COLOR_NEGATIVE = '#ef4444'
+COLOR_LATENT = '#8b5cf6'
+COLOR_UNKNOWN = '#6366f1'
+COLOR_OUTCOME = '#f59e0b'
+
+CATEGORY_COLORS = [
+    '#6366f1', '#22c55e', '#ef4444', '#f59e0b', '#8b5cf6',
+    '#ec4899', '#14b8a6', '#f97316', '#06b6d4', '#84cc16',
+]
+
+
+def is_v2_events(df: pd.DataFrame) -> bool:
+    """True when the dataframe holds PTS v2 unified events."""
+    return not df.empty and 'event_type' in df.columns
+
+
+def _empty_fig(message: str, height: int = 400) -> go.Figure:
+    """A dark-themed placeholder figure carrying an explanatory message."""
+    fig = go.Figure()
+    fig.add_annotation(
+        text=message,
+        xref="paper", yref="paper", x=0.5, y=0.5, showarrow=False,
+        font=dict(size=13, color="#a0a0a0")
+    )
+    fig.update_layout(
+        template="plotly_dark",
+        height=height,
+        xaxis=dict(visible=False),
+        yaxis=dict(visible=False),
+    )
+    return fig
+
+
+def _val(row, key, default=None):
+    """Read a field off a row, mapping NaN/None/missing onto ``default``."""
+    try:
+        value = row.get(key, default)
+    except AttributeError:
+        return default
+    if value is None:
+        return default
+    try:
+        if pd.isna(value):
+            return default
+    except (TypeError, ValueError):
+        # pd.isna over a list/array returns an array; those are real values.
+        pass
+    return value
+
+
+def _as_list(value) -> list:
+    """Normalize a link field (list / ndarray / None / scalar) into a list."""
+    if value is None:
+        return []
+    if isinstance(value, (list, tuple, set)):
+        return [v for v in value if v is not None]
+    if isinstance(value, np.ndarray):
+        return [v for v in value.tolist() if v is not None]
+    if isinstance(value, str):
+        return [value] if value else []
+    try:
+        if pd.isna(value):
+            return []
+    except (TypeError, ValueError):
+        pass
+    return [value]
+
+
+def _num(value, default=0.0) -> float:
+    try:
+        out = float(value)
+    except (TypeError, ValueError):
+        return default
+    if np.isnan(out):
+        return default
+    return out
+
+
+def _granularity(row) -> str:
+    gran = _val(row, 'granularity')
+    if gran:
+        return str(gran)
+    return GRANULARITY_FOR_EVENT_TYPE.get(str(_val(row, 'event_type', '')), 'token')
+
+
+def _event_color(row) -> str:
+    """Positive=green, negative=red, latent/unscored=purple-blue.
+
+    Never colors a latent event green or red: it has no measured valence.
+    """
+    if _granularity(row) == 'latent':
+        return COLOR_LATENT
+    is_positive = _val(row, 'is_positive')
+    if is_positive is None:
+        delta = _val(row, 'prob_delta')
+        if delta is None:
+            return COLOR_UNKNOWN
+        is_positive = _num(delta) > 0
+    return COLOR_POSITIVE if bool(is_positive) else COLOR_NEGATIVE
+
+
+def _score_label(row) -> str:
+    """Name the score honestly: latent scores are readout scores, not deltas."""
+    if _granularity(row) == 'latent':
+        return "Readout score"
+    return "Score (|Δ probability|)"
+
+
+def _filter_by_query(df: pd.DataFrame, selected_query: Optional[str]) -> pd.DataFrame:
+    if (selected_query and isinstance(selected_query, str) and selected_query.strip()
+            and 'query' in df.columns):
+        return df[df['query'] == selected_query].copy()
+    return df
+
+
+def _event_hover(row) -> str:
+    """Hover text shared by the v2 charts."""
+    label = str(_val(row, 'label', _val(row, 'pivot_token', _val(row, 'sentence', ''))))
+    if len(label) > 90:
+        label = label[:87] + '...'
+    parts = [
+        f"<b>{html_lib.escape(label)}</b>",
+        f"Event: {_val(row, 'event_type', 'unknown')}",
+        f"Granularity: {_granularity(row)}",
+        f"Category: {_val(row, 'category', 'n/a')}",
+        f"{_score_label(row)}: {_num(_val(row, 'score')):.4f}",
+    ]
+    if _granularity(row) == 'latent':
+        parts.append(f"Layer: {_val(row, 'layer', 'n/a')}")
+        parts.append(f"Readout: {_val(row, 'readout_method', 'n/a')}")
+        parts.append("<i>observational - no probability delta</i>")
+    else:
+        delta = _val(row, 'prob_delta')
+        if delta is not None:
+            parts.append(f"Δ probability: {_num(delta):+.4f}")
+            parts.append(
+                f"Before: {_num(_val(row, 'prob_before')):.3f} → "
+                f"After: {_num(_val(row, 'prob_after')):.3f}"
+            )
+    return "<br>".join(parts)
+
+
+def _compute_event_x(df: pd.DataFrame) -> List[float]:
+    """Place every event on one shared x-axis (generation position / event order).
+
+    Emitted events use their ``position`` (token index or sentence index),
+    falling back to their order of appearance. Latent enrichment events carry a
+    *negative* ``position``: an offset in tokens from the event they were read
+    out before. Those are anchored to the linked event's x, so a latent event
+    with position -3 lands three steps to the left of the token it precedes.
+    """
+    if df.empty:
+        return []
+
+    rows = list(df.iterrows())
+    x_by_id: Dict[Any, float] = {}
+    xs: List[Optional[float]] = [None] * len(rows)
+
+    # Pass 1: emitted events anchor the axis.
+    emitted_counter = 0
+    for i, (_, row) in enumerate(rows):
+        if _granularity(row) == 'latent':
+            continue
+        pos = _val(row, 'position')
+        if pos is None or _num(pos, -1) < 0:
+            x = float(emitted_counter)
+        else:
+            x = float(_num(pos))
+        emitted_counter += 1
+        xs[i] = x
+        event_id = _val(row, 'event_id')
+        if event_id is not None:
+            x_by_id[event_id] = x
+
+    known = [x for x in xs if x is not None]
+    floor = min(known) if known else 0.0
+
+    # Pass 2: latent events hang off the emitted event they precede.
+    latent_counter = 0
+    for i, (_, row) in enumerate(rows):
+        if _granularity(row) != 'latent':
+            continue
+        pos = _val(row, 'position')
+        links = (_as_list(_val(row, 'precedes_event_ids'))
+                 + _as_list(_val(row, 'linked_event_ids')))
+        anchor = next((x_by_id[l] for l in links if l in x_by_id), None)
+
+        if anchor is not None:
+            offset = _num(pos, 0.0) if pos is not None and _num(pos, 0.0) < 0 else 0.0
+            xs[i] = anchor + offset
+        elif pos is not None and _num(pos, -1) >= 0:
+            xs[i] = float(_num(pos))
+        else:
+            # Unlinked, offset-only latent event: park it to the left of the
+            # emitted timeline rather than pretending it has a position.
+            xs[i] = floor - 1.0 - latent_counter * 0.1
+            latent_counter += 1
+
+    return [float(x) if x is not None else 0.0 for x in xs]
 
 
 # ============================================================================
@@ -146,6 +388,12 @@ def create_pivotal_token_flow(df: pd.DataFrame, selected_query: str = None) -> g
                           xref="paper", yref="paper", x=0.5, y=0.5, showarrow=False)
         fig.update_layout(template="plotly_dark")
         return fig
+
+    if 'prob_delta' not in df.columns:
+        return _empty_fig(
+            "This dataset has no <code>prob_delta</code> column, so token impact "
+            "cannot be plotted."
+        )
 
     # Filter by query if specified (handle None, empty string, or actual query)
     if selected_query and isinstance(selected_query, str) and selected_query.strip() and 'query' in df.columns:
@@ -234,6 +482,10 @@ def create_pivotal_token_flow(df: pd.DataFrame, selected_query: str = None) -> g
 def create_thought_anchor_graph(df: pd.DataFrame, selected_query: str = None) -> go.Figure:
     """Create an interactive graph visualization of thought anchor dependencies."""
     dataset_type = detect_dataset_type(df)
+
+    # PTS v2 events carry their own causal edges; use the unified graph.
+    if dataset_type in V2_TYPES:
+        return create_causal_event_graph(df, selected_query)
 
     # For pivotal tokens and steering vectors, create a token impact visualization
     if dataset_type in ('pivotal_tokens', 'steering_vectors'):
@@ -363,6 +615,541 @@ def create_thought_anchor_graph(df: pd.DataFrame, selected_query: str = None) ->
     return fig
 
 
+# ============================================================================
+# PTS v2: multiscale timeline, causal event graph, workspace heatmap
+# ============================================================================
+
+def create_multiscale_timeline(df: pd.DataFrame, selected_query: str = None) -> go.Figure:
+    """Four scales of reasoning events on one shared generation axis.
+
+    Row 1  latent meta-tokens        (diamonds, y = layer, size = readout score)
+    Row 2  emitted pivotal tokens    (circles, y = Δ probability)
+    Row 3  thought-anchor sentences  (wide bars, height = Δ probability)
+    Row 4  success probability       (from prob_before/prob_after of emitted events)
+    """
+    if df is None or df.empty:
+        return _empty_fig("No data loaded. Load a PTS dataset to see the multiscale timeline.", 640)
+
+    if not is_v2_events(df):
+        return _empty_fig(
+            "The multiscale timeline needs PTS v2 causal events (event_type + granularity).<br>"
+            "Load a causal_events or latent_events dataset, or run "
+            "<code>pts migrate</code> on a v1 file.",
+            640,
+        )
+
+    work = _filter_by_query(df, selected_query)
+    if work.empty:
+        return _empty_fig("No events for the selected query.", 640)
+
+    work = work.reset_index(drop=True)
+    xs = _compute_event_x(work)
+    work = work.assign(_x=xs)
+
+    gran = work.apply(_granularity, axis=1)
+    latent_df = work[gran == 'latent']
+    token_df = work[gran == 'token']
+    sentence_df = work[gran == 'sentence']
+
+    fig = make_subplots(
+        rows=4, cols=1,
+        shared_xaxes=True,
+        vertical_spacing=0.06,
+        row_heights=[0.24, 0.22, 0.22, 0.32],
+        subplot_titles=(
+            "Latent meta-tokens (readout score - NOT a probability delta)",
+            "Emitted pivotal tokens (Δ success probability)",
+            "Thought-anchor sentences (Δ success probability)",
+            "Success probability across emitted events",
+        ),
+    )
+
+    # --- Row 1: latent meta-tokens -------------------------------------
+    if not latent_df.empty:
+        scores = [_num(_val(r, 'score')) for _, r in latent_df.iterrows()]
+        max_score = max(scores) if scores else 1.0
+        max_score = max_score if max_score > 0 else 1.0
+        fig.add_trace(
+            go.Scatter(
+                x=latent_df['_x'].tolist(),
+                y=[_num(_val(r, 'layer')) for _, r in latent_df.iterrows()],
+                mode='markers',
+                name='Latent meta-token',
+                marker=dict(
+                    symbol='diamond',
+                    size=[6 + 10 * (s / max_score) for s in scores],
+                    color=COLOR_LATENT,
+                    opacity=0.85,
+                    line=dict(width=1, color='#d8b4fe'),
+                ),
+                hovertext=[_event_hover(r) for _, r in latent_df.iterrows()],
+                hoverinfo='text',
+            ),
+            row=1, col=1,
+        )
+    else:
+        fig.add_annotation(
+            text="no latent meta-token events in this dataset",
+            xref="x domain", yref="y domain", x=0.5, y=0.5,
+            showarrow=False, font=dict(size=11, color="#6b7280"),
+            row=1, col=1,
+        )
+
+    # --- Row 2: emitted pivotal tokens ---------------------------------
+    if not token_df.empty:
+        fig.add_trace(
+            go.Scatter(
+                x=token_df['_x'].tolist(),
+                y=[_num(_val(r, 'prob_delta')) for _, r in token_df.iterrows()],
+                mode='markers',
+                name='Pivotal token',
+                marker=dict(
+                    symbol='circle',
+                    size=[10 + 25 * abs(_num(_val(r, 'score'))) for _, r in token_df.iterrows()],
+                    color=[_event_color(r) for _, r in token_df.iterrows()],
+                    opacity=0.8,
+                    line=dict(width=1, color='#111827'),
+                ),
+                hovertext=[_event_hover(r) for _, r in token_df.iterrows()],
+                hoverinfo='text',
+            ),
+            row=2, col=1,
+        )
+        fig.add_hline(y=0, line_dash="dash", line_color="gray", row=2, col=1)
+    else:
+        fig.add_annotation(
+            text="no emitted pivotal-token events",
+            xref="x domain", yref="y domain", x=0.5, y=0.5,
+            showarrow=False, font=dict(size=11, color="#6b7280"),
+            row=2, col=1,
+        )
+
+    # --- Row 3: thought-anchor sentences -------------------------------
+    if not sentence_df.empty:
+        deltas = [_num(_val(r, 'prob_delta')) for _, r in sentence_df.iterrows()]
+        # A sentence with no measured delta still deserves a bar: fall back to
+        # its score, drawn in neutral blue rather than green/red.
+        heights = [
+            d if d != 0 else _num(_val(r, 'score'))
+            for d, (_, r) in zip(deltas, sentence_df.iterrows())
+        ]
+        fig.add_trace(
+            go.Bar(
+                x=sentence_df['_x'].tolist(),
+                y=heights,
+                name='Thought anchor',
+                width=0.8,
+                marker=dict(
+                    color=[_event_color(r) for _, r in sentence_df.iterrows()],
+                    opacity=0.65,
+                    line=dict(width=1, color='#111827'),
+                ),
+                hovertext=[_event_hover(r) for _, r in sentence_df.iterrows()],
+                hoverinfo='text',
+            ),
+            row=3, col=1,
+        )
+        fig.add_hline(y=0, line_dash="dash", line_color="gray", row=3, col=1)
+    else:
+        fig.add_annotation(
+            text="no thought-anchor sentence events",
+            xref="x domain", yref="y domain", x=0.5, y=0.5,
+            showarrow=False, font=dict(size=11, color="#6b7280"),
+            row=3, col=1,
+        )
+
+    # --- Row 4: success probability curve ------------------------------
+    emitted = work[gran != 'latent']
+    curve_x: List[float] = []
+    curve_y: List[float] = []
+    curve_hover: List[str] = []
+    if not emitted.empty:
+        ordered = emitted.sort_values('_x')
+        for _, row in ordered.iterrows():
+            before = _val(row, 'prob_before')
+            after = _val(row, 'prob_after')
+            if before is None or after is None:
+                continue
+            x = float(row['_x'])
+            curve_x.extend([x, x])
+            curve_y.extend([_num(before), _num(after)])
+            hover = _event_hover(row)
+            curve_hover.extend([f"before<br>{hover}", f"after<br>{hover}"])
+
+    if curve_x:
+        fig.add_trace(
+            go.Scatter(
+                x=curve_x,
+                y=curve_y,
+                mode='lines+markers',
+                name='Success probability',
+                line=dict(color=COLOR_UNKNOWN, width=2),
+                marker=dict(size=7, color=COLOR_UNKNOWN),
+                hovertext=curve_hover,
+                hoverinfo='text',
+            ),
+            row=4, col=1,
+        )
+        fig.add_hline(y=0.5, line_dash="dash", line_color="gray", row=4, col=1)
+    else:
+        fig.add_annotation(
+            text="no prob_before/prob_after on any emitted event",
+            xref="x domain", yref="y domain", x=0.5, y=0.5,
+            showarrow=False, font=dict(size=11, color="#6b7280"),
+            row=4, col=1,
+        )
+
+    fig.update_yaxes(title_text="Layer", row=1, col=1)
+    fig.update_yaxes(title_text="Δ prob", row=2, col=1)
+    fig.update_yaxes(title_text="Δ prob", row=3, col=1)
+    fig.update_yaxes(title_text="P(success)", range=[0, 1], row=4, col=1)
+    fig.update_xaxes(title_text="Generation position / event order", row=4, col=1)
+
+    fig.update_layout(
+        title="Multiscale Reasoning Timeline",
+        template="plotly_dark",
+        height=760,
+        showlegend=True,
+        hovermode='closest',
+        bargap=0.2,
+    )
+
+    return fig
+
+
+def create_causal_event_graph(df: pd.DataFrame, selected_query: str = None) -> go.Figure:
+    """Causal graph over v2 events: latent -> token -> sentence -> outcome.
+
+    Edges come from ``precedes_event_ids`` / ``linked_event_ids`` /
+    ``parent_event_id``. Node shape encodes granularity, node color encodes
+    valence (latent nodes stay purple - they have no valence).
+    """
+    if df is None or df.empty:
+        return _empty_fig("No data loaded. Load a PTS dataset to see the causal event graph.", 550)
+
+    # v1 datasets keep the old graph exactly as it was.
+    if not is_v2_events(df):
+        return create_thought_anchor_graph(df, selected_query)
+
+    work = _filter_by_query(df, selected_query)
+    if work.empty:
+        return _empty_fig("No events for the selected query.", 550)
+
+    work = work.reset_index(drop=True)
+    xs = _compute_event_x(work)
+    work = work.assign(_x=xs)
+
+    G = nx.DiGraph()
+    id_by_index: Dict[int, str] = {}
+
+    for i, (_, row) in enumerate(work.iterrows()):
+        event_id = _val(row, 'event_id') or f"event_{i}"
+        id_by_index[i] = event_id
+        label = str(_val(row, 'label', ''))
+        G.add_node(
+            event_id,
+            label=label[:60] + ('...' if len(label) > 60 else ''),
+            granularity=_granularity(row),
+            event_type=str(_val(row, 'event_type', 'unknown')),
+            category=_val(row, 'category', 'unknown'),
+            score=_num(_val(row, 'score')),
+            color=_event_color(row),
+            hover=_event_hover(row),
+            x_hint=float(row['_x']),
+        )
+
+    for i, (_, row) in enumerate(work.iterrows()):
+        source = id_by_index[i]
+        targets = set(_as_list(_val(row, 'precedes_event_ids')))
+        targets |= set(_as_list(_val(row, 'linked_event_ids')))
+        for target in targets:
+            if target in G.nodes() and target != source:
+                G.add_edge(source, target)
+
+        parent = _val(row, 'parent_event_id')
+        if parent and parent in G.nodes() and parent != source:
+            G.add_edge(parent, source)
+
+    # No links attached (e.g. `pts link` was never run): fall back to
+    # generation order so the graph still shows the reasoning sequence.
+    if G.number_of_edges() == 0 and G.number_of_nodes() > 1:
+        ordered = sorted(G.nodes(), key=lambda n: G.nodes[n]['x_hint'])
+        for a, b in zip(ordered, ordered[1:]):
+            G.add_edge(a, b)
+
+    # Terminal outcome node: everything that leads nowhere leads to the outcome.
+    OUTCOME = "__outcome__"
+    leaves = [n for n in G.nodes() if G.out_degree(n) == 0]
+    if leaves:
+        G.add_node(
+            OUTCOME,
+            label="outcome",
+            granularity='outcome',
+            event_type='outcome',
+            category='n/a',
+            score=1.0,
+            color=COLOR_OUTCOME,
+            hover="Task outcome<br>(terminal node: success / failure of the completion)",
+            x_hint=max((G.nodes[n]['x_hint'] for n in G.nodes() if n != OUTCOME), default=0.0) + 1.0,
+        )
+        for leaf in leaves:
+            G.add_edge(leaf, OUTCOME)
+
+    pos = nx.spring_layout(G, k=1.6, iterations=60, seed=42)
+
+    edge_x: List[Optional[float]] = []
+    edge_y: List[Optional[float]] = []
+    for a, b in G.edges():
+        x0, y0 = pos[a]
+        x1, y1 = pos[b]
+        edge_x.extend([float(x0), float(x1), None])
+        edge_y.extend([float(y0), float(y1), None])
+
+    traces = [go.Scatter(
+        x=edge_x, y=edge_y,
+        line=dict(width=1, color='#4b5563'),
+        hoverinfo='none',
+        mode='lines',
+        showlegend=False,
+    )]
+
+    symbols = {
+        'latent': 'diamond',
+        'token': 'circle',
+        'sentence': 'square',
+        'outcome': 'star',
+    }
+    names = {
+        'latent': 'Latent meta-token',
+        'token': 'Pivotal token',
+        'sentence': 'Thought anchor',
+        'outcome': 'Outcome',
+    }
+
+    for gran, symbol in symbols.items():
+        nodes = [n for n in G.nodes() if G.nodes[n]['granularity'] == gran]
+        if not nodes:
+            continue
+        traces.append(go.Scatter(
+            x=[float(pos[n][0]) for n in nodes],
+            y=[float(pos[n][1]) for n in nodes],
+            mode='markers',
+            name=names[gran],
+            marker=dict(
+                symbol=symbol,
+                size=[14 + 30 * min(G.nodes[n]['score'], 1.0) for n in nodes],
+                color=[G.nodes[n]['color'] for n in nodes],
+                line=dict(width=1.5, color='white'),
+            ),
+            hovertext=[G.nodes[n]['hover'] for n in nodes],
+            hoverinfo='text',
+        ))
+
+    fig = go.Figure(data=traces)
+    fig.update_layout(
+        title="Causal Event Graph (latent → token → sentence → outcome)",
+        showlegend=True,
+        hovermode='closest',
+        template="plotly_dark",
+        xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
+        yaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
+        height=600,
+    )
+    return fig
+
+
+def create_workspace_heatmap(df: pd.DataFrame, selected_query: str = None) -> go.Figure:
+    """Latent workspace: meta-token (or category) x position, colored by readout score.
+
+    The color scale is a *readout* score (how strongly the lens surfaces that
+    meta-token), never a probability delta.
+    """
+    if df is None or df.empty:
+        return _empty_fig("No data loaded. Load a PTS dataset with latent events.", 500)
+
+    if not is_v2_events(df):
+        return _empty_fig(
+            "The workspace heatmap needs latent meta-token events (PTS v2).<br>"
+            "Generate them with <code>pts run --scale=latent</code> or "
+            "<code>pts enrich</code>.",
+            500,
+        )
+
+    work = _filter_by_query(df, selected_query)
+    latent = work[work.apply(_granularity, axis=1) == 'latent'] if not work.empty else work
+
+    if latent.empty:
+        return _empty_fig(
+            "No latent meta-token events in this selection.<br>"
+            "The workspace heatmap only applies to <code>latent_metatoken</code> events.",
+            500,
+        )
+
+    latent = latent.reset_index(drop=True)
+    latent = latent.assign(_x=_compute_event_x(latent))
+
+    labels = [str(_val(r, 'label', '')) for _, r in latent.iterrows()]
+    unique_labels = sorted(set(labels))
+
+    # Too many distinct meta-tokens to read as rows: fall back to categories.
+    row_key = 'meta-token'
+    if len(unique_labels) > 30 and 'category' in latent.columns:
+        keys = [str(_val(r, 'category', 'unknown')) for _, r in latent.iterrows()]
+        row_key = 'category'
+    else:
+        keys = labels
+
+    xs = [float(x) for x in latent['_x'].tolist()]
+    scores = [_num(_val(r, 'score')) for _, r in latent.iterrows()]
+    layers = [_val(r, 'layer', 'n/a') for _, r in latent.iterrows()]
+    readouts = [_val(r, 'readout_method', 'n/a') for _, r in latent.iterrows()]
+
+    row_values = sorted(set(keys))
+    col_values = sorted(set(xs))
+    row_index = {v: i for i, v in enumerate(row_values)}
+    col_index = {v: i for i, v in enumerate(col_values)}
+
+    z = np.full((len(row_values), len(col_values)), np.nan)
+    hover = [["" for _ in col_values] for _ in row_values]
+
+    for key, x, score, layer, readout in zip(keys, xs, scores, layers, readouts):
+        r, c = row_index[key], col_index[x]
+        # Several layers can surface the same meta-token at one position; keep
+        # the strongest readout.
+        if np.isnan(z[r, c]) or score > z[r, c]:
+            z[r, c] = score
+            hover[r][c] = (
+                f"<b>{html_lib.escape(str(key)[:60])}</b><br>"
+                f"Position: {x:g}<br>"
+                f"Readout score: {score:.4f}<br>"
+                f"Layer: {layer}<br>"
+                f"Readout method: {readout}<br>"
+                f"<i>readout score, not a probability delta</i>"
+            )
+
+    fig = go.Figure(data=go.Heatmap(
+        z=z,
+        x=[f"{c:g}" for c in col_values],
+        y=[str(v)[:45] for v in row_values],
+        colorscale='Viridis',
+        hoverongaps=False,
+        text=hover,
+        hovertemplate='%{text}<extra></extra>',
+        colorbar=dict(title="Readout<br>score"),
+    ))
+
+    fig.update_layout(
+        title=f"Latent Workspace Heatmap ({row_key} x position, color = readout score)",
+        xaxis_title="Generation position / event order",
+        yaxis_title=row_key.capitalize(),
+        template="plotly_dark",
+        height=max(400, 60 + 22 * len(row_values)),
+    )
+    return fig
+
+
+def create_event_trace(df: pd.DataFrame, selected_query: str) -> Tuple[str, go.Figure]:
+    """Step-by-step HTML cards + probability progression for v2 events."""
+    if df is None or df.empty:
+        return "No events found for this query", _empty_fig("No events", 300)
+
+    work = df.reset_index(drop=True)
+    work = work.assign(_x=_compute_event_x(work)).sort_values('_x')
+
+    query_text = str(selected_query or "")
+    html_parts = [f"""
+    <div style="font-family: sans-serif; padding: 20px; background-color: #1a1a2e; border-radius: 10px;">
+        <h3 style="color: #e0e0e0; border-bottom: 2px solid #6366f1; padding-bottom: 10px;">
+            Query: {html_lib.escape(query_text[:100])}{'...' if len(query_text) > 100 else ''}
+        </h3>
+        <p style="color: #a0a0a0; margin: 10px 0;">{len(work)} causal reasoning events for this query</p>
+        <div style="display: flex; flex-direction: column; gap: 12px; margin-top: 20px;">
+    """]
+
+    curve_x, curve_y = [], []
+
+    for _, row in work.iterrows():
+        gran = _granularity(row)
+        color = _event_color(row)
+        label = html_lib.escape(str(_val(row, 'label', '')))
+        category = html_lib.escape(str(_val(row, 'category', 'unknown')))
+        score = _num(_val(row, 'score'))
+        x = float(row['_x'])
+
+        if gran == 'latent':
+            metric_html = (
+                f'<span style="color: {color}; font-weight: bold;">'
+                f'readout score {score:.3f}</span>'
+            )
+            extra = (
+                f'<span style="background-color: #333; padding: 3px 8px; border-radius: 3px; '
+                f'font-size: 0.8em; color: #a0a0a0;">Layer {_val(row, "layer", "n/a")}</span>'
+                f'<span style="background-color: #333; padding: 3px 8px; border-radius: 3px; '
+                f'font-size: 0.8em; color: #a0a0a0;">{_val(row, "readout_method", "n/a")}</span>'
+                f'<span style="background-color: #3b2f5e; padding: 3px 8px; border-radius: 3px; '
+                f'font-size: 0.8em; color: #d8b4fe;">observational - no probability delta</span>'
+            )
+        else:
+            delta = _num(_val(row, 'prob_delta'))
+            metric_html = (
+                f'<span style="color: {color}; font-weight: bold;">'
+                f'{"+" if delta > 0 else ""}{delta:.3f} Δ probability</span>'
+            )
+            extra = (
+                f'<span style="background-color: #333; padding: 3px 8px; border-radius: 3px; '
+                f'font-size: 0.8em; color: #a0a0a0;">Before: {_num(_val(row, "prob_before")):.3f}</span>'
+                f'<span style="background-color: #333; padding: 3px 8px; border-radius: 3px; '
+                f'font-size: 0.8em; color: #a0a0a0;">After: {_num(_val(row, "prob_after")):.3f}</span>'
+            )
+            before, after = _val(row, 'prob_before'), _val(row, 'prob_after')
+            if before is not None and after is not None:
+                curve_x.extend([x, x])
+                curve_y.extend([_num(before), _num(after)])
+
+        html_parts.append(f"""
+        <div style="background-color: rgba(255,255,255,0.03); border-left: 4px solid {color};
+                    padding: 15px; border-radius: 5px;">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <span style="color: #a0a0a0; font-size: 0.9em;">
+                    {html_lib.escape(str(_val(row, 'event_type', 'event')))} | {gran} | pos {x:g} | {category}
+                </span>
+                {metric_html}
+            </div>
+            <p style="color: #e0e0e0; margin: 10px 0; font-family: monospace; white-space: pre-wrap; word-break: break-word;">{label}</p>
+            <div style="display: flex; gap: 10px; flex-wrap: wrap;">{extra}</div>
+        </div>
+        """)
+
+    html_parts.append("</div></div>")
+
+    if curve_x:
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(
+            x=curve_x, y=curve_y,
+            mode='lines+markers',
+            name='Success probability',
+            line=dict(color=COLOR_UNKNOWN, width=2),
+            marker=dict(size=8),
+        ))
+        fig.add_hline(y=0.5, line_dash="dash", line_color="gray")
+        fig.update_layout(
+            title="Success Probability Across Emitted Events",
+            xaxis_title="Generation position / event order",
+            yaxis_title="Success Probability",
+            yaxis_range=[0, 1],
+            template="plotly_dark",
+            height=300,
+        )
+    else:
+        fig = _empty_fig(
+            "No emitted events with prob_before/prob_after for this query.<br>"
+            "Latent events are observational and carry no probability delta.",
+            300,
+        )
+
+    return "\n".join(html_parts), fig
+
+
 def create_probability_space_visualization(df: pd.DataFrame, color_by: str = 'is_positive') -> go.Figure:
     """Create a probability space visualization for pivotal tokens (prob_before vs prob_after)."""
     fig = go.Figure()
@@ -401,11 +1188,13 @@ def create_probability_space_visualization(df: pd.DataFrame, color_by: str = 'is
     # Create hover text
     hover_texts = []
     for _, row in df.iterrows():
-        text = f"Token: {row.get('pivot_token', 'N/A')}<br>"
-        text += f"Before: {row.get('prob_before', 0):.3f}<br>"
-        text += f"After: {row.get('prob_after', 0):.3f}<br>"
-        text += f"Delta: {row.get('prob_delta', 0):+.3f}<br>"
-        text += f"Query: {str(row.get('query', ''))[:40]}..."
+        # v1 calls it pivot_token, v2 calls it label.
+        token_text = _val(row, 'pivot_token', _val(row, 'label', 'N/A'))
+        text = f"Token: {token_text}<br>"
+        text += f"Before: {_num(_val(row, 'prob_before')):.3f}<br>"
+        text += f"After: {_num(_val(row, 'prob_after')):.3f}<br>"
+        text += f"Delta: {_num(_val(row, 'prob_delta')):+.3f}<br>"
+        text += f"Query: {str(_val(row, 'query', ''))[:40]}..."
         hover_texts.append(text)
 
     fig.add_trace(go.Scatter(
@@ -484,6 +1273,23 @@ def create_embedding_visualization(df: pd.DataFrame, color_by: str = 'is_positiv
         if dataset_type == 'pivotal_tokens' and 'prob_before' in df.columns and 'prob_after' in df.columns:
             return create_probability_space_visualization(df, color_by)
 
+        # v2 events: only emitted events live in probability space. Latent
+        # events have no prob_before/prob_after and must not be plotted there.
+        if dataset_type in V2_TYPES and 'prob_before' in df.columns and 'prob_after' in df.columns:
+            emitted = df[df.apply(_granularity, axis=1) != 'latent']
+            emitted = emitted.dropna(subset=['prob_before', 'prob_after'])
+            if emitted.empty:
+                return _empty_fig(
+                    "No emitted events with probabilities to plot.<br>"
+                    "Latent meta-token events are observational: they carry a readout "
+                    "score, not a probability delta, so they have no place in "
+                    "probability space.",
+                    450,
+                )
+            if color_by not in emitted.columns:
+                color_by = 'is_positive' if 'is_positive' in emitted.columns else 'event_type'
+            return create_probability_space_visualization(emitted.reset_index(drop=True), color_by)
+
         fig = go.Figure()
         fig.add_annotation(
             text="No embedding data found. Embeddings are available in thought_anchors and steering_vectors datasets.",
@@ -519,7 +1325,10 @@ def create_embedding_visualization(df: pd.DataFrame, color_by: str = 'is_positiv
 
     # Reduce dimensionality
     n_samples = len(embeddings)
+    # t-SNE requires perplexity < n_samples; the clamp keeps small datasets
+    # (a handful of embeddings) from blowing up.
     perplexity = min(30, max(5, n_samples // 3))
+    perplexity = max(2, min(perplexity, n_samples - 1))
 
     if embeddings.shape[1] > 50:
         # First reduce with PCA
@@ -541,8 +1350,13 @@ def create_embedding_visualization(df: pd.DataFrame, color_by: str = 'is_positiv
 
     fig = go.Figure()
 
-    # Determine text field for hover
-    text_field = 'sentence' if 'sentence' in plot_df.columns else 'pivot_token'
+    # Determine text field for hover (v1: sentence/pivot_token, v2: label)
+    if 'sentence' in plot_df.columns:
+        text_field = 'sentence'
+    elif 'pivot_token' in plot_df.columns:
+        text_field = 'pivot_token'
+    else:
+        text_field = 'label'
 
     if color_by and color_by in plot_df.columns:
         # Group by color column for separate traces
@@ -732,6 +1546,10 @@ def create_circuit_visualization(df: pd.DataFrame, query_idx: int = 0) -> Tuple[
     # Filter to this query
     query_df = df[df['query'] == selected_query].copy()
 
+    # PTS v2 unified events
+    if dataset_type in V2_TYPES:
+        return create_event_trace(query_df, selected_query)
+
     # For pivotal tokens and steering vectors, use the token trace visualization
     if dataset_type in ('pivotal_tokens', 'steering_vectors'):
         return create_pivotal_token_trace(query_df, selected_query)
@@ -848,6 +1666,7 @@ def create_statistics_dashboard(df: pd.DataFrame) -> Tuple[str, go.Figure]:
         return "No data available", go.Figure()
 
     dataset_type = detect_dataset_type(df)
+    is_v2 = dataset_type in V2_TYPES
 
     # Build statistics
     stats = {
@@ -855,12 +1674,43 @@ def create_statistics_dashboard(df: pd.DataFrame) -> Tuple[str, go.Figure]:
         "Dataset Type": dataset_type,
     }
 
-    if 'is_positive' in df.columns:
-        positive_count = df['is_positive'].sum()
-        stats["Positive Items"] = int(positive_count)
-        stats["Negative Items"] = int(len(df) - positive_count)
+    if is_v2:
+        gran = df.apply(_granularity, axis=1)
+        stats["Latent Events"] = int((gran == 'latent').sum())
+        stats["Token Events"] = int((gran == 'token').sum())
+        stats["Sentence Events"] = int((gran == 'sentence').sum())
 
-    if 'prob_delta' in df.columns:
+        link_count = 0
+        for col in ('linked_event_ids', 'precedes_event_ids'):
+            if col in df.columns:
+                link_count += int(sum(len(_as_list(v)) for v in df[col]))
+        stats["Event Links"] = link_count
+
+        if 'query' in df.columns:
+            stats["Queries"] = int(df['query'].nunique())
+        if 'category' in df.columns:
+            stats["Categories"] = int(df['category'].dropna().nunique())
+        if 'layer' in df.columns and df['layer'].notna().any():
+            stats["Layer Range"] = (
+                f"{int(df['layer'].min())}-{int(df['layer'].max())}"
+            )
+        if 'readout_method' in df.columns and df['readout_method'].notna().any():
+            methods = sorted({str(m) for m in df['readout_method'].dropna().unique()})
+            stats["Readout"] = ", ".join(methods)
+
+    if 'is_positive' in df.columns:
+        # Latent events are null here by design; count them separately rather
+        # than folding them into "negative".
+        positive_count = int(
+            df['is_positive'].map(lambda v: bool(v) if v is not None and v is not pd.NA and v == v else False).sum()
+        )
+        unscored = int(df['is_positive'].isna().sum())
+        stats["Positive Items"] = positive_count
+        stats["Negative Items"] = int(len(df) - positive_count - unscored)
+        if unscored:
+            stats["Unscored (latent)"] = unscored
+
+    if 'prob_delta' in df.columns and df['prob_delta'].notna().any():
         stats["Avg Prob Delta"] = f"{df['prob_delta'].mean():.3f}"
         stats["Max Prob Delta"] = f"{df['prob_delta'].max():.3f}"
 
@@ -887,6 +1737,68 @@ def create_statistics_dashboard(df: pd.DataFrame) -> Tuple[str, go.Figure]:
         """)
 
     html_parts.append('</div>')
+
+    # v2 gets its own panel set: emitted deltas and latent readout scores are
+    # different quantities and are never binned into the same histogram.
+    if is_v2:
+        fig = make_subplots(
+            rows=1, cols=3,
+            subplot_titles=(
+                "Δ probability (emitted events)",
+                "Events by type",
+                "Readout score (latent events)",
+            ),
+        )
+
+        gran = df.apply(_granularity, axis=1)
+        emitted = df[gran != 'latent']
+        latent = df[gran == 'latent']
+
+        if 'prob_delta' in emitted.columns and emitted['prob_delta'].notna().any():
+            data = emitted['prob_delta'].dropna().values
+            counts, bin_edges = np.histogram(data, bins=30)
+            centers = [(bin_edges[i] + bin_edges[i + 1]) / 2 for i in range(len(bin_edges) - 1)]
+            fig.add_trace(
+                go.Bar(x=centers, y=counts.tolist(), name="Δ probability",
+                       marker_color=COLOR_UNKNOWN,
+                       width=(bin_edges[1] - bin_edges[0]) * 0.9),
+                row=1, col=1,
+            )
+
+        if 'event_type' in df.columns:
+            type_counts = df['event_type'].value_counts()
+            colors = [
+                COLOR_LATENT if t == EVENT_LATENT else COLOR_POSITIVE
+                for t in type_counts.index.tolist()
+            ]
+            fig.add_trace(
+                go.Bar(x=type_counts.index.tolist(), y=type_counts.values.tolist(),
+                       name="Events", marker_color=colors),
+                row=1, col=2,
+            )
+
+        if not latent.empty and 'score' in latent.columns and latent['score'].notna().any():
+            data = latent['score'].dropna().values
+            counts, bin_edges = np.histogram(data, bins=20)
+            centers = [(bin_edges[i] + bin_edges[i + 1]) / 2 for i in range(len(bin_edges) - 1)]
+            fig.add_trace(
+                go.Bar(x=centers, y=counts.tolist(), name="Readout score",
+                       marker_color=COLOR_LATENT,
+                       width=(bin_edges[1] - bin_edges[0]) * 0.9),
+                row=1, col=3,
+            )
+        else:
+            fig.add_annotation(
+                text="no latent events",
+                xref="x3 domain", yref="y3 domain", x=0.5, y=0.5,
+                showarrow=False, font=dict(size=11, color="#6b7280"),
+                row=1, col=3,
+            )
+
+        fig.update_xaxes(title_text="Δ probability", row=1, col=1)
+        fig.update_xaxes(title_text="Readout score (not a Δ probability)", row=1, col=3)
+        fig.update_layout(template="plotly_dark", height=380, showlegend=False)
+        return "\n".join(html_parts), fig
 
     # Determine what to show in second chart
     second_chart_title = "Category Distribution"
@@ -969,37 +1881,67 @@ def create_statistics_dashboard(df: pd.DataFrame) -> Tuple[str, go.Figure]:
 # Gradio Interface
 # ============================================================================
 
-# Global state for loaded data
-current_data = {"df": pd.DataFrame(), "type": "unknown"}
+# Global state for loaded data. "filtered" holds the Event Explorer's current
+# selection so the detail slider indexes into what the user is actually looking at.
+current_data = {"df": pd.DataFrame(), "type": "unknown", "filtered": pd.DataFrame()}
+
+DPO_NOTICE_HTML = """
+<div style="padding: 40px; text-align: center; background-color: #1a1a2e; border-radius: 10px;">
+    <h3 style="color: #f59e0b;">DPO Pairs Dataset</h3>
+    <p style="color: #a0a0a0;">This visualization is not available for DPO pairs datasets.</p>
+    <p style="color: #a0a0a0;">DPO pairs contain prompt/chosen/rejected structure without token-level context.</p>
+    <p style="color: #6366f1; margin-top: 20px;">
+        Try loading a <strong>causal_events</strong>, <strong>pivotal_tokens</strong> or
+        <strong>thought_anchors</strong> dataset instead.
+    </p>
+</div>
+"""
+
+
+def _query_choices(df: pd.DataFrame) -> List[str]:
+    """Truncated dropdown labels for each unique query."""
+    if df.empty or 'query' not in df.columns:
+        return []
+    choices = []
+    for i, q in enumerate(df['query'].unique().tolist()):
+        q_str = str(q) if q is not None else ""
+        if len(q_str) > 80:
+            choices.append(f"[{i+1}] {q_str[:77]}...")
+        else:
+            choices.append(f"[{i+1}] {q_str}")
+    return choices
 
 
 def load_dataset_action(source_type: str, dataset_id: str, file_upload):
     """Handle dataset loading and return all visualization updates."""
     global current_data
 
+    def blank(message: str):
+        empty_fig = go.Figure()
+        empty_fig.update_layout(template="plotly_dark")
+        return (message, "", "No data", empty_fig, empty_fig, empty_fig,
+                "No data", empty_fig, empty_fig, empty_fig,
+                gr.update(maximum=0, value=0),
+                gr.update(choices=[], value=None),
+                gr.update(choices=["All"], value="All"),
+                gr.update(choices=["All"], value="All"),
+                "No data", empty_fig, "No data", empty_fig)
+
     if source_type == "HuggingFace Hub":
         if not dataset_id:
-            empty_fig = go.Figure()
-            empty_fig.update_layout(template="plotly_dark")
-            return ("Please enter a dataset ID", "", "No data", empty_fig, empty_fig, empty_fig, "No data", empty_fig,
-                    gr.update(maximum=0), gr.update(choices=[], value=None))
+            return blank("Please enter a dataset ID")
         df, msg = load_hf_dataset(dataset_id)
     else:  # Local File
         if file_upload is None:
-            empty_fig = go.Figure()
-            empty_fig.update_layout(template="plotly_dark")
-            return ("Please upload a file", "", "No data", empty_fig, empty_fig, empty_fig, "No data", empty_fig,
-                    gr.update(maximum=0), gr.update(choices=[], value=None))
+            return blank("Please upload a file")
         df, msg = load_jsonl_file(file_upload.name)
 
     if df.empty:
-        empty_fig = go.Figure()
-        empty_fig.update_layout(template="plotly_dark")
-        return (msg, "", "No data", empty_fig, empty_fig, empty_fig, "No data", empty_fig,
-                gr.update(maximum=0), gr.update(choices=[], value=None))
+        return blank(msg)
 
     current_data["df"] = df
     current_data["type"] = detect_dataset_type(df)
+    current_data["filtered"] = df
 
     columns_info = f"Columns: {', '.join(df.columns[:10])}"
     if len(df.columns) > 10:
@@ -1007,61 +1949,133 @@ def load_dataset_action(source_type: str, dataset_id: str, file_upload):
 
     # Generate all visualizations
     stats_html, stats_fig = create_statistics_dashboard(df)
-    graph_fig = create_thought_anchor_graph(df)
+    graph_fig = create_causal_event_graph(df)
     embed_fig = create_embedding_visualization(df)
     circuit_html, circuit_fig = create_circuit_visualization(df)
 
-    # Generate query list
-    query_choices = []
-    if 'query' in df.columns:
-        queries = df['query'].unique().tolist()
-        for i, q in enumerate(queries):
-            q_str = str(q) if q is not None else ""
-            if len(q_str) > 80:
-                query_choices.append(f"[{i+1}] {q_str[:77]}...")
-            else:
-                query_choices.append(f"[{i+1}] {q_str}")
+    first_query = df['query'].iloc[0] if 'query' in df.columns and len(df) else None
+    timeline_fig = create_multiscale_timeline(df, first_query)
+    heatmap_fig = create_workspace_heatmap(df, first_query)
+
+    # Event Explorer filter choices come from the data itself.
+    type_choices = ["All"]
+    if 'event_type' in df.columns:
+        type_choices += sorted({str(v) for v in df['event_type'].dropna().unique()})
+
+    category_choices = ["All"]
+    for col in ('category', 'sentence_category'):
+        if col in df.columns:
+            category_choices += sorted({str(v) for v in df[col].dropna().unique()})
+            break
+
+    ev_summary, ev_fig = describe_event_selection(df)
+    detail_html, detail_fig = get_event_details(0)
 
     return (msg, f"Dataset type: {current_data['type']}\n{columns_info}",
             stats_html, stats_fig, graph_fig, embed_fig, circuit_html, circuit_fig,
-            gr.update(maximum=max(0, len(df) - 1)),
-            gr.update(choices=query_choices, value=None))
+            timeline_fig, heatmap_fig,
+            gr.update(maximum=max(0, len(df) - 1), value=0),
+            gr.update(choices=_query_choices(df), value=None),
+            gr.update(choices=type_choices, value="All"),
+            gr.update(choices=category_choices, value="All"),
+            ev_summary, ev_fig, detail_html, detail_fig)
 
 
-def get_token_details(idx: int) -> Tuple[str, go.Figure]:
-    """Get details for a specific pivotal token."""
-    df = current_data["df"]
+def create_readout_score_chart(row) -> go.Figure:
+    """Detail chart for a latent event.
+
+    Deliberately not a before/after probability chart: a latent event has no
+    prob_before or prob_after. Showing one would assert a causal effect that was
+    never measured.
+    """
+    score = _num(_val(row, 'score'))
+    fig = go.Figure()
+    fig.add_trace(go.Bar(
+        x=['Readout score'],
+        y=[score],
+        marker_color=COLOR_LATENT,
+        text=[f"{score:.4f}"],
+        textposition='outside',
+    ))
+    fig.update_layout(
+        title=(
+            f"Latent readout score (layer {_val(row, 'layer', 'n/a')}, "
+            f"{_val(row, 'readout_method', 'n/a')}) - not a probability delta"
+        ),
+        yaxis_title="Readout score",
+        yaxis_range=[0, max(1.0, score * 1.2)],
+        template="plotly_dark",
+        height=300,
+    )
+    return fig
+
+
+def create_latent_detail_html(row) -> str:
+    """HTML card for a latent meta-token event."""
+    context = html_lib.escape(str(_val(row, 'context', '')))
+    label = html_lib.escape(str(_val(row, 'label', '')))
+    score = _num(_val(row, 'score'))
+
+    return f"""
+    <div style="background-color: #1a1a2e; border-radius: 10px; padding: 20px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+            <span style="color: #a0a0a0; font-size: 0.9em;">
+                Latent meta-token | layer {_val(row, 'layer', 'n/a')} |
+                readout {_val(row, 'readout_method', 'n/a')} |
+                offset {_val(row, 'position', 'n/a')} |
+                category {html_lib.escape(str(_val(row, 'category', 'unknown')))}
+            </span>
+            <span style="background-color: {COLOR_LATENT}; color: white; padding: 4px 12px; border-radius: 5px; font-weight: bold;">
+                Readout score: {score:.4f}
+            </span>
+        </div>
+        <div style="font-family: monospace; padding: 15px; background-color: #0d1117; border-radius: 8px; color: #e0e0e0; line-height: 1.8; max-height: 400px; overflow-y: auto; white-space: pre-wrap; word-break: break-word; border: 1px solid #30363d;">
+            <span style="color: #8b949e;">{context}</span><span style="background-color: {COLOR_LATENT}; padding: 2px 6px; border-radius: 3px; border: 2px solid #d8b4fe; font-weight: bold;">{label}</span>
+        </div>
+        <p style="color: #d8b4fe; margin-top: 15px; font-size: 0.9em;">
+            This event is <strong>observational</strong>: it was read out of the model's residual
+            stream, not intervened on. Its score is a <strong>readout score</strong>, not a
+            probability delta, and is not comparable to the scores on emitted token and
+            sentence events.
+        </p>
+    </div>
+    """
+
+
+def get_event_details(idx: int) -> Tuple[str, go.Figure]:
+    """Detail view for one event from the current Event Explorer selection."""
+    df = current_data.get("filtered")
+    if df is None or df.empty:
+        df = current_data["df"]
     dataset_type = current_data.get("type", "unknown")
 
-    if df.empty:
+    if df is None or df.empty:
         return "No data available. Please load a dataset first.", go.Figure()
 
-    # Handle unsupported dataset types
     if dataset_type == 'dpo_pairs':
-        html = """
-        <div style="padding: 40px; text-align: center; background-color: #1a1a2e; border-radius: 10px;">
-            <h3 style="color: #f59e0b;">DPO Pairs Dataset</h3>
-            <p style="color: #a0a0a0;">This visualization is not available for DPO pairs datasets.</p>
-            <p style="color: #a0a0a0;">DPO pairs contain prompt/chosen/rejected structure without token-level context.</p>
-            <p style="color: #6366f1; margin-top: 20px;">
-                Try loading a <strong>pivotal_tokens</strong> or <strong>thought_anchors</strong> dataset instead.
-            </p>
-        </div>
-        """
-        return html, go.Figure()
+        return DPO_NOTICE_HTML, go.Figure()
 
-    if idx >= len(df):
+    try:
+        idx = int(idx)
+    except (TypeError, ValueError):
+        idx = 0
+
+    if idx >= len(df) or idx < 0:
         return "Index out of range", go.Figure()
 
     row = df.iloc[idx]
 
-    context = row.get('pivot_context', row.get('prefix_context', ''))
-    token = row.get('pivot_token', row.get('sentence', ''))
-    prob_delta = row.get('prob_delta', 0)
-    prob_before = row.get('prob_before', row.get('prob_with_sentence', 0.5))
-    prob_after = row.get('prob_after', row.get('prob_without_sentence', 0.5))
+    # v2 latent events get their own card: no before/after probability exists.
+    if is_v2_events(df) and _granularity(row) == 'latent':
+        return create_latent_detail_html(row), create_readout_score_chart(row)
 
-    # Handle missing data
+    # v1 pivot_context/prefix_context, v2 context. Same for the label.
+    context = _val(row, 'pivot_context', _val(row, 'prefix_context', _val(row, 'context', '')))
+    token = _val(row, 'pivot_token', _val(row, 'sentence', _val(row, 'label', '')))
+    prob_delta = _num(_val(row, 'prob_delta'))
+    prob_before = _num(_val(row, 'prob_before', _val(row, 'prob_without_sentence', 0.5)), 0.5)
+    prob_after = _num(_val(row, 'prob_after', _val(row, 'prob_with_sentence', 0.5)), 0.5)
+
     if not context and not token:
         html = """
         <div style="padding: 40px; text-align: center; background-color: #1a1a2e; border-radius: 10px;">
@@ -1075,6 +2089,179 @@ def get_token_details(idx: int) -> Tuple[str, go.Figure]:
     chart = create_probability_chart(prob_before, prob_after)
 
     return html, chart
+
+
+# Kept for backwards compatibility with anything importing the old name.
+get_token_details = get_event_details
+
+
+def _row_score(row) -> float:
+    """The score used by the Event Explorer's min-score filter.
+
+    v2 events carry ``score`` directly. v1 records get |prob_delta| (or the
+    thought-anchor importance score), which is the same quantity v2 stores.
+    """
+    score = _val(row, 'score')
+    if score is not None:
+        return _num(score)
+    importance = _val(row, 'importance_score')
+    if importance is not None:
+        return _num(importance)
+    return abs(_num(_val(row, 'prob_delta')))
+
+
+def describe_event_selection(df: pd.DataFrame) -> Tuple[str, go.Figure]:
+    """Summary cards + score distribution for the Event Explorer's selection."""
+    if df is None or df.empty:
+        return (
+            '<div style="padding: 20px; color: #a0a0a0; background-color: #1a1a2e; '
+            'border-radius: 10px;">No events match these filters.</div>',
+            _empty_fig("No events match these filters", 320),
+        )
+
+    v2 = is_v2_events(df)
+    if v2:
+        gran = df.apply(_granularity, axis=1)
+        counts = {
+            'latent': int((gran == 'latent').sum()),
+            'token': int((gran == 'token').sum()),
+            'sentence': int((gran == 'sentence').sum()),
+        }
+    else:
+        gran = pd.Series(['token'] * len(df), index=df.index)
+        counts = {'latent': 0, 'token': len(df), 'sentence': 0}
+
+    cards = [
+        ("Events", len(df)),
+        ("Latent", counts['latent']),
+        ("Token", counts['token']),
+        ("Sentence", counts['sentence']),
+    ]
+    html_parts = ['<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px;">']
+    for name, value in cards:
+        html_parts.append(f"""
+        <div style="background: linear-gradient(135deg, #1e3a5f 0%, #0d1b2a 100%);
+                    padding: 15px; border-radius: 10px; text-align: center;">
+            <div style="color: #6366f1; font-size: 1.4em; font-weight: bold;">{value}</div>
+            <div style="color: #a0a0a0; font-size: 0.85em; margin-top: 4px;">{name}</div>
+        </div>
+        """)
+    html_parts.append('</div>')
+
+    fig = go.Figure()
+    emitted_scores = [
+        _row_score(r) for _, r in df[gran != 'latent'].iterrows()
+    ] if (gran != 'latent').any() else []
+    latent_scores = [
+        _num(_val(r, 'score')) for _, r in df[gran == 'latent'].iterrows()
+    ] if (gran == 'latent').any() else []
+
+    # Two separate traces, never one merged histogram: |Δ probability| and
+    # readout score are different quantities on different scales.
+    if emitted_scores:
+        fig.add_trace(go.Histogram(
+            x=emitted_scores, name="Emitted |Δ probability|",
+            marker_color=COLOR_POSITIVE, opacity=0.7, nbinsx=30,
+        ))
+    if latent_scores:
+        fig.add_trace(go.Histogram(
+            x=latent_scores, name="Latent readout score",
+            marker_color=COLOR_LATENT, opacity=0.7, nbinsx=30,
+        ))
+
+    fig.update_layout(
+        title="Score distribution of the current selection",
+        xaxis_title="Score (|Δ probability| for emitted events, readout score for latent events)",
+        yaxis_title="Events",
+        barmode='overlay',
+        template="plotly_dark",
+        height=320,
+    )
+    return "\n".join(html_parts), fig
+
+
+def apply_event_filters(event_type: str, granularity: str, polarity: str,
+                        category: str, min_score: float,
+                        layer_min: float, layer_max: float):
+    """Filter the loaded events and refresh the Event Explorer."""
+    df = current_data["df"]
+    if df is None or df.empty:
+        current_data["filtered"] = pd.DataFrame()
+        summary, fig = describe_event_selection(pd.DataFrame())
+        return (summary, fig, gr.update(maximum=0, value=0),
+                "No data available. Please load a dataset first.", go.Figure())
+
+    if current_data.get("type") == 'dpo_pairs':
+        current_data["filtered"] = df
+        summary, fig = describe_event_selection(pd.DataFrame())
+        return (summary, fig, gr.update(maximum=0, value=0), DPO_NOTICE_HTML, go.Figure())
+
+    work = df.copy()
+    v2 = is_v2_events(work)
+
+    if v2 and event_type and event_type != "All" and 'event_type' in work.columns:
+        work = work[work['event_type'].astype(str) == event_type]
+
+    if v2 and granularity and granularity != "All" and not work.empty:
+        work = work[work.apply(_granularity, axis=1) == granularity]
+
+    if polarity and polarity != "All" and not work.empty:
+        def valence(row):
+            """True / False / None -- latent events are always None."""
+            if _granularity(row) == 'latent':
+                return None
+            is_positive = _val(row, 'is_positive')
+            if is_positive is not None:
+                return bool(is_positive)
+            delta = _val(row, 'prob_delta')
+            if delta is None:
+                return None
+            return _num(delta) > 0
+
+        positives = work.apply(valence, axis=1)
+        if polarity == "Positive":
+            work = work[positives.apply(lambda v: v is True)]
+        elif polarity == "Negative":
+            work = work[positives.apply(lambda v: v is False)]
+        elif polarity.startswith("Unscored"):
+            work = work[positives.apply(lambda v: v is None)]
+
+    if category and category != "All" and not work.empty:
+        cat_col = 'category' if 'category' in work.columns else (
+            'sentence_category' if 'sentence_category' in work.columns else None
+        )
+        if cat_col:
+            work = work[work[cat_col].astype(str) == category]
+
+    if not work.empty and min_score:
+        scores = work.apply(_row_score, axis=1)
+        work = work[scores >= float(min_score)]
+
+    # Layer range only constrains latent events; emitted events have no layer.
+    if not work.empty and 'layer' in work.columns:
+        lo, hi = float(layer_min), float(layer_max)
+        if lo > hi:
+            lo, hi = hi, lo
+
+        def layer_ok(row) -> bool:
+            if _granularity(row) != 'latent':
+                return True
+            layer = _val(row, 'layer')
+            if layer is None:
+                return True
+            return lo <= _num(layer) <= hi
+
+        work = work[work.apply(layer_ok, axis=1)]
+
+    work = work.reset_index(drop=True)
+    current_data["filtered"] = work
+
+    summary, fig = describe_event_selection(work)
+    detail_html, detail_fig = get_event_details(0)
+
+    return (summary, fig,
+            gr.update(maximum=max(0, len(work) - 1), value=0),
+            detail_html, detail_fig)
 
 
 def get_original_query_from_label(label: str) -> str:
@@ -1098,53 +2285,70 @@ def get_original_query_from_label(label: str) -> str:
 
 
 def update_graph_visualization(query_dropdown: str = None):
-    """Update the thought anchor graph."""
+    """Update the causal event graph (falls back to the v1 reasoning graph)."""
     dataset_type = current_data.get("type", "unknown")
     if dataset_type == 'dpo_pairs':
-        fig = go.Figure()
-        fig.add_annotation(
-            text="Reasoning Graph is not available for DPO pairs datasets.<br>Load a pivotal_tokens or thought_anchors dataset.",
-            xref="paper", yref="paper", x=0.5, y=0.5, showarrow=False,
-            font=dict(size=14, color="#a0a0a0")
+        return _empty_fig(
+            "Causal Event Graph is not available for DPO pairs datasets.<br>"
+            "Load a causal_events, pivotal_tokens or thought_anchors dataset.",
         )
-        fig.update_layout(template="plotly_dark", height=400)
-        return fig
 
     # Convert truncated label back to original query
     original_query = get_original_query_from_label(query_dropdown)
-    return create_thought_anchor_graph(current_data["df"], original_query)
+    return create_causal_event_graph(current_data["df"], original_query)
 
 
 def update_embedding_visualization(color_by: str):
     """Update the embedding visualization."""
     dataset_type = current_data.get("type", "unknown")
     if dataset_type == 'dpo_pairs':
-        fig = go.Figure()
-        fig.add_annotation(
-            text="Embedding Space is not available for DPO pairs datasets.<br>Load a pivotal_tokens, thought_anchors, or steering_vectors dataset.",
-            xref="paper", yref="paper", x=0.5, y=0.5, showarrow=False,
-            font=dict(size=14, color="#a0a0a0")
+        return _empty_fig(
+            "Embedding Space is not available for DPO pairs datasets.<br>"
+            "Load a pivotal_tokens, thought_anchors, or steering_vectors dataset.",
         )
-        fig.update_layout(template="plotly_dark", height=400)
-        return fig
     return create_embedding_visualization(current_data["df"], color_by)
 
 
+def _query_at_index(df: pd.DataFrame, query_idx: int) -> Optional[str]:
+    if df.empty or 'query' not in df.columns:
+        return None
+    queries = df['query'].unique().tolist()
+    if not queries:
+        return None
+    idx = max(0, min(int(query_idx), len(queries) - 1))
+    return queries[idx]
+
+
 def update_circuit_view(query_idx: int):
-    """Update the circuit view."""
+    """Update the Multiscale Reasoning Timeline tab (timeline + heatmap + trace)."""
     dataset_type = current_data.get("type", "unknown")
+    df = current_data["df"]
+
     if dataset_type == 'dpo_pairs':
         html = """
         <div style="padding: 40px; text-align: center; background-color: #1a1a2e; border-radius: 10px;">
             <h3 style="color: #f59e0b;">DPO Pairs Dataset</h3>
-            <p style="color: #a0a0a0;">Circuit Tracer is not available for DPO pairs datasets.</p>
+            <p style="color: #a0a0a0;">The reasoning timeline is not available for DPO pairs datasets.</p>
             <p style="color: #6366f1; margin-top: 20px;">
-                Load a <strong>pivotal_tokens</strong> or <strong>thought_anchors</strong> dataset to explore reasoning circuits.
+                Load a <strong>causal_events</strong>, <strong>pivotal_tokens</strong> or
+                <strong>thought_anchors</strong> dataset to explore reasoning circuits.
             </p>
         </div>
         """
-        return html, go.Figure()
-    return create_circuit_visualization(current_data["df"], int(query_idx))
+        empty = _empty_fig("Not available for DPO pairs datasets")
+        return html, go.Figure(), empty, empty
+
+    try:
+        query_idx = int(query_idx)
+    except (TypeError, ValueError):
+        query_idx = 0
+
+    selected_query = _query_at_index(df, query_idx)
+    circuit_html, circuit_fig = create_circuit_visualization(df, query_idx)
+    timeline_fig = create_multiscale_timeline(df, selected_query)
+    heatmap_fig = create_workspace_heatmap(df, selected_query)
+
+    return circuit_html, circuit_fig, timeline_fig, heatmap_fig
 
 
 def update_statistics():
@@ -1157,18 +2361,7 @@ def get_query_list():
     df = current_data["df"]
     if df.empty or 'query' not in df.columns:
         return gr.update(choices=[], value=None)
-
-    queries = df['query'].unique().tolist()
-    # Return simple truncated strings for dropdown choices
-    truncated_queries = []
-    for i, q in enumerate(queries):
-        q_str = str(q) if q is not None else ""
-        if len(q_str) > 80:
-            truncated_queries.append(f"[{i+1}] {q_str[:77]}...")
-        else:
-            truncated_queries.append(f"[{i+1}] {q_str}")
-
-    return gr.update(choices=truncated_queries, value=None)
+    return gr.update(choices=_query_choices(df), value=None)
 
 
 def refresh_all():
@@ -1183,22 +2376,34 @@ def refresh_all():
             empty_fig,
             empty_fig,
             "No data loaded",
-            empty_fig
+            empty_fig,
+            empty_fig,
+            empty_fig,
         )
 
     stats_html, stats_fig = create_statistics_dashboard(df)
-    graph_fig = create_thought_anchor_graph(df)
+    graph_fig = create_causal_event_graph(df)
     embed_fig = create_embedding_visualization(df)
     circuit_html, circuit_fig = create_circuit_visualization(df)
+    first_query = _query_at_index(df, 0)
+    timeline_fig = create_multiscale_timeline(df, first_query)
+    heatmap_fig = create_workspace_heatmap(df, first_query)
 
-    return stats_html, stats_fig, graph_fig, embed_fig, circuit_html, circuit_fig
+    return (stats_html, stats_fig, graph_fig, embed_fig, circuit_html, circuit_fig,
+            timeline_fig, heatmap_fig)
 
 
 # ============================================================================
 # Build Gradio App
 # ============================================================================
 
-# Pre-defined HuggingFace datasets
+# Pre-defined HuggingFace datasets.
+# The v1 datasets below still load and render exactly as they did before; the
+# v2 causal-event datasets use the unified CausalReasoningEvent schema.
+# Only datasets that actually exist on the Hub. The visualizer reads v2
+# causal-event files too -- upload one and add it here, or load it from disk with
+# the file upload. Listing v2 datasets that have not been published yet would put
+# entries in the dropdown that can only fail.
 HF_DATASETS = [
     "codelion/Qwen3-0.6B-pts",
     "codelion/Qwen3-0.6B-pts-thought-anchors",
@@ -1207,6 +2412,9 @@ HF_DATASETS = [
     "codelion/DeepSeek-R1-Distill-Qwen-1.5B-pts-thought-anchors",
     "codelion/DeepSeek-R1-Distill-Qwen-1.5B-pts-steering-vectors",
 ]
+
+# Default to a v1 dataset that is known to exist on the Hub.
+DEFAULT_DATASET = "codelion/Qwen3-0.6B-pts"
 
 # CSS configuration
 CSS = """
@@ -1219,10 +2427,13 @@ with gr.Blocks(title="PTS Visualizer", css=CSS) as demo:
     # Header
     gr.Markdown("""
     # PTS Visualizer
-    ### Interactive Exploration of Pivotal Tokens, Thought Anchors & Reasoning Circuits
+    ### Interactive Exploration of Latent Meta-Tokens, Pivotal Tokens & Thought Anchors
 
     A [Neuronpedia](https://neuronpedia.org/)-inspired platform for understanding how language models reason.
     Load datasets from HuggingFace Hub or upload your own JSONL files.
+
+    Supports the PTS v2 unified event schema (`CausalReasoningEvent`: latent / token / sentence)
+    as well as all v1 pivotal-token, thought-anchor and steering-vector datasets.
 
     🔗 [Browse more PTS datasets on HuggingFace](https://huggingface.co/datasets?other=pts)
     """)
@@ -1240,7 +2451,7 @@ with gr.Blocks(title="PTS Visualizer", css=CSS) as demo:
             with gr.Column(scale=3):
                 dataset_dropdown = gr.Dropdown(
                     choices=HF_DATASETS,
-                    value=HF_DATASETS[0],
+                    value=DEFAULT_DATASET,
                     label="Select Dataset",
                     info="Choose a pre-defined dataset or enter your own HuggingFace dataset ID"
                 )
@@ -1261,32 +2472,79 @@ with gr.Blocks(title="PTS Visualizer", css=CSS) as demo:
     # Main Visualization Tabs
     with gr.Tabs():
 
-        # Overview Tab
+        # Overview Tab (unified event overview)
         with gr.TabItem("Overview"):
             gr.Markdown("### Dataset Statistics")
+            gr.Markdown(
+                "*For PTS v2 datasets this counts events at all three scales "
+                "(latent / token / sentence) and the causal links between them. "
+                "Emitted Δ-probabilities and latent readout scores are charted "
+                "separately: they are different quantities and are not comparable.*"
+            )
             stats_html = gr.HTML()
             stats_chart = gr.Plot()
 
-        # Token Explorer Tab
-        with gr.TabItem("Token Explorer"):
-            gr.Markdown("### Explore Pivotal Tokens")
+        # Event Explorer Tab (generalization of the old Token Explorer)
+        with gr.TabItem("Event Explorer"):
+            gr.Markdown("### Explore Causal Reasoning Events")
+            gr.Markdown(
+                "*Filter events across all three scales. Latent meta-tokens are "
+                "observational: they carry a **readout score**, not a probability delta, "
+                "and are shown in purple rather than green/red.*"
+            )
+            with gr.Row():
+                ev_type = gr.Dropdown(
+                    choices=["All"], value="All", label="Event Type"
+                )
+                ev_granularity = gr.Dropdown(
+                    choices=["All", "latent", "token", "sentence"],
+                    value="All", label="Granularity"
+                )
+                ev_polarity = gr.Radio(
+                    choices=["All", "Positive", "Negative", "Unscored (latent)"],
+                    value="All", label="Impact"
+                )
+            with gr.Row():
+                ev_category = gr.Dropdown(
+                    choices=["All"], value="All", label="Category"
+                )
+                ev_min_score = gr.Slider(
+                    minimum=0.0, maximum=1.0, step=0.01, value=0.0,
+                    label="Min Score (|Δ prob| for emitted, readout score for latent)"
+                )
+            with gr.Row():
+                ev_layer_min = gr.Slider(
+                    minimum=0, maximum=128, step=1, value=0,
+                    label="Min Layer (latent events only)"
+                )
+                ev_layer_max = gr.Slider(
+                    minimum=0, maximum=128, step=1, value=128,
+                    label="Max Layer (latent events only)"
+                )
+
+            ev_summary = gr.HTML()
+            ev_score_plot = gr.Plot(label="Score Distribution")
+
+            gr.Markdown("#### Event Detail")
             with gr.Row():
                 with gr.Column(scale=1):
                     token_slider = gr.Slider(
                         minimum=0, maximum=100, step=1, value=0,
-                        label="Token Index"
+                        label="Event Index (within current filter)"
                     )
                 with gr.Column(scale=3):
-                    token_html = gr.HTML(label="Token in Context")
-            prob_chart = gr.Plot(label="Probability Change")
+                    token_html = gr.HTML(label="Event in Context")
+            prob_chart = gr.Plot(label="Probability Change / Readout Score")
 
-        # Thought Anchor Graph Tab
-        with gr.TabItem("Reasoning Graph"):
-            gr.Markdown("### Thought Anchor Dependency Graph")
+        # Causal Event Graph Tab
+        with gr.TabItem("Causal Event Graph"):
+            gr.Markdown("### Causal Event Graph")
             gr.Markdown("""
-            *Visualizes causal dependencies between reasoning steps.
-            Green nodes indicate positive impact, red nodes indicate negative impact.
-            Node size reflects importance score.*
+            *Latent meta-tokens (diamonds) → pivotal tokens (circles) → thought anchors
+            (squares) → outcome (star). Edges come from the event links
+            (`precedes_event_ids` / `linked_event_ids` / `parent_event_id`).
+            Green = positive impact, red = negative impact, purple = latent (no measured valence).
+            Node size reflects score. v1 datasets fall back to the original reasoning graph.*
             """)
             with gr.Row():
                 query_filter = gr.Dropdown(
@@ -1302,21 +2560,37 @@ with gr.Blocks(title="PTS Visualizer", css=CSS) as demo:
             gr.Markdown("*t-SNE projection of sentence/token embeddings. Explore clusters and patterns.*")
             with gr.Row():
                 color_dropdown = gr.Dropdown(
-                    choices=["is_positive", "sentence_category", "reasoning_pattern", "task_type"],
+                    choices=["is_positive", "event_type", "granularity", "category",
+                             "sentence_category", "reasoning_pattern", "task_type"],
                     value="is_positive",
                     label="Color By"
                 )
             embed_plot = gr.Plot()
 
-        # Circuit Tracer Tab
-        with gr.TabItem("Circuit Tracer"):
-            gr.Markdown("### Step-by-Step Reasoning Circuit")
-            gr.Markdown("*Walk through the reasoning process step by step. See how each step affects the probability of success.*")
+        # Multiscale Reasoning Timeline Tab (was: Circuit Tracer)
+        with gr.TabItem("Multiscale Reasoning Timeline"):
+            gr.Markdown("### Multiscale Reasoning Timeline")
+            gr.Markdown(
+                "*One shared generation axis across four scales: latent meta-tokens, "
+                "emitted pivotal tokens, thought-anchor sentences, and the resulting "
+                "success probability. Latent events are placed by their offset from the "
+                "emitted event they precede.*"
+            )
             with gr.Row():
                 circuit_query_idx = gr.Slider(
                     minimum=0, maximum=100, step=1, value=0,
                     label="Query Index"
                 )
+            timeline_plot = gr.Plot(label="Multiscale Timeline")
+
+            gr.Markdown("#### Latent Workspace Heatmap")
+            gr.Markdown(
+                "*Meta-token (or category) x generation position, colored by **readout score** "
+                "— how strongly the lens surfaces that concept. This is not a probability delta.*"
+            )
+            heatmap_plot = gr.Plot(label="Workspace Heatmap")
+
+            gr.Markdown("#### Step-by-Step Reasoning Circuit")
             circuit_html = gr.HTML()
             circuit_chart = gr.Plot()
 
@@ -1324,22 +2598,38 @@ with gr.Blocks(title="PTS Visualizer", css=CSS) as demo:
     load_btn.click(
         fn=load_dataset_action,
         inputs=[source_type, dataset_dropdown, file_upload],
-        outputs=[load_status, dataset_info, stats_html, stats_chart, graph_plot, embed_plot, circuit_html, circuit_chart, token_slider, query_filter],
+        outputs=[load_status, dataset_info, stats_html, stats_chart, graph_plot,
+                 embed_plot, circuit_html, circuit_chart, timeline_plot, heatmap_plot,
+                 token_slider, query_filter, ev_type, ev_category,
+                 ev_summary, ev_score_plot, token_html, prob_chart],
         api_name=False
     )
 
     refresh_btn.click(
         fn=refresh_all,
-        outputs=[stats_html, stats_chart, graph_plot, embed_plot, circuit_html, circuit_chart],
+        outputs=[stats_html, stats_chart, graph_plot, embed_plot, circuit_html,
+                 circuit_chart, timeline_plot, heatmap_plot],
         api_name=False
     )
 
     token_slider.change(
-        fn=get_token_details,
+        fn=get_event_details,
         inputs=[token_slider],
         outputs=[token_html, prob_chart],
         api_name=False
     )
+
+    event_filter_inputs = [ev_type, ev_granularity, ev_polarity, ev_category,
+                           ev_min_score, ev_layer_min, ev_layer_max]
+    event_filter_outputs = [ev_summary, ev_score_plot, token_slider, token_html, prob_chart]
+
+    for filter_component in event_filter_inputs:
+        filter_component.change(
+            fn=apply_event_filters,
+            inputs=event_filter_inputs,
+            outputs=event_filter_outputs,
+            api_name=False
+        )
 
     query_filter.change(
         fn=update_graph_visualization,
@@ -1358,7 +2648,7 @@ with gr.Blocks(title="PTS Visualizer", css=CSS) as demo:
     circuit_query_idx.change(
         fn=update_circuit_view,
         inputs=[circuit_query_idx],
-        outputs=[circuit_html, circuit_chart],
+        outputs=[circuit_html, circuit_chart, timeline_plot, heatmap_plot],
         api_name=False
     )
 
