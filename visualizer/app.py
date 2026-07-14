@@ -8,6 +8,7 @@ and reasoning circuits in language models.
 import gradio as gr
 import plotly.express as px
 import plotly.graph_objects as go
+import plotly.io as pio
 from plotly.subplots import make_subplots
 import networkx as nx
 import pandas as pd
@@ -101,18 +102,43 @@ GRANULARITY_FOR_EVENT_TYPE = {
 
 V2_TYPES = ('causal_events', 'latent_events')
 
-# Green/red carry a claim about direction of effect. Latent events have no
-# measured effect (prob_delta is null by construction), so they are never
-# painted green or red -- purple means "observed, valence unknown".
-COLOR_POSITIVE = '#22c55e'
-COLOR_NEGATIVE = '#ef4444'
-COLOR_LATENT = '#8b5cf6'
-COLOR_UNKNOWN = '#6366f1'
-COLOR_OUTCOME = '#f59e0b'
+# The design system lives at the bottom of this file (see "Design system"), but
+# the palette is needed up here by the chart helpers. Two axes, kept strictly
+# apart:
+#
+#   CHANNEL  which scale an event belongs to   (latent / token / sentence)
+#   VALENCE  which way it moved success        (positive / negative)
+#
+# Latent events have a channel but NO valence -- prob_delta is null by
+# construction -- so they must never be painted green or red. Violet means
+# "observed in the workspace, direction unknown", and that is the whole point.
+C_CANVAS      = '#0A0D13'
+C_PANEL       = '#111722'
+C_PANEL_HI    = '#161E2C'
+C_LINE        = '#212C3D'
+C_LINE_SOFT   = '#1A2333'
+C_TEXT        = '#CBD5E4'
+C_TEXT_MUTED  = '#71809A'
+C_TEXT_FAINT  = '#4A566B'
+
+C_LATENT      = '#A78BFA'   # violet   -- hidden, deep
+C_TOKEN       = '#38BDF8'   # sky      -- emitted, a single decision point
+C_SENTENCE    = '#FBBF24'   # amber    -- emitted, an extended step
+C_POSITIVE    = '#34D399'   # emerald
+C_NEGATIVE    = '#FB7185'   # rose
+C_NEUTRAL     = '#64748B'
+
+COLOR_POSITIVE = C_POSITIVE
+COLOR_NEGATIVE = C_NEGATIVE
+COLOR_LATENT = C_LATENT
+COLOR_UNKNOWN = C_NEUTRAL
+COLOR_OUTCOME = C_SENTENCE
+
+CHANNEL = {'latent': C_LATENT, 'token': C_TOKEN, 'sentence': C_SENTENCE}
 
 CATEGORY_COLORS = [
-    '#6366f1', '#22c55e', '#ef4444', '#f59e0b', '#8b5cf6',
-    '#ec4899', '#14b8a6', '#f97316', '#06b6d4', '#84cc16',
+    C_LATENT, C_TOKEN, C_SENTENCE, C_POSITIVE, C_NEGATIVE,
+    '#F472B6', '#2DD4BF', '#FB923C', '#818CF8', '#A3E635',
 ]
 
 
@@ -121,16 +147,76 @@ def is_v2_events(df: pd.DataFrame) -> bool:
     return not df.empty and 'event_type' in df.columns
 
 
+def as_v2_events(df: pd.DataFrame) -> pd.DataFrame:
+    """Present a v1 dataframe as v2 events, in memory.
+
+    This is the whole PTS thesis applied to the UI: a v1 pivotal-token file *is*
+    a token-scale event stream, and a v1 thought-anchor file *is* a
+    sentence-scale one. They differ from v2 only in what the columns are called.
+    Upgrading them here means the multiscale views work on every published
+    dataset instead of showing an empty box until someone re-exports.
+
+    Returns the frame unchanged if it is already v2, or if it is neither shape
+    (steering vectors, DPO pairs).
+    """
+    if df.empty or is_v2_events(df):
+        return df
+
+    out = df.copy()
+    cols = set(out.columns)
+
+    if 'pivot_token' in cols:
+        out['event_type'] = 'pivotal_token'
+        out['granularity'] = 'token'
+        out['visibility'] = 'emitted'
+        out['label'] = out['pivot_token']
+        out['context'] = out.get('pivot_context', '')
+        if 'pivot_token_id' in cols:
+            out['token_id'] = out['pivot_token_id']
+    elif {'sentence', 'sentence_id'} <= cols:
+        out['event_type'] = 'thought_anchor'
+        out['granularity'] = 'sentence'
+        out['visibility'] = 'emitted'
+        out['label'] = out['sentence']
+        out['context'] = out.get('prefix_context', '')
+        out['position'] = out['sentence_id']
+        # v1 named these prob_with/prob_without; v2 calls them after/before.
+        if 'prob_with_sentence' in cols:
+            out['prob_after'] = out['prob_with_sentence']
+        if 'prob_without_sentence' in cols:
+            out['prob_before'] = out['prob_without_sentence']
+        if 'sentence_category' in cols:
+            out['category'] = out['sentence_category']
+    else:
+        return df
+
+    if 'prob_delta' in out.columns:
+        out['score'] = out['prob_delta'].abs()
+        if 'is_positive' not in out.columns:
+            out['is_positive'] = out['prob_delta'] > 0
+
+    for c in ('layer', 'readout_method', 'linked_event_ids', 'precedes_event_ids',
+              'follows_event_ids', 'parent_event_id', 'event_id'):
+        if c not in out.columns:
+            out[c] = None
+    if out['event_id'].isna().all():
+        out['event_id'] = [f'v1_evt_{i}' for i in range(len(out))]
+
+    return out
+
+
 def _empty_fig(message: str, height: int = 400) -> go.Figure:
-    """A dark-themed placeholder figure carrying an explanatory message."""
+    """A placeholder that reads as a deliberate state, not a broken chart."""
     fig = go.Figure()
     fig.add_annotation(
         text=message,
         xref="paper", yref="paper", x=0.5, y=0.5, showarrow=False,
-        font=dict(size=13, color="#a0a0a0")
+        font=dict(family="'IBM Plex Mono', monospace", size=12, color=C_TEXT_MUTED),
+        align="center", bgcolor=C_PANEL, bordercolor=C_LINE, borderwidth=1,
+        borderpad=14,
     )
     fig.update_layout(
-        template="plotly_dark",
+        template="pts",
         height=height,
         xaxis=dict(visible=False),
         yaxis=dict(visible=False),
@@ -321,27 +407,27 @@ def create_token_highlight_html(context: str, token: str, prob_delta: float) -> 
         # Positive impact - green gradient
         intensity = min(abs(prob_delta) * 2, 1.0)
         color = f"rgba(34, 197, 94, {intensity})"
-        border_color = "#22c55e"
+        border_color = "#34D399"
         impact_text = "Positive Impact"
     else:
         # Negative impact - red gradient
         intensity = min(abs(prob_delta) * 2, 1.0)
         color = f"rgba(239, 68, 68, {intensity})"
-        border_color = "#ef4444"
+        border_color = "#FB7185"
         impact_text = "Negative Impact"
 
     # Create highlighted token span
     token_span = f'<span style="background-color: {color}; padding: 2px 6px; border-radius: 3px; border: 2px solid {border_color}; font-weight: bold; font-size: 1.1em;">{token_escaped}</span>'
 
     return f"""
-    <div style="background-color: #1a1a2e; border-radius: 10px; padding: 20px;">
+    <div style="background-color: #111722; border: 1px solid #212C3D; border-radius: 4px; padding: 20px;">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
-            <span style="color: #a0a0a0; font-size: 0.9em;">Context Length: {len(context)} characters</span>
+            <span style="color: #71809A; font-size: 0.9em;">Context Length: {len(context)} characters</span>
             <span style="background-color: {border_color}; color: white; padding: 4px 12px; border-radius: 5px; font-weight: bold;">
                 {impact_text}: {'+' if prob_delta > 0 else ''}{prob_delta:.3f}
             </span>
         </div>
-        <div style="font-family: monospace; padding: 15px; background-color: #0d1117; border-radius: 8px; color: #e0e0e0; line-height: 1.8; max-height: 500px; overflow-y: auto; white-space: pre-wrap; word-break: break-word; border: 1px solid #30363d;">
+        <div style="font-family: monospace; padding: 15px; background-color: #0d1117; border-radius: 8px; color: #CBD5E4; line-height: 1.8; max-height: 500px; overflow-y: auto; white-space: pre-wrap; word-break: break-word; border: 1px solid #30363d;">
             <span style="color: #8b949e;">{context_escaped}</span>{token_span}
         </div>
         <div style="margin-top: 15px; display: flex; gap: 10px; flex-wrap: wrap;">
@@ -364,7 +450,7 @@ def create_probability_chart(prob_before: float, prob_after: float) -> go.Figure
     fig.add_trace(go.Bar(
         x=['Before Token', 'After Token'],
         y=[prob_before, prob_after],
-        marker_color=['#6366f1', '#22c55e' if prob_after > prob_before else '#ef4444'],
+        marker_color=[C_NEUTRAL, C_POSITIVE if prob_after > prob_before else C_NEGATIVE],
         text=[f'{prob_before:.3f}', f'{prob_after:.3f}'],
         textposition='outside'
     ))
@@ -373,7 +459,7 @@ def create_probability_chart(prob_before: float, prob_after: float) -> go.Figure
         title="Success Probability Change",
         yaxis_title="Probability",
         yaxis_range=[0, 1],
-        template="plotly_dark",
+        template="pts",
         height=300
     )
 
@@ -386,7 +472,7 @@ def create_pivotal_token_flow(df: pd.DataFrame, selected_query: str = None) -> g
         fig = go.Figure()
         fig.add_annotation(text="No data available",
                           xref="paper", yref="paper", x=0.5, y=0.5, showarrow=False)
-        fig.update_layout(template="plotly_dark")
+        fig.update_layout(template="pts")
         return fig
 
     if 'prob_delta' not in df.columns:
@@ -403,7 +489,7 @@ def create_pivotal_token_flow(df: pd.DataFrame, selected_query: str = None) -> g
         fig = go.Figure()
         fig.add_annotation(text="No data for selected query",
                           xref="paper", yref="paper", x=0.5, y=0.5, showarrow=False)
-        fig.update_layout(template="plotly_dark")
+        fig.update_layout(template="pts")
         return fig
 
     # Create scatter plot of tokens by probability delta
@@ -432,7 +518,7 @@ def create_pivotal_token_flow(df: pd.DataFrame, selected_query: str = None) -> g
             name='Positive Impact',
             marker=dict(
                 size=sizes,
-                color='#22c55e',
+                color=C_POSITIVE,
                 opacity=0.7
             ),
             hovertext=hover_text,
@@ -458,7 +544,7 @@ def create_pivotal_token_flow(df: pd.DataFrame, selected_query: str = None) -> g
             name='Negative Impact',
             marker=dict(
                 size=sizes,
-                color='#ef4444',
+                color=C_NEGATIVE,
                 opacity=0.7
             ),
             hovertext=hover_text,
@@ -471,7 +557,7 @@ def create_pivotal_token_flow(df: pd.DataFrame, selected_query: str = None) -> g
         title="Pivotal Token Impact Distribution",
         xaxis_title="Token Index",
         yaxis_title="Probability Delta",
-        template="plotly_dark",
+        template="pts",
         height=500,
         showlegend=True
     )
@@ -496,7 +582,7 @@ def create_thought_anchor_graph(df: pd.DataFrame, selected_query: str = None) ->
         fig.add_annotation(text="No thought anchor data available. Load a thought anchors dataset to see the reasoning graph.",
                           xref="paper", yref="paper", x=0.5, y=0.5, showarrow=False,
                           font=dict(size=14, color="#a0a0a0"))
-        fig.update_layout(template="plotly_dark", height=400)
+        fig.update_layout(template="pts", height=400)
         return fig
 
     # Filter by query if specified (handle None, empty string, or actual query)
@@ -507,7 +593,7 @@ def create_thought_anchor_graph(df: pd.DataFrame, selected_query: str = None) ->
         fig = go.Figure()
         fig.add_annotation(text="No data for selected query",
                           xref="paper", yref="paper", x=0.5, y=0.5, showarrow=False)
-        fig.update_layout(template="plotly_dark")
+        fig.update_layout(template="pts")
         return fig
 
     # Create networkx graph
@@ -555,7 +641,7 @@ def create_thought_anchor_graph(df: pd.DataFrame, selected_query: str = None) ->
 
     edge_trace = go.Scatter(
         x=edge_x, y=edge_y,
-        line=dict(width=1, color='#888'),
+        line=dict(width=1, color=C_LINE),
         hoverinfo='none',
         mode='lines'
     )
@@ -576,7 +662,7 @@ def create_thought_anchor_graph(df: pd.DataFrame, selected_query: str = None) ->
         is_positive = node_data.get('is_positive', True)
         importance = float(node_data.get('importance', 0.3))
 
-        node_colors.append('#22c55e' if is_positive else '#ef4444')
+        node_colors.append(C_POSITIVE if is_positive else C_NEGATIVE)
         node_sizes.append(20 + importance * 50)
 
         hover_text = f"Sentence {node}<br>"
@@ -606,7 +692,7 @@ def create_thought_anchor_graph(df: pd.DataFrame, selected_query: str = None) ->
         title="Thought Anchor Reasoning Graph",
         showlegend=False,
         hovermode='closest',
-        template="plotly_dark",
+        template="pts",
         xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
         yaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
         height=500
@@ -630,11 +716,16 @@ def create_multiscale_timeline(df: pd.DataFrame, selected_query: str = None) -> 
     if df is None or df.empty:
         return _empty_fig("No data loaded. Load a PTS dataset to see the multiscale timeline.", 640)
 
+    # A v1 pivotal-token file IS a token-scale event stream, and a v1
+    # thought-anchor file IS a sentence-scale one -- that is the whole PTS
+    # thesis. So upgrade them here rather than refusing, and every published
+    # dataset renders instead of showing an empty box. Latent rows will simply
+    # be absent until the file is enriched.
+    df = as_v2_events(df)
     if not is_v2_events(df):
         return _empty_fig(
-            "The multiscale timeline needs PTS v2 causal events (event_type + granularity).<br>"
-            "Load a causal_events or latent_events dataset, or run "
-            "<code>pts migrate</code> on a v1 file.",
+            "This view needs reasoning events.<br>"
+            "Steering-vector and DPO files contain none.",
             640,
         )
 
@@ -680,7 +771,7 @@ def create_multiscale_timeline(df: pd.DataFrame, selected_query: str = None) -> 
                     size=[6 + 10 * (s / max_score) for s in scores],
                     color=COLOR_LATENT,
                     opacity=0.85,
-                    line=dict(width=1, color='#d8b4fe'),
+                    line=dict(width=1, color=C_LATENT),
                 ),
                 hovertext=[_event_hover(r) for _, r in latent_df.iterrows()],
                 hoverinfo='text',
@@ -708,7 +799,7 @@ def create_multiscale_timeline(df: pd.DataFrame, selected_query: str = None) -> 
                     size=[10 + 25 * abs(_num(_val(r, 'score'))) for _, r in token_df.iterrows()],
                     color=[_event_color(r) for _, r in token_df.iterrows()],
                     opacity=0.8,
-                    line=dict(width=1, color='#111827'),
+                    line=dict(width=1, color=C_CANVAS),
                 ),
                 hovertext=[_event_hover(r) for _, r in token_df.iterrows()],
                 hoverinfo='text',
@@ -742,7 +833,7 @@ def create_multiscale_timeline(df: pd.DataFrame, selected_query: str = None) -> 
                 marker=dict(
                     color=[_event_color(r) for _, r in sentence_df.iterrows()],
                     opacity=0.65,
-                    line=dict(width=1, color='#111827'),
+                    line=dict(width=1, color=C_CANVAS),
                 ),
                 hovertext=[_event_hover(r) for _, r in sentence_df.iterrows()],
                 hoverinfo='text',
@@ -807,7 +898,7 @@ def create_multiscale_timeline(df: pd.DataFrame, selected_query: str = None) -> 
 
     fig.update_layout(
         title="Multiscale Reasoning Timeline",
-        template="plotly_dark",
+        template="pts",
         height=760,
         showlegend=True,
         hovermode='closest',
@@ -907,7 +998,7 @@ def create_causal_event_graph(df: pd.DataFrame, selected_query: str = None) -> g
 
     traces = [go.Scatter(
         x=edge_x, y=edge_y,
-        line=dict(width=1, color='#4b5563'),
+        line=dict(width=1, color=C_LINE),
         hoverinfo='none',
         mode='lines',
         showlegend=False,
@@ -950,7 +1041,7 @@ def create_causal_event_graph(df: pd.DataFrame, selected_query: str = None) -> g
         title="Causal Event Graph (latent → token → sentence → outcome)",
         showlegend=True,
         hovermode='closest',
-        template="plotly_dark",
+        template="pts",
         xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
         yaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
         height=600,
@@ -967,6 +1058,7 @@ def create_workspace_heatmap(df: pd.DataFrame, selected_query: str = None) -> go
     if df is None or df.empty:
         return _empty_fig("No data loaded. Load a PTS dataset with latent events.", 500)
 
+    df = as_v2_events(df)
     if not is_v2_events(df):
         return _empty_fig(
             "The workspace heatmap needs latent meta-token events (PTS v2).<br>"
@@ -1042,7 +1134,7 @@ def create_workspace_heatmap(df: pd.DataFrame, selected_query: str = None) -> go
         title=f"Latent Workspace Heatmap ({row_key} x position, color = readout score)",
         xaxis_title="Generation position / event order",
         yaxis_title=row_key.capitalize(),
-        template="plotly_dark",
+        template="pts",
         height=max(400, 60 + 22 * len(row_values)),
     )
     return fig
@@ -1058,11 +1150,11 @@ def create_event_trace(df: pd.DataFrame, selected_query: str) -> Tuple[str, go.F
 
     query_text = str(selected_query or "")
     html_parts = [f"""
-    <div style="font-family: sans-serif; padding: 20px; background-color: #1a1a2e; border-radius: 10px;">
-        <h3 style="color: #e0e0e0; border-bottom: 2px solid #6366f1; padding-bottom: 10px;">
+    <div style="font-family: sans-serif; padding: 20px; background-color: #111722; border: 1px solid #212C3D; border-radius: 4px;">
+        <h3 style="color: #CBD5E4; border-bottom: 2px solid #A78BFA; padding-bottom: 10px;">
             Query: {html_lib.escape(query_text[:100])}{'...' if len(query_text) > 100 else ''}
         </h3>
-        <p style="color: #a0a0a0; margin: 10px 0;">{len(work)} causal reasoning events for this query</p>
+        <p style="color: #71809A; margin: 10px 0;">{len(work)} causal reasoning events for this query</p>
         <div style="display: flex; flex-direction: column; gap: 12px; margin-top: 20px;">
     """]
 
@@ -1082,12 +1174,12 @@ def create_event_trace(df: pd.DataFrame, selected_query: str) -> Tuple[str, go.F
                 f'readout score {score:.3f}</span>'
             )
             extra = (
-                f'<span style="background-color: #333; padding: 3px 8px; border-radius: 3px; '
-                f'font-size: 0.8em; color: #a0a0a0;">Layer {_val(row, "layer", "n/a")}</span>'
-                f'<span style="background-color: #333; padding: 3px 8px; border-radius: 3px; '
-                f'font-size: 0.8em; color: #a0a0a0;">{_val(row, "readout_method", "n/a")}</span>'
+                f'<span style="background-color: #161E2C; padding: 3px 8px; border-radius: 3px; '
+                f'font-size: 0.8em; color: #71809A;">Layer {_val(row, "layer", "n/a")}</span>'
+                f'<span style="background-color: #161E2C; padding: 3px 8px; border-radius: 3px; '
+                f'font-size: 0.8em; color: #71809A;">{_val(row, "readout_method", "n/a")}</span>'
                 f'<span style="background-color: #3b2f5e; padding: 3px 8px; border-radius: 3px; '
-                f'font-size: 0.8em; color: #d8b4fe;">observational - no probability delta</span>'
+                f'font-size: 0.8em; color: #A78BFA;">observational - no probability delta</span>'
             )
         else:
             delta = _num(_val(row, 'prob_delta'))
@@ -1096,10 +1188,10 @@ def create_event_trace(df: pd.DataFrame, selected_query: str) -> Tuple[str, go.F
                 f'{"+" if delta > 0 else ""}{delta:.3f} Δ probability</span>'
             )
             extra = (
-                f'<span style="background-color: #333; padding: 3px 8px; border-radius: 3px; '
-                f'font-size: 0.8em; color: #a0a0a0;">Before: {_num(_val(row, "prob_before")):.3f}</span>'
-                f'<span style="background-color: #333; padding: 3px 8px; border-radius: 3px; '
-                f'font-size: 0.8em; color: #a0a0a0;">After: {_num(_val(row, "prob_after")):.3f}</span>'
+                f'<span style="background-color: #161E2C; padding: 3px 8px; border-radius: 3px; '
+                f'font-size: 0.8em; color: #71809A;">Before: {_num(_val(row, "prob_before")):.3f}</span>'
+                f'<span style="background-color: #161E2C; padding: 3px 8px; border-radius: 3px; '
+                f'font-size: 0.8em; color: #71809A;">After: {_num(_val(row, "prob_after")):.3f}</span>'
             )
             before, after = _val(row, 'prob_before'), _val(row, 'prob_after')
             if before is not None and after is not None:
@@ -1110,12 +1202,12 @@ def create_event_trace(df: pd.DataFrame, selected_query: str) -> Tuple[str, go.F
         <div style="background-color: rgba(255,255,255,0.03); border-left: 4px solid {color};
                     padding: 15px; border-radius: 5px;">
             <div style="display: flex; justify-content: space-between; align-items: center;">
-                <span style="color: #a0a0a0; font-size: 0.9em;">
+                <span style="color: #71809A; font-size: 0.9em;">
                     {html_lib.escape(str(_val(row, 'event_type', 'event')))} | {gran} | pos {x:g} | {category}
                 </span>
                 {metric_html}
             </div>
-            <p style="color: #e0e0e0; margin: 10px 0; font-family: monospace; white-space: pre-wrap; word-break: break-word;">{label}</p>
+            <p style="color: #CBD5E4; margin: 10px 0; font-family: monospace; white-space: pre-wrap; word-break: break-word;">{label}</p>
             <div style="display: flex; gap: 10px; flex-wrap: wrap;">{extra}</div>
         </div>
         """)
@@ -1137,7 +1229,7 @@ def create_event_trace(df: pd.DataFrame, selected_query: str) -> Tuple[str, go.F
             xaxis_title="Generation position / event order",
             yaxis_title="Success Probability",
             yaxis_range=[0, 1],
-            template="plotly_dark",
+            template="pts",
             height=300,
         )
     else:
@@ -1156,8 +1248,8 @@ def create_probability_space_visualization(df: pd.DataFrame, color_by: str = 'is
 
     # Color palette for categorical values
     CATEGORY_COLORS = [
-        '#6366f1', '#22c55e', '#ef4444', '#f59e0b', '#8b5cf6',
-        '#ec4899', '#14b8a6', '#f97316', '#06b6d4', '#84cc16'
+        '#A78BFA', '#34D399', '#FB7185', '#FBBF24', '#A78BFA',
+        '#F472B6', '#2DD4BF', '#FB923C', '#38BDF8', '#A3E635'
     ]
 
     # Determine color column
@@ -1165,7 +1257,7 @@ def create_probability_space_visualization(df: pd.DataFrame, color_by: str = 'is
     if color_by in df.columns:
         color_col = df[color_by]
         if color_by == 'is_positive':
-            colors = ['#22c55e' if v else '#ef4444' for v in color_col]
+            colors = ['#34D399' if v else '#FB7185' for v in color_col]
         else:
             # Convert to list
             values = color_col.tolist() if hasattr(color_col, 'tolist') else list(color_col)
@@ -1181,9 +1273,9 @@ def create_probability_space_visualization(df: pd.DataFrame, color_by: str = 'is
                     color_map = {val: CATEGORY_COLORS[i % len(CATEGORY_COLORS)] for i, val in enumerate(unique_vals)}
                     colors = [color_map[v] for v in values]
             else:
-                colors = ['#6366f1'] * len(df)
+                colors = ['#A78BFA'] * len(df)
     else:
-        colors = ['#6366f1'] * len(df)
+        colors = ['#A78BFA'] * len(df)
 
     # Create hover text
     hover_texts = []
@@ -1229,7 +1321,7 @@ def create_probability_space_visualization(df: pd.DataFrame, color_by: str = 'is
         yaxis_title="Probability After Token",
         xaxis=dict(range=[0, 1]),
         yaxis=dict(range=[0, 1]),
-        template="plotly_dark",
+        template="pts",
         height=500
     )
 
@@ -1238,13 +1330,13 @@ def create_probability_space_visualization(df: pd.DataFrame, color_by: str = 'is
         x=0.2, y=0.8,
         text="Positive Impact ↑",
         showarrow=False,
-        font=dict(color="#22c55e", size=12)
+        font=dict(color="#34D399", size=12)
     )
     fig.add_annotation(
         x=0.8, y=0.2,
         text="Negative Impact ↓",
         showarrow=False,
-        font=dict(color="#ef4444", size=12)
+        font=dict(color="#FB7185", size=12)
     )
 
     return fig
@@ -1256,7 +1348,7 @@ def create_embedding_visualization(df: pd.DataFrame, color_by: str = 'is_positiv
         fig = go.Figure()
         fig.add_annotation(text="No data available",
                           xref="paper", yref="paper", x=0.5, y=0.5, showarrow=False)
-        fig.update_layout(template="plotly_dark")
+        fig.update_layout(template="pts")
         return fig
 
     dataset_type = detect_dataset_type(df)
@@ -1296,7 +1388,7 @@ def create_embedding_visualization(df: pd.DataFrame, color_by: str = 'is_positiv
             xref="paper", yref="paper", x=0.5, y=0.5, showarrow=False,
             font=dict(size=12, color="#a0a0a0")
         )
-        fig.update_layout(template="plotly_dark", height=400)
+        fig.update_layout(template="pts", height=400)
         return fig
 
     # Extract embeddings
@@ -1318,7 +1410,7 @@ def create_embedding_visualization(df: pd.DataFrame, color_by: str = 'is_positiv
         fig = go.Figure()
         fig.add_annotation(text="Not enough embeddings for visualization (need at least 3)",
                           xref="paper", yref="paper", x=0.5, y=0.5, showarrow=False)
-        fig.update_layout(template="plotly_dark")
+        fig.update_layout(template="pts")
         return fig
 
     embeddings = np.array(embeddings)
@@ -1374,7 +1466,7 @@ def create_embedding_visualization(df: pd.DataFrame, color_by: str = 'is_positiv
                         name='Positive' if is_pos else 'Negative',
                         marker=dict(
                             size=8,
-                            color='#22c55e' if is_pos else '#ef4444',
+                            color='#34D399' if is_pos else '#FB7185',
                             opacity=0.7
                         ),
                         hovertext=hover_texts,
@@ -1383,8 +1475,8 @@ def create_embedding_visualization(df: pd.DataFrame, color_by: str = 'is_positiv
         else:
             # Categorical coloring
             unique_vals = plot_df[color_by].unique()
-            colors = ['#6366f1', '#22c55e', '#ef4444', '#f59e0b', '#8b5cf6',
-                      '#ec4899', '#14b8a6', '#f97316', '#06b6d4', '#84cc16']
+            colors = ['#A78BFA', '#34D399', '#FB7185', '#FBBF24', '#A78BFA',
+                      '#F472B6', '#2DD4BF', '#FB923C', '#38BDF8', '#A3E635']
             for i, val in enumerate(unique_vals):
                 mask = plot_df[color_by] == val
                 subset = plot_df[mask]
@@ -1413,7 +1505,7 @@ def create_embedding_visualization(df: pd.DataFrame, color_by: str = 'is_positiv
             name='Embeddings',
             marker=dict(
                 size=8,
-                color='#6366f1',
+                color='#A78BFA',
                 opacity=0.7
             ),
             hovertext=hover_texts,
@@ -1424,7 +1516,7 @@ def create_embedding_visualization(df: pd.DataFrame, color_by: str = 'is_positiv
         title="Embedding Space Visualization (t-SNE)",
         xaxis_title="t-SNE 1",
         yaxis_title="t-SNE 2",
-        template="plotly_dark",
+        template="pts",
         height=500,
         showlegend=True
     )
@@ -1439,11 +1531,11 @@ def create_pivotal_token_trace(df: pd.DataFrame, selected_query: str) -> Tuple[s
 
     # Build HTML for token cards
     html_parts = [f"""
-    <div style="font-family: sans-serif; padding: 20px; background-color: #1a1a2e; border-radius: 10px;">
-        <h3 style="color: #e0e0e0; border-bottom: 2px solid #6366f1; padding-bottom: 10px;">
+    <div style="font-family: sans-serif; padding: 20px; background-color: #111722; border: 1px solid #212C3D; border-radius: 4px;">
+        <h3 style="color: #CBD5E4; border-bottom: 2px solid #A78BFA; padding-bottom: 10px;">
             Query: {selected_query[:100]}{'...' if len(selected_query) > 100 else ''}
         </h3>
-        <p style="color: #a0a0a0; margin: 10px 0;">Found {len(df)} pivotal tokens for this query</p>
+        <p style="color: #71809A; margin: 10px 0;">Found {len(df)} pivotal tokens for this query</p>
         <div style="display: flex; flex-direction: column; gap: 15px; margin-top: 20px;">
     """]
 
@@ -1461,7 +1553,7 @@ def create_pivotal_token_trace(df: pd.DataFrame, selected_query: str) -> Tuple[s
 
         # Color based on impact
         bg_color = "rgba(34, 197, 94, 0.2)" if is_positive else "rgba(239, 68, 68, 0.2)"
-        border_color = "#22c55e" if is_positive else "#ef4444"
+        border_color = "#34D399" if is_positive else "#FB7185"
 
         # Show full context in a scrollable container - no truncation
         # Escape HTML characters in context and token
@@ -1473,22 +1565,22 @@ def create_pivotal_token_trace(df: pd.DataFrame, selected_query: str) -> Tuple[s
         <div style="background-color: {bg_color}; border-left: 4px solid {border_color};
                     padding: 15px; border-radius: 5px; margin-bottom: 5px;">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
-                <span style="color: #a0a0a0; font-size: 0.9em;">Token #{idx + 1} | {task_type}</span>
+                <span style="color: #71809A; font-size: 0.9em;">Token #{idx + 1} | {task_type}</span>
                 <span style="color: {border_color}; font-weight: bold; font-size: 1.1em;">
                     {'+'if prob_delta > 0 else ''}{prob_delta:.3f}
                 </span>
             </div>
-            <div style="background-color: #1a1a2e; padding: 10px; border-radius: 5px; max-height: 200px; overflow-y: auto; margin: 10px 0;">
-                <span style="color: #888; font-family: monospace; font-size: 0.85em; white-space: pre-wrap; word-break: break-word;">{context_escaped}</span><span style="background-color: {border_color}; color: white; padding: 2px 6px; border-radius: 3px; font-weight: bold; font-family: monospace;">{token_escaped}</span>
+            <div style="background-color: #111722; padding: 10px; border-radius: 5px; max-height: 200px; overflow-y: auto; margin: 10px 0;">
+                <span style="color: #71809A; font-family: monospace; font-size: 0.85em; white-space: pre-wrap; word-break: break-word;">{context_escaped}</span><span style="background-color: {border_color}; color: white; padding: 2px 6px; border-radius: 3px; font-weight: bold; font-family: monospace;">{token_escaped}</span>
             </div>
             <div style="display: flex; gap: 15px; flex-wrap: wrap;">
-                <span style="background-color: #333; padding: 3px 8px; border-radius: 3px; font-size: 0.8em; color: #a0a0a0;">
+                <span style="background-color: #161E2C; padding: 3px 8px; border-radius: 3px; font-size: 0.8em; color: #71809A;">
                     Before: {prob_before:.3f}
                 </span>
-                <span style="background-color: #333; padding: 3px 8px; border-radius: 3px; font-size: 0.8em; color: #a0a0a0;">
+                <span style="background-color: #161E2C; padding: 3px 8px; border-radius: 3px; font-size: 0.8em; color: #71809A;">
                     After: {prob_after:.3f}
                 </span>
-                <span style="background-color: #333; padding: 3px 8px; border-radius: 3px; font-size: 0.8em; color: #6366f1;">
+                <span style="background-color: #161E2C; padding: 3px 8px; border-radius: 3px; font-size: 0.8em; color: #A78BFA;">
                     Context: {len(context)} chars
                 </span>
             </div>
@@ -1505,7 +1597,7 @@ def create_pivotal_token_trace(df: pd.DataFrame, selected_query: str) -> Tuple[s
 
     # Ensure all values are Python native types
     prob_deltas = [float(d) for d in prob_deltas]
-    colors = ['#22c55e' if d > 0 else '#ef4444' for d in prob_deltas]
+    colors = ['#34D399' if d > 0 else '#FB7185' for d in prob_deltas]
 
     fig.add_trace(go.Bar(
         x=token_indices,
@@ -1521,7 +1613,7 @@ def create_pivotal_token_trace(df: pd.DataFrame, selected_query: str) -> Tuple[s
         title="Probability Impact per Token",
         xaxis_title="Token Index",
         yaxis_title="Probability Delta",
-        template="plotly_dark",
+        template="pts",
         height=300
     )
 
@@ -1562,8 +1654,8 @@ def create_circuit_visualization(df: pd.DataFrame, query_idx: int = 0) -> Tuple[
 
     # Build HTML for step-by-step view
     html_parts = [f"""
-    <div style="font-family: sans-serif; padding: 20px; background-color: #1a1a2e; border-radius: 10px;">
-        <h3 style="color: #e0e0e0; border-bottom: 2px solid #6366f1; padding-bottom: 10px;">
+    <div style="font-family: sans-serif; padding: 20px; background-color: #111722; border: 1px solid #212C3D; border-radius: 4px;">
+        <h3 style="color: #CBD5E4; border-bottom: 2px solid #A78BFA; padding-bottom: 10px;">
             Query: {selected_query[:100]}{'...' if len(selected_query) > 100 else ''}
         </h3>
         <div style="display: flex; flex-direction: column; gap: 15px; margin-top: 20px;">
@@ -1586,29 +1678,29 @@ def create_circuit_visualization(df: pd.DataFrame, query_idx: int = 0) -> Tuple[
 
         # Color based on impact
         bg_color = "rgba(34, 197, 94, 0.2)" if is_positive else "rgba(239, 68, 68, 0.2)"
-        border_color = "#22c55e" if is_positive else "#ef4444"
+        border_color = "#34D399" if is_positive else "#FB7185"
 
         # Build step card
         step_html = f"""
         <div style="background-color: {bg_color}; border-left: 4px solid {border_color};
                     padding: 15px; border-radius: 5px;">
             <div style="display: flex; justify-content: space-between; align-items: center;">
-                <span style="color: #a0a0a0; font-size: 0.9em;">Step {sentence_id} | {category}</span>
+                <span style="color: #71809A; font-size: 0.9em;">Step {sentence_id} | {category}</span>
                 <span style="color: {border_color}; font-weight: bold;">
                     {'+'if prob_delta > 0 else ''}{prob_delta:.3f}
                 </span>
             </div>
-            <p style="color: #e0e0e0; margin: 10px 0;">{sentence}</p>
+            <p style="color: #CBD5E4; margin: 10px 0;">{sentence}</p>
             <div style="display: flex; gap: 10px; flex-wrap: wrap;">
-                <span style="background-color: #333; padding: 3px 8px; border-radius: 3px; font-size: 0.8em; color: #a0a0a0;">
+                <span style="background-color: #161E2C; padding: 3px 8px; border-radius: 3px; font-size: 0.8em; color: #71809A;">
                     Importance: {importance:.3f}
                 </span>
         """
 
         if verification_score is not None:
-            v_color = "#22c55e" if verification_score > 0.5 else "#ef4444"
+            v_color = "#34D399" if verification_score > 0.5 else "#FB7185"
             step_html += f"""
-                <span style="background-color: #333; padding: 3px 8px; border-radius: 3px; font-size: 0.8em; color: {v_color};">
+                <span style="background-color: #161E2C; padding: 3px 8px; border-radius: 3px; font-size: 0.8em; color: {v_color};">
                     Verification: {verification_score:.2f}
                 </span>
             """
@@ -1634,14 +1726,14 @@ def create_circuit_visualization(df: pd.DataFrame, query_idx: int = 0) -> Tuple[
     # Create probability progression chart
     fig = go.Figure()
 
-    colors = ['#22c55e' if p > 0.5 else '#ef4444' for p in prob_values]
+    colors = ['#34D399' if p > 0.5 else '#FB7185' for p in prob_values]
 
     fig.add_trace(go.Scatter(
         x=[int(s) if isinstance(s, (int, np.integer)) else s for s in sentence_ids],
         y=[float(p) for p in prob_values],
         mode='lines+markers',
         name='Success Probability',
-        line=dict(color='#6366f1', width=2),
+        line=dict(color='#A78BFA', width=2),
         marker=dict(size=10, color=colors)
     ))
 
@@ -1653,7 +1745,7 @@ def create_circuit_visualization(df: pd.DataFrame, query_idx: int = 0) -> Tuple[
         xaxis_title="Sentence ID",
         yaxis_title="Success Probability",
         yaxis_range=[0, 1],
-        template="plotly_dark",
+        template="pts",
         height=300
     )
 
@@ -1724,18 +1816,28 @@ def create_statistics_dashboard(df: pd.DataFrame) -> Tuple[str, go.Figure]:
     if 'model_id' in df.columns:
         stats["Models"] = df['model_id'].nunique()
 
-    # Build HTML
-    html_parts = ['<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px;">']
+    # Build HTML. Tiles are tinted by the channel they report on, so the three
+    # scales stay visually distinct even in a plain count.
+    TILE_CHANNEL = {
+        'Latent Events': C_LATENT,
+        'Token Events': C_TOKEN,
+        'Sentence Events': C_SENTENCE,
+        'Positive Items': C_POSITIVE,
+        'Negative Items': C_NEGATIVE,
+        'Causal Links': C_LATENT,
+    }
 
+    html_parts = ['<div class="pts-stats">']
     for key, value in stats.items():
-        html_parts.append(f"""
-        <div style="background: linear-gradient(135deg, #1e3a5f 0%, #0d1b2a 100%);
-                    padding: 20px; border-radius: 10px; text-align: center;">
-            <div style="color: #6366f1; font-size: 1.5em; font-weight: bold;">{value}</div>
-            <div style="color: #a0a0a0; font-size: 0.9em; margin-top: 5px;">{key}</div>
-        </div>
-        """)
-
+        c = TILE_CHANNEL.get(key)
+        accent = ' accent' if c else ''
+        style = f' style="--c:{c}"' if c else ''
+        html_parts.append(
+            f'<div class="pts-stat"{style}>'
+            f'<div class="l">{html_lib.escape(str(key))}</div>'
+            f'<div class="n{accent}">{html_lib.escape(str(value))}</div>'
+            f'</div>'
+        )
     html_parts.append('</div>')
 
     # v2 gets its own panel set: emitted deltas and latent readout scores are
@@ -1797,7 +1899,7 @@ def create_statistics_dashboard(df: pd.DataFrame) -> Tuple[str, go.Figure]:
 
         fig.update_xaxes(title_text="Δ probability", row=1, col=1)
         fig.update_xaxes(title_text="Readout score (not a Δ probability)", row=1, col=3)
-        fig.update_layout(template="plotly_dark", height=380, showlegend=False)
+        fig.update_layout(template="pts", height=380, showlegend=False)
         return "\n".join(html_parts), fig
 
     # Determine what to show in second chart
@@ -1823,7 +1925,7 @@ def create_statistics_dashboard(df: pd.DataFrame) -> Tuple[str, go.Figure]:
         bin_centers = [(bin_edges[i] + bin_edges[i+1]) / 2 for i in range(len(bin_edges)-1)]
         fig.add_trace(
             go.Bar(x=bin_centers, y=counts.tolist(), name="Prob Delta",
-                   marker_color='#6366f1', width=(bin_edges[1]-bin_edges[0])*0.9),
+                   marker_color='#A78BFA', width=(bin_edges[1]-bin_edges[0])*0.9),
             row=1, col=1
         )
     elif 'prob_after' in df.columns and len(df['prob_after'].dropna()) > 0:
@@ -1833,7 +1935,7 @@ def create_statistics_dashboard(df: pd.DataFrame) -> Tuple[str, go.Figure]:
         bin_centers = [(bin_edges[i] + bin_edges[i+1]) / 2 for i in range(len(bin_edges)-1)]
         fig.add_trace(
             go.Bar(x=bin_centers, y=counts.tolist(), name="Prob After",
-                   marker_color='#6366f1', width=(bin_edges[1]-bin_edges[0])*0.9),
+                   marker_color='#A78BFA', width=(bin_edges[1]-bin_edges[0])*0.9),
             row=1, col=1
         )
 
@@ -1842,21 +1944,21 @@ def create_statistics_dashboard(df: pd.DataFrame) -> Tuple[str, go.Figure]:
         category_counts = df['sentence_category'].value_counts()
         fig.add_trace(
             go.Bar(x=category_counts.index.tolist(), y=category_counts.values.tolist(), name="Categories",
-                  marker_color='#22c55e'),
+                  marker_color='#34D399'),
             row=1, col=2
         )
     elif 'reasoning_pattern' in df.columns:
         pattern_counts = df['reasoning_pattern'].value_counts()
         fig.add_trace(
             go.Bar(x=pattern_counts.index.tolist(), y=pattern_counts.values.tolist(), name="Patterns",
-                  marker_color='#22c55e'),
+                  marker_color='#34D399'),
             row=1, col=2
         )
     elif 'task_type' in df.columns:
         task_counts = df['task_type'].value_counts()
         fig.add_trace(
             go.Bar(x=task_counts.index.tolist(), y=task_counts.values.tolist(), name="Task Types",
-                  marker_color='#22c55e'),
+                  marker_color='#34D399'),
             row=1, col=2
         )
     elif 'is_positive' in df.columns:
@@ -1864,12 +1966,12 @@ def create_statistics_dashboard(df: pd.DataFrame) -> Tuple[str, go.Figure]:
         labels = ['Positive' if v else 'Negative' for v in pos_neg_counts.index.tolist()]
         fig.add_trace(
             go.Bar(x=labels, y=pos_neg_counts.values.tolist(), name="Impact",
-                  marker_color=['#22c55e' if l == 'Positive' else '#ef4444' for l in labels]),
+                  marker_color=['#34D399' if l == 'Positive' else '#FB7185' for l in labels]),
             row=1, col=2
         )
 
     fig.update_layout(
-        template="plotly_dark",
+        template="pts",
         height=350,
         showlegend=False
     )
@@ -1886,11 +1988,11 @@ def create_statistics_dashboard(df: pd.DataFrame) -> Tuple[str, go.Figure]:
 current_data = {"df": pd.DataFrame(), "type": "unknown", "filtered": pd.DataFrame()}
 
 DPO_NOTICE_HTML = """
-<div style="padding: 40px; text-align: center; background-color: #1a1a2e; border-radius: 10px;">
-    <h3 style="color: #f59e0b;">DPO Pairs Dataset</h3>
-    <p style="color: #a0a0a0;">This visualization is not available for DPO pairs datasets.</p>
-    <p style="color: #a0a0a0;">DPO pairs contain prompt/chosen/rejected structure without token-level context.</p>
-    <p style="color: #6366f1; margin-top: 20px;">
+<div style="padding: 40px; text-align: center; background-color: #111722; border: 1px solid #212C3D; border-radius: 4px;">
+    <h3 style="color: #FBBF24;">DPO Pairs Dataset</h3>
+    <p style="color: #71809A;">This visualization is not available for DPO pairs datasets.</p>
+    <p style="color: #71809A;">DPO pairs contain prompt/chosen/rejected structure without token-level context.</p>
+    <p style="color: #A78BFA; margin-top: 20px;">
         Try loading a <strong>causal_events</strong>, <strong>pivotal_tokens</strong> or
         <strong>thought_anchors</strong> dataset instead.
     </p>
@@ -1918,7 +2020,7 @@ def load_dataset_action(source_type: str, dataset_id: str, file_upload):
 
     def blank(message: str):
         empty_fig = go.Figure()
-        empty_fig.update_layout(template="plotly_dark")
+        empty_fig.update_layout(template="pts")
         return (message, "", "No data", empty_fig, empty_fig, empty_fig,
                 "No data", empty_fig, empty_fig, empty_fig,
                 gr.update(maximum=0, value=0),
@@ -2004,7 +2106,7 @@ def create_readout_score_chart(row) -> go.Figure:
         ),
         yaxis_title="Readout score",
         yaxis_range=[0, max(1.0, score * 1.2)],
-        template="plotly_dark",
+        template="pts",
         height=300,
     )
     return fig
@@ -2017,9 +2119,9 @@ def create_latent_detail_html(row) -> str:
     score = _num(_val(row, 'score'))
 
     return f"""
-    <div style="background-color: #1a1a2e; border-radius: 10px; padding: 20px;">
+    <div style="background-color: #111722; border: 1px solid #212C3D; border-radius: 4px; padding: 20px;">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
-            <span style="color: #a0a0a0; font-size: 0.9em;">
+            <span style="color: #71809A; font-size: 0.9em;">
                 Latent meta-token | layer {_val(row, 'layer', 'n/a')} |
                 readout {_val(row, 'readout_method', 'n/a')} |
                 offset {_val(row, 'position', 'n/a')} |
@@ -2029,10 +2131,10 @@ def create_latent_detail_html(row) -> str:
                 Readout score: {score:.4f}
             </span>
         </div>
-        <div style="font-family: monospace; padding: 15px; background-color: #0d1117; border-radius: 8px; color: #e0e0e0; line-height: 1.8; max-height: 400px; overflow-y: auto; white-space: pre-wrap; word-break: break-word; border: 1px solid #30363d;">
-            <span style="color: #8b949e;">{context}</span><span style="background-color: {COLOR_LATENT}; padding: 2px 6px; border-radius: 3px; border: 2px solid #d8b4fe; font-weight: bold;">{label}</span>
+        <div style="font-family: monospace; padding: 15px; background-color: #0d1117; border-radius: 8px; color: #CBD5E4; line-height: 1.8; max-height: 400px; overflow-y: auto; white-space: pre-wrap; word-break: break-word; border: 1px solid #30363d;">
+            <span style="color: #8b949e;">{context}</span><span style="background-color: {COLOR_LATENT}; padding: 2px 6px; border-radius: 3px; border: 2px solid #A78BFA; font-weight: bold;">{label}</span>
         </div>
-        <p style="color: #d8b4fe; margin-top: 15px; font-size: 0.9em;">
+        <p style="color: #A78BFA; margin-top: 15px; font-size: 0.9em;">
             This event is <strong>observational</strong>: it was read out of the model's residual
             stream, not intervened on. Its score is a <strong>readout score</strong>, not a
             probability delta, and is not comparable to the scores on emitted token and
@@ -2078,9 +2180,9 @@ def get_event_details(idx: int) -> Tuple[str, go.Figure]:
 
     if not context and not token:
         html = """
-        <div style="padding: 40px; text-align: center; background-color: #1a1a2e; border-radius: 10px;">
-            <h3 style="color: #ef4444;">Missing Data</h3>
-            <p style="color: #a0a0a0;">This dataset doesn't have the expected fields for token visualization.</p>
+        <div style="padding: 40px; text-align: center; background-color: #111722; border: 1px solid #212C3D; border-radius: 4px;">
+            <h3 style="color: #FB7185;">Missing Data</h3>
+            <p style="color: #71809A;">This dataset doesn't have the expected fields for token visualization.</p>
         </div>
         """
         return html, go.Figure()
@@ -2114,8 +2216,8 @@ def describe_event_selection(df: pd.DataFrame) -> Tuple[str, go.Figure]:
     """Summary cards + score distribution for the Event Explorer's selection."""
     if df is None or df.empty:
         return (
-            '<div style="padding: 20px; color: #a0a0a0; background-color: #1a1a2e; '
-            'border-radius: 10px;">No events match these filters.</div>',
+            '<div style="padding: 20px; color: #71809A; background-color: #111722; '
+            'border-radius: 4px;">No events match these filters.</div>',
             _empty_fig("No events match these filters", 320),
         )
 
@@ -2140,10 +2242,10 @@ def describe_event_selection(df: pd.DataFrame) -> Tuple[str, go.Figure]:
     html_parts = ['<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px;">']
     for name, value in cards:
         html_parts.append(f"""
-        <div style="background: linear-gradient(135deg, #1e3a5f 0%, #0d1b2a 100%);
-                    padding: 15px; border-radius: 10px; text-align: center;">
-            <div style="color: #6366f1; font-size: 1.4em; font-weight: bold;">{value}</div>
-            <div style="color: #a0a0a0; font-size: 0.85em; margin-top: 4px;">{name}</div>
+        <div style="background: #111722; border: 1px solid #212C3D;
+                    padding: 15px; border-radius: 4px; text-align: center;">
+            <div style="color: #A78BFA; font-size: 1.4em; font-weight: bold;">{value}</div>
+            <div style="color: #71809A; font-size: 0.85em; margin-top: 4px;">{name}</div>
         </div>
         """)
     html_parts.append('</div>')
@@ -2174,7 +2276,7 @@ def describe_event_selection(df: pd.DataFrame) -> Tuple[str, go.Figure]:
         xaxis_title="Score (|Δ probability| for emitted events, readout score for latent events)",
         yaxis_title="Events",
         barmode='overlay',
-        template="plotly_dark",
+        template="pts",
         height=320,
     )
     return "\n".join(html_parts), fig
@@ -2334,10 +2436,10 @@ def update_circuit_view(query_idx: int):
 
     if dataset_type == 'dpo_pairs':
         html = """
-        <div style="padding: 40px; text-align: center; background-color: #1a1a2e; border-radius: 10px;">
-            <h3 style="color: #f59e0b;">DPO Pairs Dataset</h3>
-            <p style="color: #a0a0a0;">The reasoning timeline is not available for DPO pairs datasets.</p>
-            <p style="color: #6366f1; margin-top: 20px;">
+        <div style="padding: 40px; text-align: center; background-color: #111722; border: 1px solid #212C3D; border-radius: 4px;">
+            <h3 style="color: #FBBF24;">DPO Pairs Dataset</h3>
+            <p style="color: #71809A;">The reasoning timeline is not available for DPO pairs datasets.</p>
+            <p style="color: #A78BFA; margin-top: 20px;">
                 Load a <strong>causal_events</strong>, <strong>pivotal_tokens</strong> or
                 <strong>thought_anchors</strong> dataset to explore reasoning circuits.
             </p>
@@ -2377,7 +2479,7 @@ def refresh_all():
     df = current_data["df"]
     if df.empty:
         empty_fig = go.Figure()
-        empty_fig.update_layout(template="plotly_dark")
+        empty_fig.update_layout(template="pts")
         return (
             "No data loaded",
             empty_fig,
@@ -2424,58 +2526,359 @@ HF_DATASETS = [
 # Default to a v1 dataset that is known to exist on the Hub.
 DEFAULT_DATASET = "codelion/Qwen3-0.6B-pts"
 
-# CSS configuration
-CSS = """
-.gradio-container { max-width: 1400px !important; }
-.main-header { text-align: center; margin-bottom: 20px; }
+
+# ============================================================================
+# Design system
+#
+# PTS reads signals out of a model's internals at three depths. The interface is
+# built as an *instrument* for that -- a spectrometer readout, not an admin
+# dashboard. Three scales, three channels, each with its own signal colour; that
+# colour system is the identity and it is used with discipline everywhere:
+# charts, panel accents, badges, legends.
+#
+#   LATENT   violet   hidden, deep in the residual stream
+#   TOKEN    sky      emitted, sharp, a single decision point
+#   SENTENCE amber    emitted, extended over a reasoning step
+#
+# Valence (green/rose) is deliberately a SEPARATE axis from channel, because
+# latent events have no valence -- they are never green or red, and the palette
+# must make that impossible to render by accident.
+# ============================================================================
+
+# (palette defined at the top of this file)
+
+# One Plotly template for every figure in the app. Registered as "pts" and
+# swapped in for plotly_dark throughout, so no chart can drift off-system.
+_pts_template = go.layout.Template()
+_pts_template.layout = go.Layout(
+    paper_bgcolor="rgba(0,0,0,0)",
+    plot_bgcolor="rgba(0,0,0,0)",
+    font=dict(family="'IBM Plex Sans', system-ui, sans-serif", size=12, color=C_TEXT),
+    title=dict(
+        font=dict(family="'IBM Plex Mono', monospace", size=14, color=C_TEXT),
+        x=0.01, xanchor="left", pad=dict(l=4, t=8, b=8),
+    ),
+    colorway=[C_LATENT, C_TOKEN, C_SENTENCE, C_POSITIVE, C_NEGATIVE, "#F472B6", "#2DD4BF"],
+    xaxis=dict(
+        gridcolor=C_LINE_SOFT, zerolinecolor=C_LINE, linecolor=C_LINE,
+        tickfont=dict(family="'IBM Plex Mono', monospace", size=10, color=C_TEXT_MUTED),
+        title=dict(font=dict(size=11, color=C_TEXT_MUTED)),
+        showline=True, ticks="outside", tickcolor=C_LINE, ticklen=4,
+    ),
+    yaxis=dict(
+        gridcolor=C_LINE_SOFT, zerolinecolor=C_LINE, linecolor=C_LINE,
+        tickfont=dict(family="'IBM Plex Mono', monospace", size=10, color=C_TEXT_MUTED),
+        title=dict(font=dict(size=11, color=C_TEXT_MUTED)),
+        showline=True, ticks="outside", tickcolor=C_LINE, ticklen=4,
+    ),
+    legend=dict(
+        bgcolor="rgba(17,23,34,0.85)", bordercolor=C_LINE, borderwidth=1,
+        font=dict(family="'IBM Plex Mono', monospace", size=10, color=C_TEXT_MUTED),
+    ),
+    hoverlabel=dict(
+        bgcolor=C_PANEL_HI, bordercolor=C_LINE,
+        font=dict(family="'IBM Plex Mono', monospace", size=11, color=C_TEXT),
+        align="left",
+    ),
+    margin=dict(l=56, r=24, t=48, b=48),
+    colorscale=dict(sequential=[[0, "#161E2C"], [0.5, "#5B4BC4"], [1, C_LATENT]]),
+)
+pio.templates["pts"] = _pts_template
+
+
+PTS_THEME = gr.themes.Base(
+    primary_hue=gr.themes.colors.violet,
+    secondary_hue=gr.themes.colors.sky,
+    neutral_hue=gr.themes.colors.slate,
+    font=[gr.themes.GoogleFont("IBM Plex Sans"), "system-ui", "sans-serif"],
+    font_mono=[gr.themes.GoogleFont("IBM Plex Mono"), "monospace"],
+    radius_size=gr.themes.sizes.radius_sm,
+    text_size=gr.themes.sizes.text_md,
+).set(
+    body_background_fill=C_CANVAS,
+    body_text_color=C_TEXT,
+    background_fill_primary=C_PANEL,
+    background_fill_secondary=C_PANEL_HI,
+    border_color_primary=C_LINE,
+    block_background_fill=C_PANEL,
+    block_border_color=C_LINE,
+    block_label_background_fill="transparent",
+    block_label_text_color=C_TEXT_MUTED,
+    block_title_text_color=C_TEXT,
+    input_background_fill=C_CANVAS,
+    input_border_color=C_LINE,
+    button_primary_background_fill=C_LATENT,
+    button_primary_background_fill_hover="#B9A3FB",
+    button_primary_text_color="#0A0D13",
+    button_secondary_background_fill=C_PANEL_HI,
+    button_secondary_border_color=C_LINE,
+    button_secondary_text_color=C_TEXT,
+    panel_background_fill=C_PANEL,
+)
+
+
+CSS = f"""
+/* ---- canvas: a faint graticule, like an instrument screen ---- */
+.gradio-container {{
+  max-width: 1580px !important;
+  background:
+    linear-gradient(to right, {C_LINE_SOFT}22 1px, transparent 1px) 0 0 / 32px 32px,
+    linear-gradient(to bottom, {C_LINE_SOFT}22 1px, transparent 1px) 0 0 / 32px 32px,
+    radial-gradient(ellipse 90% 55% at 50% -12%, #241C4E55 0%, transparent 70%),
+    {C_CANVAS} !important;
+}}
+footer {{ display: none !important; }}
+
+/* ---- masthead ---- */
+.pts-masthead {{
+  border: 1px solid {C_LINE};
+  border-radius: 4px;
+  background: linear-gradient(160deg, {C_PANEL_HI} 0%, {C_PANEL} 60%);
+  padding: 26px 30px 22px;
+  margin-bottom: 18px;
+  position: relative;
+  overflow: hidden;
+}}
+/* the three channels, drawn as a signal bar across the top edge */
+.pts-masthead::before {{
+  content: "";
+  position: absolute; inset: 0 0 auto 0; height: 2px;
+  background: linear-gradient(90deg,
+    {C_LATENT} 0%, {C_LATENT} 33%,
+    {C_TOKEN} 33%, {C_TOKEN} 66%,
+    {C_SENTENCE} 66%, {C_SENTENCE} 100%);
+}}
+.pts-wordmark {{
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 30px; font-weight: 600; letter-spacing: -0.02em;
+  color: {C_TEXT}; margin: 0 0 2px;
+}}
+.pts-wordmark .tag {{
+  font-size: 11px; font-weight: 500; letter-spacing: 0.16em;
+  color: {C_LATENT}; border: 1px solid {C_LATENT}44;
+  border-radius: 3px; padding: 3px 7px; margin-left: 12px;
+  vertical-align: middle; background: {C_LATENT}12;
+}}
+.pts-tagline {{
+  font-size: 13.5px; color: {C_TEXT_MUTED}; margin: 0 0 20px; max-width: 78ch;
+  line-height: 1.6;
+}}
+.pts-tagline b {{ color: {C_TEXT}; font-weight: 500; }}
+
+/* ---- the three-channel key: the conceptual spine of the whole tool ---- */
+.pts-channels {{ display: flex; gap: 10px; flex-wrap: wrap; }}
+.pts-chan {{
+  flex: 1 1 190px;
+  border: 1px solid {C_LINE};
+  border-left: 2px solid var(--c);
+  border-radius: 3px;
+  background: {C_CANVAS}99;
+  padding: 10px 13px;
+}}
+.pts-chan .k {{
+  font-family: 'IBM Plex Mono', monospace; font-size: 10px;
+  letter-spacing: 0.14em; text-transform: uppercase;
+  color: var(--c); margin-bottom: 3px;
+}}
+.pts-chan .v {{ font-size: 12.5px; color: {C_TEXT}; line-height: 1.4; }}
+.pts-chan .m {{ font-size: 11px; color: {C_TEXT_FAINT}; margin-top: 4px;
+  font-family: 'IBM Plex Mono', monospace; }}
+
+/* ---- stat tiles: tabular figures, instrument readout ---- */
+.pts-stats {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
+  gap: 9px; margin: 4px 0 16px; }}
+.pts-stat {{
+  border: 1px solid {C_LINE}; border-radius: 3px;
+  background: {C_PANEL}; padding: 11px 13px 10px;
+  border-top: 2px solid var(--c, {C_LINE});
+}}
+.pts-stat .l {{
+  font-family: 'IBM Plex Mono', monospace; font-size: 9.5px;
+  letter-spacing: 0.13em; text-transform: uppercase;
+  color: {C_TEXT_FAINT}; margin-bottom: 5px; white-space: nowrap;
+}}
+.pts-stat .n {{
+  font-family: 'IBM Plex Mono', monospace; font-size: 22px; font-weight: 600;
+  color: {C_TEXT}; font-variant-numeric: tabular-nums; line-height: 1.1;
+}}
+.pts-stat .n.accent {{ color: var(--c); }}
+.pts-stat .s {{ font-size: 10.5px; color: {C_TEXT_FAINT}; margin-top: 2px; }}
+
+/* ---- section rule ---- */
+.pts-rule {{
+  font-family: 'IBM Plex Mono', monospace; font-size: 10.5px;
+  letter-spacing: 0.16em; text-transform: uppercase; color: {C_TEXT_FAINT};
+  display: flex; align-items: center; gap: 12px; margin: 20px 0 10px;
+}}
+.pts-rule::after {{ content: ""; flex: 1; height: 1px; background: {C_LINE}; }}
+
+/* ---- event cards ---- */
+.pts-card {{
+  border: 1px solid {C_LINE}; border-left: 3px solid var(--c, {C_NEUTRAL});
+  border-radius: 3px; background: {C_PANEL}; padding: 14px 16px; margin-bottom: 10px;
+}}
+.pts-card .hdr {{ display: flex; align-items: center; gap: 8px; margin-bottom: 9px; flex-wrap: wrap; }}
+.pts-badge {{
+  font-family: 'IBM Plex Mono', monospace; font-size: 9.5px; font-weight: 500;
+  letter-spacing: 0.1em; text-transform: uppercase;
+  padding: 3px 7px; border-radius: 2px;
+  border: 1px solid var(--c, {C_NEUTRAL})55;
+  color: var(--c, {C_NEUTRAL}); background: var(--c, {C_NEUTRAL})12;
+}}
+.pts-metric {{
+  font-family: 'IBM Plex Mono', monospace; font-size: 12px;
+  font-variant-numeric: tabular-nums; color: {C_TEXT_MUTED};
+}}
+.pts-metric b {{ color: {C_TEXT}; font-weight: 600; }}
+
+/* the token, shown inline in its context */
+.pts-context {{
+  font-family: 'IBM Plex Mono', monospace; font-size: 12.5px; line-height: 1.75;
+  color: {C_TEXT_MUTED}; background: {C_CANVAS}; border: 1px solid {C_LINE_SOFT};
+  border-radius: 3px; padding: 12px 14px; white-space: pre-wrap;
+  max-height: 260px; overflow-y: auto;
+}}
+.pts-hit {{
+  padding: 1px 4px; border-radius: 2px; font-weight: 600;
+  color: #0A0D13; background: var(--c);
+  box-shadow: 0 0 14px -2px var(--c);
+}}
+
+/* a latent readout is NOT a probability delta -- it never gets a valence colour */
+.pts-obs {{
+  font-family: 'IBM Plex Mono', monospace; font-size: 10px;
+  color: {C_LATENT}; border: 1px dashed {C_LATENT}44;
+  border-radius: 2px; padding: 2px 6px; letter-spacing: 0.06em;
+}}
+
+/* ---- gradio surface tuning ---- */
+.tabs button {{
+  font-family: 'IBM Plex Mono', monospace !important;
+  font-size: 11.5px !important; letter-spacing: 0.09em !important;
+  text-transform: uppercase !important;
+}}
+.tabs button.selected {{
+  color: {C_LATENT} !important;
+  border-bottom: 2px solid {C_LATENT} !important;
+}}
+.block, .form {{ border-radius: 4px !important; }}
+label span {{
+  font-family: 'IBM Plex Mono', monospace !important;
+  font-size: 10px !important; letter-spacing: 0.11em !important;
+  text-transform: uppercase !important; color: {C_TEXT_FAINT} !important;
+}}
+.plot-container, .js-plotly-plot {{ border-radius: 3px; }}
+::-webkit-scrollbar {{ width: 9px; height: 9px; }}
+::-webkit-scrollbar-track {{ background: {C_CANVAS}; }}
+::-webkit-scrollbar-thumb {{ background: {C_LINE}; border-radius: 5px; }}
+::-webkit-scrollbar-thumb:hover {{ background: #2E3A50; }}
+
+/* ---- source bar: one compact row, so the charts stay above the fold ---- */
+.pts-loadbar {{
+  border: 1px solid {C_LINE}; border-radius: 4px; background: {C_PANEL};
+  padding: 10px 12px; margin-bottom: 8px; align-items: center !important;
+}}
+.pts-loadbar .wrap, .pts-loadbar .file-preview {{ min-height: 0 !important; }}
+/* the drop zone is a secondary affordance -- shrink its chrome so it does not
+   shout louder than the dataset picker next to it */
+.pts-upload .wrap {{ font-size: 11px !important; gap: 2px !important; }}
+.pts-upload svg {{ width: 16px !important; height: 16px !important; }}
+.pts-upload .or {{ display: none !important; }}
+.pts-status textarea {{
+  background: {C_CANVAS} !important; border: 1px solid {C_LINE_SOFT} !important;
+  font-family: 'IBM Plex Mono', monospace !important; font-size: 11px !important;
+  color: {C_TEXT_MUTED} !important; padding: 7px 10px !important;
+}}
+
+/* ---- sliders: instrument, not stock ---- */
+input[type=range] {{ accent-color: {C_LATENT}; }}
+.gradio-container input[type=range]::-webkit-slider-runnable-track {{
+  background: {C_LINE} !important; height: 3px !important;
+}}
+.gradio-container input[type=range]::-webkit-slider-thumb {{
+  background: {C_LATENT} !important; border: none !important;
+  width: 13px !important; height: 13px !important; border-radius: 50% !important;
+  margin-top: -5px !important; box-shadow: 0 0 10px -1px {C_LATENT};
+}}
+
+/* numbers anywhere gradio renders them */
+.gradio-container input[type=number] {{
+  font-family: 'IBM Plex Mono', monospace !important;
+  font-variant-numeric: tabular-nums;
+}}
 """
 
-with gr.Blocks(title="PTS Visualizer", css=CSS) as demo:
 
-    # Header
-    gr.Markdown("""
-    # PTS Visualizer
-    ### Interactive Exploration of Latent Meta-Tokens, Pivotal Tokens & Thought Anchors
+MASTHEAD = f"""
+<div class="pts-masthead">
+  <div class="pts-wordmark">PTS<span class="tag">v2 · MULTISCALE</span></div>
+  <p class="pts-tagline">
+    A causal-event search framework for model reasoning. PTS finds the
+    <b>pivotal reasoning events</b> that shift a model's probability of solving a task &mdash;
+    and finds them at three representational scales at once, as a single kind of object.
+  </p>
+  <div class="pts-channels">
+    <div class="pts-chan" style="--c:{C_LATENT}">
+      <div class="k">Latent PTS</div>
+      <div class="v">Meta-tokens read out of the hidden workspace</div>
+      <div class="m">J-lens · observational</div>
+    </div>
+    <div class="pts-chan" style="--c:{C_TOKEN}">
+      <div class="k">Token PTS</div>
+      <div class="v">Emitted tokens that flip success probability</div>
+      <div class="m">&Delta;P(success) · measured</div>
+    </div>
+    <div class="pts-chan" style="--c:{C_SENTENCE}">
+      <div class="k">Sentence PTS</div>
+      <div class="v">Reasoning steps that flip success probability</div>
+      <div class="m">&Delta;P(success) · measured</div>
+    </div>
+  </div>
+</div>
+"""
 
-    A [Neuronpedia](https://neuronpedia.org/)-inspired platform for understanding how language models reason.
-    Load datasets from HuggingFace Hub or upload your own JSONL files.
 
-    Supports the PTS v2 unified event schema (`CausalReasoningEvent`: latent / token / sentence)
-    as well as all v1 pivotal-token, thought-anchor and steering-vector datasets.
+with gr.Blocks(title="PTS · multiscale reasoning events", theme=PTS_THEME, css=CSS) as demo:
 
-    🔗 [Browse more PTS datasets on HuggingFace](https://huggingface.co/datasets?other=pts)
-    """)
+    gr.HTML(MASTHEAD)
 
-    # Data Loading Section
-    with gr.Accordion("Load Dataset", open=True):
-        with gr.Row():
+    # Source bar. Kept to a single row: the old stacked layout ate the whole
+    # viewport and pushed every chart below the fold, which is a worse problem
+    # than any colour choice.
+    with gr.Row(elem_classes="pts-loadbar"):
+        with gr.Column(scale=2, min_width=190):
             source_type = gr.Radio(
                 choices=["HuggingFace Hub", "Local File"],
                 value="HuggingFace Hub",
-                label="Data Source"
+                label="Source",
+                container=False,
             )
+        with gr.Column(scale=5, min_width=280):
+            dataset_dropdown = gr.Dropdown(
+                choices=HF_DATASETS,
+                value=DEFAULT_DATASET,
+                label="Dataset",
+                allow_custom_value=True,
+                container=False,
+            )
+        with gr.Column(scale=3, min_width=180):
+            file_upload = gr.File(
+                label="Or upload JSONL",
+                file_types=[".jsonl", ".json"],
+                height=88,
+                elem_classes="pts-upload",
+            )
+        with gr.Column(scale=2, min_width=140):
+            load_btn = gr.Button("Load", variant="primary", size="sm")
+            refresh_btn = gr.Button("Refresh", variant="secondary", size="sm")
 
-        with gr.Row():
-            with gr.Column(scale=3):
-                dataset_dropdown = gr.Dropdown(
-                    choices=HF_DATASETS,
-                    value=DEFAULT_DATASET,
-                    label="Select Dataset",
-                    info="Choose a pre-defined dataset or enter your own HuggingFace dataset ID"
-                )
-            with gr.Column(scale=1):
-                file_upload = gr.File(
-                    label="Or Upload JSONL",
-                    file_types=[".jsonl", ".json"]
-                )
-
-        with gr.Row():
-            load_btn = gr.Button("Load Dataset", variant="primary")
-            refresh_btn = gr.Button("Refresh Visualizations", variant="secondary")
-
-        with gr.Row():
-            load_status = gr.Textbox(label="Status", interactive=False)
-            dataset_info = gr.Textbox(label="Dataset Info", interactive=False)
+    with gr.Row():
+        load_status = gr.Textbox(interactive=False, container=False, show_label=False,
+                                 lines=1, max_lines=1, elem_classes="pts-status",
+                                 placeholder="no dataset loaded")
+        dataset_info = gr.Textbox(interactive=False, container=False, show_label=False,
+                                  lines=1, max_lines=1, elem_classes="pts-status",
+                                  placeholder="—")
 
     # Main Visualization Tabs
     with gr.Tabs():
