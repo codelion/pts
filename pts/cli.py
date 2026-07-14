@@ -125,6 +125,13 @@ def run_pts(args) -> None:
         layer_fraction=_layer_fraction(args),
         window_before=args.window_before,
         link_threshold=args.link_threshold,
+        # These four were registered on the parser and then never read, so
+        # setting them changed nothing.
+        readout_top_k=args.readout_top_k,
+        min_score=args.min_score,
+        keep_per_position=args.keep_per_position,
+        enable_verification=args.enable_verification,
+        skip_embeddings=args.skip_embeddings,
         **searcher_kwargs,
     )
 

@@ -76,15 +76,23 @@ class MetaTokenExtractor:
 
         if self.watch_lexicon is not None:
             if token.lower().strip("Ġ▁ ") in self.watch_lexicon:
-                self.kept += 1
                 return True
 
         category = classify_event_label(result.token, "latent")
         if self.require_category and category is None:
             return False
 
-        self.kept += 1
         return True
+
+    def note_kept(self, n: int) -> None:
+        """Record how many readouts actually became events.
+
+        Counted *after* the keep_per_position slice, not inside ``_keep``.
+        Counting inside ``_keep`` overcounts, which means an over-aggressive
+        ``keep_per_position`` never trips the "thresholds ate everything"
+        warning that exists to catch exactly that.
+        """
+        self.kept += n
 
     def report_filtering(self) -> None:
         """Say plainly when the thresholds ate everything."""
@@ -141,6 +149,7 @@ class MetaTokenExtractor:
 
             for position, at_pos in by_position.items():
                 kept = [r for r in at_pos if self._keep(r)][: self.keep_per_position]
+                self.note_kept(len(kept))
 
                 for r in kept:
                     # position is a negative offset from the end of the context,
@@ -164,13 +173,17 @@ class MetaTokenExtractor:
                         category=classify_event_label(r.token, "latent"),
                         readout_method=r.readout_method,
                         confidence=r.score,
+                        # Part of the event's identity: two different source
+                        # events in the same query, read at the same layer and
+                        # offset, routinely surface the same common meta-token.
+                        # Without this they collide and one is silently dropped.
+                        source_event_id=source.event_id,
                         metadata={
                             "j_score": r.score,
                             "rank": r.rank,
                             "readout_top_k": self.top_k,
                             "workspace_layers": self.layers,
                             "position_offset_from_linked_event": offset,
-                            "source_event_id": source.event_id,
                             "source_event_type": source.event_type,
                             "source_model_id": source.model_id,
                             "latent_model_id": model_id,

@@ -22,6 +22,29 @@ from .events import (
 logger = logging.getLogger(__name__)
 
 
+def _json_default(obj: Any) -> Any:
+    """Coerce numpy/torch scalars and arrays into JSON.
+
+    The verification pass puts torch/numpy floats into event metadata
+    (``attention_entropy``, ``attention_focus_score``). Previously ``save()``
+    caught the resulting TypeError *per event*, logged it, and carried on -- so
+    a run would drop events on the floor, write a short file, and exit 0
+    reporting success. Converting is right; silently losing data is not, and a
+    genuinely unserializable value should still raise.
+    """
+    for attr in ("item", "tolist"):
+        method = getattr(obj, attr, None)
+        if callable(method):
+            try:
+                return method()
+            except (ValueError, TypeError):
+                continue
+    raise TypeError(
+        f"Cannot serialize {type(obj).__name__} in an event. Convert it to a "
+        "plain Python value before storing it in metadata."
+    )
+
+
 class EventStorage:
     """A collection of causal reasoning events backed by a JSONL file."""
 
@@ -74,16 +97,11 @@ class EventStorage:
         if directory and not os.path.exists(directory):
             os.makedirs(directory, exist_ok=True)
 
-        written = 0
         with open(filepath, "w") as f:
-            for i, event in enumerate(self.events):
-                try:
-                    f.write(json.dumps(event.to_dict()) + "\n")
-                    written += 1
-                except (TypeError, ValueError) as e:
-                    logger.error(f"Skipping unserializable event {i} ({event.event_id}): {e}")
+            for event in self.events:
+                f.write(json.dumps(event.to_dict(), default=_json_default) + "\n")
 
-        logger.info(f"Saved {written} events to {filepath}")
+        logger.info(f"Saved {len(self.events)} events to {filepath}")
         self.filepath = filepath
 
     def load(self, filepath: Optional[str] = None) -> None:
@@ -141,12 +159,23 @@ class EventStorage:
         granularity: Optional[str] = None,
         category: Optional[str] = None,
         is_positive: Optional[bool] = None,
-        min_score: Optional[float] = None,
-        max_score: Optional[float] = None,
         min_prob_delta: Optional[float] = None,
+        min_readout_score: Optional[float] = None,
         layer_range: Optional[tuple] = None,
         custom_filter: Optional[Callable[[CausalReasoningEvent], bool]] = None,
     ) -> "EventStorage":
+        """Filter events.
+
+        There is deliberately no single ``min_score``. An emitted event's score
+        is a probability delta and a latent event's score is a readout
+        probability over the vocabulary; one threshold applied to both looks
+        principled and is meaningless. A 0.5 floor keeps the banal meta-token
+        ``" the"`` (readout 0.92) and discards a pivotal token worth +0.45.
+
+        So the two scales get their own thresholds: ``min_prob_delta`` for
+        emitted events, ``min_readout_score`` for latent ones. Each applies only
+        to the scale it belongs to and leaves the other untouched.
+        """
         result = EventStorage()
 
         for evt in self.events:
@@ -158,12 +187,11 @@ class EventStorage:
                 continue
             if is_positive is not None and evt.is_positive is not is_positive:
                 continue
-            if min_score is not None and evt.score < min_score:
-                continue
-            if max_score is not None and evt.score > max_score:
-                continue
-            if min_prob_delta is not None:
+            if min_prob_delta is not None and evt.event_type != EVENT_LATENT:
                 if evt.prob_delta is None or abs(evt.prob_delta) < min_prob_delta:
+                    continue
+            if min_readout_score is not None and evt.event_type == EVENT_LATENT:
+                if evt.score < min_readout_score:
                     continue
             if layer_range is not None:
                 lo, hi = layer_range
@@ -189,7 +217,25 @@ class EventStorage:
         return [e for e in self.events if e.query == query]
 
     def most_important(self, n: int = 10) -> List[CausalReasoningEvent]:
-        return sorted(self.events, key=lambda e: e.score, reverse=True)[:n]
+        """The emitted events with the largest effect on success probability.
+
+        Latent events are excluded, not ranked below: their score is a readout
+        probability, so ranking them alongside probability deltas puts the
+        model's most *probable* filler tokens at the top of a list labelled
+        "most important". Use ``most_surfaced()`` for latent events.
+        """
+        emitted = [e for e in self.events if e.event_type != EVENT_LATENT]
+        return sorted(emitted, key=lambda e: e.score, reverse=True)[:n]
+
+    def most_surfaced(self, n: int = 10) -> List[CausalReasoningEvent]:
+        """The latent events the lens surfaced most strongly.
+
+        This is a readout ranking, not an importance ranking. A high score means
+        the lens is confident the model is pushing toward that token, not that
+        the token matters causally.
+        """
+        latent = self.by_event_type(EVENT_LATENT)
+        return sorted(latent, key=lambda e: e.score, reverse=True)[:n]
 
     def queries(self) -> List[str]:
         seen = []
@@ -199,6 +245,12 @@ class EventStorage:
         return seen
 
     def summary(self) -> Dict[str, Any]:
+        """Per-scale statistics.
+
+        There is no aggregate mean or max over ``score``: averaging a
+        probability delta with a vocabulary readout probability produces a
+        number that means nothing. The two scales are reported separately.
+        """
         if not self.events:
             return {"total_events": 0}
 
@@ -208,23 +260,37 @@ class EventStorage:
             by_type[e.event_type] = by_type.get(e.event_type, 0) + 1
             by_category[e.category or "unknown"] = by_category.get(e.category or "unknown", 0) + 1
 
-        scored = [e.score for e in self.events]
         emitted = [e for e in self.events if e.prob_delta is not None]
+        latent = self.by_event_type(EVENT_LATENT)
 
-        return {
+        summary = {
             "total_events": len(self.events),
-            "latent_events": len(self.by_event_type(EVENT_LATENT)),
+            "latent_events": len(latent),
             "token_events": len(self.by_event_type(EVENT_TOKEN)),
             "sentence_events": len(self.by_event_type(EVENT_SENTENCE)),
             "event_type_distribution": by_type,
             "category_distribution": by_category,
             "positive_events": sum(1 for e in emitted if e.is_positive),
             "negative_events": sum(1 for e in emitted if e.is_positive is False),
-            "average_score": sum(scored) / len(scored),
-            "max_score": max(scored),
             "num_queries": len(self.queries()),
             "num_links": sum(len(e.linked_event_ids) for e in self.events),
+            # Emitted only: these are probability deltas.
+            "average_abs_prob_delta": (
+                sum(abs(e.prob_delta) for e in emitted) / len(emitted) if emitted else None
+            ),
+            "max_abs_prob_delta": (
+                max(abs(e.prob_delta) for e in emitted) if emitted else None
+            ),
+            # Latent only: these are readout probabilities, on a different scale.
+            "average_readout_score": (
+                sum(e.score for e in latent) / len(latent) if latent else None
+            ),
+            "max_readout_score": max((e.score for e in latent), default=None),
         }
+        # v1's get_anchor_summary reads these names; they mean emitted-only.
+        summary["average_score"] = summary["average_abs_prob_delta"]
+        summary["max_score"] = summary["max_abs_prob_delta"]
+        return summary
 
     def __len__(self) -> int:
         return len(self.events)

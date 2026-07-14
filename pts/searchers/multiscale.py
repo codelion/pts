@@ -43,6 +43,11 @@ class MultiScaleSearcher:
         layer_fraction: Tuple[float, float] = (0.38, 0.92),
         window_before: int = 8,
         link_threshold: float = 0.5,
+        readout_top_k: int = 25,
+        min_score: float = 0.01,
+        keep_per_position: int = 3,
+        enable_verification: bool = False,
+        skip_embeddings: bool = False,
         **searcher_kwargs,
     ):
         self.granularities = list(granularities)
@@ -58,9 +63,8 @@ class MultiScaleSearcher:
             "device": base.device,
         }
         common = dict(searcher_kwargs)
-        common.pop("model", None)
-        common.pop("tokenizer", None)
-        common.pop("device", None)
+        for key in ("model", "tokenizer", "device"):
+            common.pop(key, None)
 
         self.token_searcher: Optional[TokenPTSSearcher] = None
         self.sentence_searcher: Optional[SentencePTSSearcher] = None
@@ -72,7 +76,12 @@ class MultiScaleSearcher:
             )
         if "sentence" in self.granularities:
             self.sentence_searcher = SentencePTSSearcher(
-                model_name=model_name, oracle=oracle, **shared, **common
+                model_name=model_name,
+                oracle=oracle,
+                enable_verification=enable_verification,
+                skip_embeddings=skip_embeddings,
+                **shared,
+                **common,
             )
         if "latent" in self.granularities:
             self.latent_searcher = LatentPTSSearcher(
@@ -81,6 +90,9 @@ class MultiScaleSearcher:
                 jlens_path=jlens_path,
                 workspace_layers=workspace_layers,
                 layer_fraction=layer_fraction,
+                top_k=readout_top_k,
+                min_score=min_score,
+                keep_per_position=keep_per_position,
                 **shared,
                 **{k: v for k, v in common.items() if k != "oracle"},
             )

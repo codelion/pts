@@ -34,10 +34,24 @@ latent → token → sentence chain.
 |---|---|---|
 | `context` | string | The prefix before the event |
 | `label` | string | The event itself: the token, the sentence, or the meta-token |
-| `position` | int? | Token index (token events); sentence index (sentence events); **negative offset from the linked event** for enrichment-produced latent events, e.g. `-3` = three tokens earlier |
+| `position` | int? | **Frame depends on the event — see below** |
 | `token_id` | int? | Vocabulary id, where one applies |
 | `layer` | int? | Latent events only |
 | `layer_name` | string? | Latent events only |
+
+#### `position` is not one index frame
+
+| Event | `position` means |
+|---|---|
+| `pivotal_token` | Absolute token index in the full sequence, **prompt included** |
+| `latent_metatoken` from `pts run --granularity latent` (probe) | Absolute token index, prompt included — the *same frame* as token events |
+| `latent_metatoken` from `pts enrich` | A **negative offset from its source event**, e.g. `-3` = three tokens before it. Meaningful only against the event named in `metadata.source_event_id` |
+| `thought_anchor` | **Sentence** index — not comparable to either of the above |
+
+Comparing a sentence index against a token index is meaningless, and applying an
+enrichment offset to any event other than its own source is meaningless. The
+linker enforces both; if you compute temporal relationships yourself, you must
+too.
 
 ### Scoring — read this carefully
 
@@ -63,6 +77,18 @@ latent → token → sentence chain.
 every latent event**, because nothing measured them. That is deliberate. Do not
 fill them in, and do not sort or threshold latent and emitted events together on
 `score` as though the numbers were comparable — they are not.
+
+The API enforces this rather than trusting you to remember it:
+
+| Instead of | Use |
+|---|---|
+| one `min_score` across both scales | `filter(min_prob_delta=…)` for emitted, `filter(min_readout_score=…)` for latent |
+| `most_important()` over everything | `most_important()` (emitted only) and `most_surfaced()` (latent only) |
+| `summary()['average_score']` over everything | `average_abs_prob_delta` / `max_abs_prob_delta` (emitted) and `average_readout_score` / `max_readout_score` (latent) |
+
+A single 0.5 floor across both scales keeps the banal meta-token `" the"`
+(readout probability 0.92) and discards a pivotal token worth +0.45. That is not
+a hypothetical — it is what the first implementation did.
 
 ### Method
 
@@ -209,7 +235,10 @@ storage = EventStorage(filepath="events.jsonl")
 print(storage.summary())
 
 latent = storage.by_event_type("latent_metatoken")
+
+# Each scale on its own threshold.
 strong = storage.filter(granularity="token", min_prob_delta=0.3, is_positive=True)
+surfaced = storage.filter(granularity="latent", min_readout_score=0.1)
 
 for tok in strong:
     preceded_by = [storage.get(i) for i in tok.follows_event_ids]

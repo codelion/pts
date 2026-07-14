@@ -121,6 +121,10 @@ class LatentPTSSearcher(BasePTSSearcher):
             self.logger.warning("Empty reasoning trace; nothing to probe")
             return
 
+        from ..classification import classify_event_label
+        from ..events import make_latent_event
+
+        prompt_len = len(self.tokenizer(prompt).input_ids)
         trace_ids = self.tokenizer(reasoning_trace, add_special_tokens=False).input_ids
 
         for end in range(stride, len(trace_ids) + 1, stride):
@@ -133,13 +137,15 @@ class LatentPTSSearcher(BasePTSSearcher):
                 continue
 
             for layer, results in by_layer.items():
-                for r in results:
-                    if not self.extractor._keep(r):
-                        continue
+                # Honour keep_per_position here as well as in enrichment. Without
+                # the cap, a 400-token trace at stride 4 over 4 layers with
+                # top_k=25 emits 10,000 latent events for a single query -- the
+                # flag promises at most 3.
+                kept = [r for r in results if self.extractor._keep(r)]
+                kept = kept[: self.extractor.keep_per_position]
+                self.extractor.note_kept(len(kept))
 
-                    from ..classification import classify_event_label
-                    from ..events import make_latent_event
-
+                for r in kept:
                     event = make_latent_event(
                         query=query,
                         context=context,
@@ -147,8 +153,12 @@ class LatentPTSSearcher(BasePTSSearcher):
                         token_id=r.token_id,
                         score=r.score,
                         layer=layer,
+                        # Absolute token index including the prompt, so a probe
+                        # event and a token event are in the same index frame and
+                        # the linker can actually compare them. (Token PTS records
+                        # prompt-inclusive indices too.)
+                        position=prompt_len + end,
                         model_id=self.model_name,
-                        position=end,
                         layer_name=f"model.layers.{layer}",
                         task_type=task_type,
                         dataset_id=dataset_id,
@@ -162,6 +172,7 @@ class LatentPTSSearcher(BasePTSSearcher):
                             "rank": r.rank,
                             "workspace_layers": self.workspace_layers,
                             "trace_position": end,
+                            "prompt_len": prompt_len,
                             "probe_stride": stride,
                         },
                     )

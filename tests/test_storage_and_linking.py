@@ -99,8 +99,13 @@ def test_storage_filters(events):
     assert len(s.filter(event_type=EVENT_TOKEN)) == 1
     assert len(s.filter(category=VERIFICATION)) == 3
     assert len(s.filter(is_positive=True)) == 2  # latent has is_positive=None
-    assert len(s.filter(min_score=0.5)) == 1     # only the latent readout at 0.83
     assert len(s.filter(layer_range=(10, 20))) == 1
+
+    # Each scale is thresholded on its own number. min_prob_delta leaves the
+    # latent event alone; min_readout_score leaves the emitted ones alone.
+    assert len(s.filter(min_prob_delta=0.5)) == 1        # only the latent event survives
+    assert len(s.filter(min_readout_score=0.9)) == 2     # both emitted events survive
+    assert len(s.filter(min_prob_delta=0.1, min_readout_score=0.1)) == 3
 
 
 def test_summary_counts_each_scale(events):

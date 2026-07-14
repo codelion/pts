@@ -128,6 +128,48 @@ class EventLinker:
         self.window = window
         self.embed_fn = embed_fn
 
+    def _proximity(
+        self,
+        latent: CausalReasoningEvent,
+        emitted: CausalReasoningEvent,
+    ) -> float:
+        """How close in time this latent event sits to *this* emitted event.
+
+        An enrichment-produced latent event carries
+        ``position_offset_from_linked_event``, an offset measured against the one
+        source event whose context it was read from. That number says nothing
+        about any *other* event in the same query -- applying it to all of them
+        (which is what this used to do) hands near-maximal proximity to every
+        pair, inflating the link set with spurious edges and corrupting the very
+        claim the linker exists to test.
+
+        So the offset is only used against its own source. Otherwise we fall back
+        to raw positions, and only when both are in the same index frame: token
+        events and probe-produced latent events are absolute token indices;
+        sentence positions are sentence indices and are not comparable to either.
+        """
+        meta = latent.metadata or {}
+        source_id = meta.get("source_event_id")
+        offset = meta.get("position_offset_from_linked_event")
+
+        if source_id is not None:
+            if source_id != emitted.event_id:
+                return 0.0
+            if offset is None or offset > 0:
+                return 0.0
+            lead = -offset
+            if lead > self.window:
+                return 0.0
+            return 1.0 - (lead / (self.window + 1))
+
+        # A probe-produced latent event: absolute token index, comparable only
+        # to a token event's absolute token index.
+        if emitted.event_type != EVENT_TOKEN:
+            return 0.0
+        if latent.position is None or latent.position < 0:
+            return 0.0
+        return temporal_proximity(latent.position, emitted.position, self.window)
+
     def score_pair(
         self,
         latent: CausalReasoningEvent,
@@ -141,18 +183,7 @@ class EventLinker:
             else 0.0
         )
 
-        # Prefer the explicit offset the enricher recorded; fall back to raw
-        # positions, which are only comparable when both are token indices.
-        offset = (latent.metadata or {}).get("position_offset_from_linked_event")
-        if offset is not None:
-            lead = -offset if offset <= 0 else None
-            proximity = (
-                1.0 - (lead / (self.window + 1))
-                if lead is not None and 0 <= lead <= self.window
-                else 0.0
-            )
-        else:
-            proximity = temporal_proximity(latent.position, emitted.position, self.window)
+        proximity = self._proximity(latent, emitted)
 
         if self.embed_fn is not None:
             semantic = float(self.embed_fn(latent.label, emitted.label))
@@ -282,7 +313,16 @@ class EventLinker:
         latent = [e for e in events if e.event_type == EVENT_LATENT]
         emitted = [e for e in events if e.event_type in (EVENT_TOKEN, EVENT_SENTENCE)]
         if not latent or not emitted:
-            return {"observed_mean": 0.0, "shuffled_mean": 0.0, "n": 0}
+            # Same keys on every path. Callers read observed_n/shuffled_n, and a
+            # short dict here made --shuffle-control a KeyError on exactly the
+            # datasets you would run it on first: a v1 token-only file, or an
+            # enrichment whose thresholds kept nothing.
+            return {
+                "observed_mean": 0.0,
+                "shuffled_mean": 0.0,
+                "observed_n": 0,
+                "shuffled_n": 0,
+            }
 
         observed = [
             self.score_pair(lat, em).score

@@ -101,9 +101,14 @@ def resolve_workspace_layers(
 
     lo_frac, hi_frac = fraction
     lo = max(0, int(round(lo_frac * num_layers)))
-    hi = min(num_layers - 1, int(round(hi_frac * num_layers)))
+    # A workspace layer must sit strictly below the final layer: the Jacobian
+    # from the final layer to itself is the identity and carries no information,
+    # and JLens.fit rejects it. For any model with <= 18 layers, round(0.92 * n)
+    # lands on n-1, so the naive bound made fit-jlens unusable on GPT-2,
+    # Llama-3.2-1B, and every other small model.
+    hi = min(num_layers - 2, int(round(hi_frac * num_layers)))
     if hi <= lo:
-        return [min(num_layers - 1, max(0, num_layers // 2))]
+        return [max(0, min(num_layers - 2, num_layers // 2))]
 
     n = min(max_layers, hi - lo + 1)
     if n == 1:

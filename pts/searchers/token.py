@@ -180,8 +180,12 @@ class TokenPTSSearcher(BasePTSSearcher):
                             task_type=task_type,
                             dataset_id=dataset_id,
                             dataset_item_id=item_id,
-                            # Absolute index in the full sequence, so latent
-                            # events (indexed the same way) can be aligned.
+                            # Absolute token index in the full sequence, prompt
+                            # included. Probe-produced latent events use the same
+                            # frame; enrichment-produced ones instead carry a
+                            # negative offset from their source event. Sentence
+                            # positions are sentence indices and are not
+                            # comparable to either -- see docs/dataset_schema_v2.md.
                             position=len(current_prefix),
                             category=classify_event_label(token_str, "token"),
                             metadata={
@@ -231,7 +235,14 @@ class TokenPTSSearcher(BasePTSSearcher):
                 "oracle can be reconstructed (see `pts export --dataset ...`)."
             )
 
-        context_ids = self.tokenizer.encode(event.context, return_tensors="pt").to(self.device)
+        # add_special_tokens=False: event.context was produced by decoding token
+        # ids with skip_special_tokens=False, so it *already* contains the BOS.
+        # Re-encoding with specials on prepends a second one, and the next-token
+        # logits that pick every DPO candidate would then be computed on a prefix
+        # the model never saw.
+        context_ids = self.tokenizer.encode(
+            event.context, return_tensors="pt", add_special_tokens=False
+        ).to(self.device)
         with torch.no_grad():
             logits = self.model(context_ids).logits[0, -1, :]
 

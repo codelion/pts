@@ -150,8 +150,10 @@ class CausalReasoningEvent:
     def from_dict(cls, data: Dict[str, Any]) -> "CausalReasoningEvent":
         known = {f for f in cls.__dataclass_fields__}
         kwargs = {k: v for k, v in data.items() if k in known}
-        # Anything the schema does not know about is preserved rather than lost,
-        # so a v2.1 record round-trips through a v2.0 reader without damage.
+        # Fields this schema version does not know about are moved into
+        # `metadata` rather than dropped. The value survives; its location does
+        # not -- a v2.1 writer reading back its own file will find its field
+        # under metadata, not at the top level. Real metadata wins on conflict.
         extra = {k: v for k, v in data.items() if k not in known}
         if extra:
             merged = dict(extra)
@@ -298,6 +300,7 @@ def make_latent_event(
     category: Optional[str] = None,
     readout_method: str = "jlens",
     search_method: str = "latent_pts_enrichment",
+    source_event_id: Optional[str] = None,
     metadata: Optional[Dict[str, Any]] = None,
     **kwargs: Any,
 ) -> CausalReasoningEvent:
@@ -307,15 +310,27 @@ def make_latent_event(
     ``prob_delta`` stays ``None`` and ``is_positive`` stays ``None``. ``score``
     is the readout score, not a causal effect. Interventional latent events
     (steer/ablate) set ``prob_*`` and carry ``intervention_type``.
+
+    ``context`` and ``source_event_id`` are part of the identity, not just the
+    payload. Without them, two different pivotal tokens in the same query --
+    enriched at the same layer and the same offset, surfacing the same common
+    meta-token, which is the *normal* case for a real model's top-k readout --
+    collide on ``event_id``, and storage silently drops one of them while the
+    other keeps a link pointing at the dropped id.
     """
     meta = {"readout_method": readout_method}
+    if source_event_id:
+        meta["source_event_id"] = source_event_id
     if metadata:
         meta.update(metadata)
 
     tags = ["latent_pts", "metatoken", readout_method]
 
     return CausalReasoningEvent(
-        event_id=make_event_id(EVENT_LATENT, model_id, query, layer, position, metatoken),
+        event_id=make_event_id(
+            EVENT_LATENT, model_id, query, context, source_event_id,
+            layer, position, metatoken,
+        ),
         event_type=EVENT_LATENT,
         granularity=GRANULARITY_LATENT,
         visibility=VISIBILITY_LATENT,

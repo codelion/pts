@@ -29,9 +29,18 @@ probability delta.**
 - Latent events have `prob_delta`, `prob_before`, `prob_after`, and
   `is_positive` set to `None`, deliberately. Do not fill them in.
 - Never sort, threshold, compare, or histogram latent `score` together with
-  emitted `prob_delta` as though they were the same quantity. They are on
-  different scales. (`export_causal_events` takes two separate thresholds for
-  exactly this reason.)
+  emitted `prob_delta` as though they were the same quantity. The API is built so
+  you cannot do it by accident:
+  - `EventStorage.filter` has **no `min_score`** — use `min_prob_delta` (emitted)
+    or `min_readout_score` (latent). Each ignores the other scale.
+  - `most_important()` is emitted-only; `most_surfaced()` is latent-only.
+  - `summary()` reports `*_prob_delta` and `*_readout_score` separately and has
+    no aggregate mean over `score`.
+  - `export_causal_events` takes two thresholds.
+
+  A single 0.5 floor across both scales keeps the filler meta-token `" the"`
+  (readout 0.92) and throws away a pivotal token worth +0.45. This has already
+  been shipped once by accident; do not reintroduce it.
 - Never count latent events as positive or negative — they have no valence.
 - `logit_lens` readouts are weaker evidence than `jlens` ones; keep
   `readout_method` visible so they can be filtered apart.
@@ -122,6 +131,23 @@ when writing docs. "Meta-token" is our term, not the paper's.
   `build_conditioning_text`.
 - Published PTS datasets are **model-specific**. Cross-model enrichment requires
   `--allow-model-mismatch` and is exploratory.
+- **A latent event's identity includes its `context` and `source_event_id`.** Two
+  pivotal tokens in one query, enriched at the same layer and offset, routinely
+  surface the same common meta-token. Drop those from the id and they collide,
+  storage silently discards one, and the survivor keeps a link pointing at the
+  discarded id. At 20 source events per query this destroyed ~95% of the latent
+  events.
+- **Auto workspace layers must stay below `num_layers - 1`.** `round(0.92 * n)`
+  lands on `n-1` for every `n <= 18`, and `JLens.fit` rejects the final layer — so
+  a naive bound makes `fit-jlens` crash on GPT-2, Llama-3.2-1B, and every other
+  small model.
+- **`position` is not one index frame.** Token events and probe latent events use
+  absolute prompt-inclusive token indices; enrichment latent events use a negative
+  offset from their source; sentence events use sentence indices. Never compare
+  across frames. See `docs/dataset_schema_v2.md`.
+- `event.context` already contains its special tokens (it was decoded with
+  `skip_special_tokens=False`), so re-encode it with `add_special_tokens=False` or
+  you get a double BOS and score candidates on a prefix the model never saw.
 
 ## Testing
 

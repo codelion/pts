@@ -2234,8 +2234,16 @@ def apply_event_filters(event_type: str, granularity: str, polarity: str,
             work = work[work[cat_col].astype(str) == category]
 
     if not work.empty and min_score:
-        scores = work.apply(_row_score, axis=1)
-        work = work[scores >= float(min_score)]
+        # Apply the threshold only to emitted events, whose score is a
+        # probability delta. A latent event's score is a readout probability on
+        # a different scale entirely -- one slider across both would drop a
+        # pivotal token worth +0.45 while keeping a banal " the" readout at 0.92.
+        def score_ok(row) -> bool:
+            if _granularity(row) == 'latent':
+                return True
+            return _row_score(row) >= float(min_score)
+
+        work = work[work.apply(score_ok, axis=1)]
 
     # Layer range only constrains latent events; emitted events have no layer.
     if not work.empty and 'layer' in work.columns:

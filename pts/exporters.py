@@ -399,9 +399,11 @@ class EventExporter:
         """For a negative token, find a candidate that measurably beats it."""
         import torch
 
-        context_ids = searcher.tokenizer.encode(event.context, return_tensors="pt").to(
-            searcher.device
-        )
+        # event.context already carries its special tokens (it was decoded with
+        # skip_special_tokens=False), so do not add a second BOS.
+        context_ids = searcher.tokenizer.encode(
+            event.context, return_tensors="pt", add_special_tokens=False
+        ).to(searcher.device)
         with torch.no_grad():
             logits = searcher.model(context_ids).logits[0, -1, :]
 
@@ -441,6 +443,13 @@ class EventExporter:
 
         from .latent.activations import ResidualCapture, get_layer_modules
         from .searchers.base import select_device
+
+        if not model_name:
+            logger.error(
+                "Steering export needs --model: the activations have to be read out "
+                "of a model, and there is none to load."
+            )
+            return
 
         events = [
             e for e in self.storage
