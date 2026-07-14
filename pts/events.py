@@ -59,6 +59,19 @@ def _now() -> str:
     return time.strftime("%Y-%m-%dT%H:%M:%S")
 
 
+def _classify(text: str, granularity: str) -> Optional[str]:
+    """Assign a unified category. Imported lazily to keep this module dependency-free."""
+    from .classification import classify_event_label
+
+    return classify_event_label(text, granularity)
+
+
+def map_v1_category(v1_category: Optional[str]) -> Optional[str]:
+    from .classification import map_v1_category as _map
+
+    return _map(v1_category)
+
+
 def make_event_id(event_type: str, *parts: Any) -> str:
     """Build a stable event id from its identifying parts.
 
@@ -426,6 +439,12 @@ def from_v1_pivotal_token(record: Dict[str, Any]) -> CausalReasoningEvent:
         is_positive=record.get("is_positive", _resolve_positivity(prob_delta)),
         search_method="token_pts",
         intervention_type="append_token",
+        # v1 never classified pivotal tokens. Leaving them uncategorized would
+        # make every cross-scale comparison vacuous: a latent event's category
+        # can never match `None`, so category-match rates against migrated
+        # tokens would come back at exactly zero -- a null produced by the
+        # migration, not by the data.
+        category=_classify(token, "token"),
         tags=["token_pts", "migrated"],
         metadata=metadata,
         timestamp=record.get("timestamp", _now()),
@@ -484,7 +503,16 @@ def from_v1_thought_anchor(record: Dict[str, Any]) -> CausalReasoningEvent:
         confidence=record.get("verification_score"),
         search_method="sentence_pts",
         intervention_type="replace_sentence",
-        category=record.get("sentence_category"),
+        # v1's own 8-category vocabulary ("self_checking", "active_computation")
+        # is remapped onto the unified taxonomy shared by all three scales.
+        # Without this, a v1 sentence category could never equal a latent event's
+        # category, and every latent -> token -> sentence chain would be invisible
+        # by construction. Falls back to classifying the sentence text when v1
+        # recorded no category at all.
+        category=(
+            map_v1_category(record.get("sentence_category"))
+            or _classify(sentence, "sentence")
+        ),
         tags=["sentence_pts", "thought_anchor", "migrated"],
         metadata=metadata,
         timestamp=record.get("timestamp", _now()),

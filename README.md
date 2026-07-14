@@ -176,18 +176,31 @@ Latent PTS is the newest and least settled part of this. Do not oversell it.
 
 ## Relation to prior work
 
-PTS was originally inspired by the Pivotal Token Search idea in the
-[Phi-4 technical report](https://arxiv.org/abs/2412.08905). This project extends
-it into a multiscale mechanistic interpretability framework. **Token PTS**
-corresponds to emitted pivotal tokens. **Sentence PTS** corresponds to
-thought-anchor-style reasoning steps. **Latent PTS** uses workspace / J-space-style
-readouts, inspired by Anthropic's
-[*Verbalizable Representations Form a Global Workspace in Language Models*](https://transformer-circuits.pub/2026/workspace/index.html),
-to search for hidden verbalizable meta-tokens that may precede emitted pivotal
-tokens.
+**The unified framework is what PTS contributes.** The claim is that pivotal
+reasoning events at three very different representational scales are *the same
+kind of object*: they can be found by the same search, stored in the same schema,
+labelled from the same taxonomy, scored by the same principle, and chained
+together into a single causal graph.
 
-Inspired by, related to, and compatible with — not the same as, and not validated
-against.
+Each scale then connects to an existing line of work, which is how the framework
+is anchored rather than invented in a vacuum:
+
+| PTS scale (ours) | The concept it connects to (theirs) |
+|---|---|
+| **Latent PTS** | Workspace / J-space readouts — Anthropic, [*Verbalizable Representations Form a Global Workspace in Language Models*](https://transformer-circuits.pub/2026/workspace/index.html) |
+| **Token PTS** | Pivotal Token Search — [Phi-4 technical report](https://arxiv.org/abs/2412.08905) |
+| **Sentence PTS** | Thought Anchors |
+
+Read left-to-right, the table is the thesis: what Phi-4 found in emitted tokens
+and what Thought Anchors found in reasoning sentences are the *same phenomenon at
+different scales*, and the workspace literature describes where it lives before it
+is emitted at all. PTS is the frame that holds all three.
+
+Read as a claim of equivalence, the table would be overreach. So: inspired by,
+related to, and compatible with — **not** the same as, and not validated against.
+In particular, Latent PTS is an independent reimplementation from the workspace
+paper's published equations (no reference code was released), and "meta-token" is
+our term, not theirs.
 
 ## Documentation
 
