@@ -1,24 +1,47 @@
-# PTS: Pivotal Token Search
+# PTS: Pivotal Token/Thought Search
 
 [![Open in Spaces](https://huggingface.co/datasets/huggingface/badges/resolve/main/open-in-hf-spaces-sm.svg)](https://huggingface.co/spaces/codelion/pts-visualizer)
 
-A tool for discovering pivotal tokens in large language model generations and creating DPO datasets and steering vectors from them.
+**PTS is a multiscale causal-event search framework for model reasoning.** It
+identifies the hidden workspace states, emitted tokens, and sentence-level
+reasoning steps that causally shift a model's probability of solving a task.
 
-## Features
+PTS started as Pivotal Token Search: finding emitted tokens that significantly
+change a model's chance of getting the answer right. In v2, PTS generalizes into
+a unified mechanistic interpretability framework that searches for pivotal
+reasoning events at **three representational scales**.
 
-- Identifies pivotal tokens in language model generations
-- Supports various dataset formats including GSM8k, MATH, and custom datasets
-- Handles chain-of-thought reasoning output with `<think></think>` tags
-- Extracts answers from common formats like GSM8k's #### pattern and LaTeX's \boxed{} notation
+```
+latent meta-token / workspace event        <- Latent PTS
+        |
+emitted pivotal token                      <- Token PTS
+        |
+sentence-level thought anchor              <- Sentence PTS
+        |
+success / failure probability shift
+```
 
-## What is Pivotal Token Search?
+All three are the same kind of object, scored by the same principle:
 
-Pivotal Token Search (PTS) is a technique described in the [Phi-4 Technical Report](https://arxiv.org/abs/2412.08905) that identifies tokens in a language model's generation that significantly impact the probability of success for the task at hand. These "pivotal tokens" are decision points where the model's choice can dramatically alter the course of the solution.
+```
+event_importance = outcome_with_event - outcome_without_or_altered_event
+```
 
-Key features:
-- Identifies tokens that significantly increase or decrease the probability of a successful generation
-- Generates DPO (Direct Preference Optimization) pairs for fine-tuning
-- Creates steering vectors for activation-based steering during inference
+## The three scales
+
+| Scale | What it finds | How it's scored | Prior work |
+|---|---|---|---|
+| **Latent PTS** | Verbalizable concepts active in the model's mid-layer workspace but not yet said out loud | J-lens readout score | Anthropic's [J-space / J-lens](https://transformer-circuits.pub/2026/workspace/index.html) |
+| **Token PTS** | Emitted tokens that flip success probability | `P(success \| prefix + token) - P(success \| prefix)` | [Phi-4 technical report](https://arxiv.org/abs/2412.08905) |
+| **Sentence PTS** | Reasoning sentences that flip success probability | `P(success \| prefix + sentence) - P(success \| prefix + alternative)` | Thought Anchors |
+
+The claim the framework exists to test:
+
+> Many emitted pivotal tokens and thought-anchor sentences are preceded by latent
+> verbalizable meta-tokens in the model's workspace.
+
+**Latent events are observational hypotheses, not measured causal effects.** See
+[Caveats](#caveats) — this matters and it is easy to get wrong.
 
 ## Installation
 
@@ -28,298 +51,159 @@ cd pts
 pip install -e .
 ```
 
-## Quick Start
+`import pts` does not pull in torch or transformers. The event schema, storage,
+classification, and linking layers are pure Python; anything that touches a model
+loads lazily.
+
+## Quick start
+
+### Token PTS (the original)
 
 ```bash
-# Find pivotal tokens in a dataset and save to file
-pts run --model="Qwen/Qwen3-0.6B" --dataset="codelion/optillmbench" --output-path="pivotal_tokens.jsonl"
-
-# Generate thought anchors dataset for reasoning analysis
-pts run --model="Qwen/Qwen3-0.6B" --dataset="codelion/optillmbench" --output-path="thought_anchors.jsonl" --generate-thought-anchors
-
-# Convert pivotal tokens to DPO dataset
-pts export --input-path="pivotal_tokens.jsonl" --format="dpo" --output-path="dpo_dataset.jsonl" --model="Qwen/Qwen3-0.6B" --find-rejected-tokens
-
-# Convert pivotal tokens to steering vectors
-pts export --input-path="pivotal_tokens.jsonl" --format="steering" --output-path="steering_vectors.jsonl" --model="Qwen/Qwen3-0.6B"
-
-# Export thought anchors for inference systems
-pts export --input-path="thought_anchors.jsonl" --format="thought_anchors" --output-path="thought_anchors_export.jsonl"
-
-# Push dataset to Hugging Face (creates README by default)
-pts push --input-path="dpo_dataset.jsonl" --hf-repo="codelion/pts-dpo-dataset" --model="Qwen/Qwen3-0.6B"
+pts run --granularity token \
+        --model Qwen/Qwen3-0.6B \
+        --dataset codelion/optillmbench \
+        --output-path events.jsonl
 ```
 
-## Try Now
-
-| Use Case | Dataset | Link |
-|----------|----------|-------|
-| Fine-tuning the model | dpo dataset | [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/drive/1FggA9EQ1eFBjE0Qbsl0-EFzyWIxpdhlH?usp=sharing) |
-| Optimizing the inference | steering vectors | [optillm](https://github.com/codelion/optillm) |
-
-You can also check out the [datasets](https://huggingface.co/datasets?other=pts) and [models](https://huggingface.co/models?other=pts) created with pts.
-It was used for the `autothink` approach in [optillm](https://github.com/codelion/optillm) as described in this [paper](https://papers.ssrn.com/sol3/papers.cfm?abstract_id=5253327).
-
-## PTS Visualizer
-
-The [PTS Visualizer](https://huggingface.co/spaces/codelion/pts-visualizer) is an interactive web application inspired by [Neuronpedia](https://neuronpedia.org/) for exploring pivotal tokens, thought anchors, and reasoning circuits. Load datasets from HuggingFace or upload your own JSONL files to analyze how language models reason.
-
-### Visualizations
-
-| Tab | Preview | Description | Use Cases |
-|-----|---------|-------------|-----------|
-| **Overview** | [![Overview](visualizer/images/overview.png)](visualizer/images/overview.png) | Dataset statistics with probability delta distribution and category breakdowns | Get a quick summary of your dataset, understand the balance of positive vs negative impacts, identify which task types or categories are most common |
-| **Token Explorer** | [![Token Explorer](visualizer/images/token_explorer.png)](visualizer/images/token_explorer.png) | Examine individual pivotal tokens in their full context with highlighted impact | Debug specific model decisions, understand why certain tokens increase or decrease success probability, inspect the reasoning context around critical tokens |
-| **Reasoning Graph** | [![Reasoning Graph](visualizer/images/reasoning_graph.png)](visualizer/images/reasoning_graph.png) | Interactive dependency graph showing causal relationships between reasoning steps | Visualize how reasoning flows through a problem, identify critical decision points, understand which steps depend on others (for thought anchors datasets) |
-| **Embedding Space** | [![Embedding Space](visualizer/images/embedding_space.png)](visualizer/images/embedding_space.png) | t-SNE projection of token/sentence embeddings or probability space visualization | Discover clusters of similar reasoning patterns, identify outliers, explore the semantic relationships between pivotal tokens or thought anchors |
-| **Circuit Tracer** | [![Circuit Tracer](visualizer/images/circuit_tracer.png)](visualizer/images/circuit_tracer.png) | Step-by-step walkthrough of reasoning traces with probability progression | Follow the model's reasoning process from start to finish, see how each step affects success probability, identify where reasoning goes wrong |
-
-### Supported Datasets
-
-- **Pivotal Tokens**: Token-level analysis showing which tokens significantly change success probability
-- **Thought Anchors**: Sentence-level analysis with causal dependencies and reasoning categorization
-- **Steering Vectors**: Activation patterns that can guide model generation
-
-## Core Concepts
-
-### Pivotal Tokens
-
-A pivotal token significantly changes the probability of success when it appears in a model's generation. By identifying these tokens, we can:
-1. Understand where the model makes critical decisions
-2. Create preference pairs for DPO fine-tuning
-3. Extract activation vectors for steering during inference
-
-### DPO Datasets
-
-PTS creates high-quality DPO datasets by isolating the specific token-level choices that lead to success or failure. This allows for more targeted and effective fine-tuning compared to using entire sequences.
-
-**Important:** When exporting to DPO format, you must provide a model using the `--model` parameter and enable the `--find-rejected-tokens` flag. This is necessary because DPO pairs require both a chosen token (the pivotal token that increases success probability) and a rejected token (an alternative token that decreases success probability).
-
-### Steering Vectors
-
-The activation patterns associated with pivotal tokens can be used to guide models during generation, encouraging them to follow successful reasoning paths.
-
-### Thought Anchors
-
-Thought anchors are critical reasoning steps that have outsized importance in guiding the subsequent reasoning process. Based on the [Thought Anchors paper](https://arxiv.org/abs/2506.19143), this technique identifies sentences in reasoning traces that significantly impact success probability. 
+### Sentence PTS (thought anchors)
 
 ```bash
-# Generate comprehensive thought anchors dataset
-pts run --model="Qwen/Qwen3-0.6B" \
-    --dataset="openai/gsm8k" \
-    --output-path="thought_anchors.jsonl" \
-    --generate-thought-anchors \
-    --prob-threshold=0.15 \
-    --num-samples=10
+pts run --granularity sentence --model Qwen/Qwen3-0.6B --output-path events.jsonl
 ```
 
-**Enhanced Dataset Fields:**
-- **Contextual**: `prefix_context`, `suffix_context`, `full_reasoning_trace`
-- **Semantic**: `sentence_embedding`, `alternatives_embeddings` (768-dim vectors)
-- **Dependencies**: `causal_dependencies`, `causal_dependents`, `logical_relationship`
-- **Failure Analysis**: `failure_mode`, `error_type`, `correction_suggestion`
-- **Impact**: `prob_delta`, `importance_score`, `is_positive`
-- **Classification**: `sentence_category` (planning, computation, verification, etc.)
+### Latent PTS — enrich a dataset you already have
 
-Key features:
-1. **Sentence-level analysis**: Instead of tokens, analyzes complete sentences in reasoning traces
-2. **Counterfactual importance**: Measures how sentence changes affect final success probability
-3. **Reasoning pattern classification**: Categorizes sentences (planning, backtracking, verification, etc.)
-4. **Alternative testing**: Generates semantically different sentences to measure impact
-5. **Semantic embeddings**: Provides vector representations for similarity matching
-6. **Dependency analysis**: Identifies causal relationships between reasoning steps
-7. **Failure mode analysis**: Classifies why negative anchors hurt performance
-
-Thought anchors are typically:
-- **Planning sentences**: "I'll solve this by applying the area formula"
-- **Backtracking sentences**: "Wait, I made a mistake earlier. Let me reconsider..."
-- **Verification sentences**: "Let me verify: π×r² = π×5² = 25π. Correct."
-
-**Inference Applications:**
-- **Guided Generation**: Use positive anchors as reasoning templates
-- **Quality Control**: Score reasoning steps against anchor database
-- **Self-Correction**: Detect negative patterns and suggest alternatives
-- **Adaptive Sampling**: Adjust generation parameters near critical reasoning points
-
-## Dataset Field Customization
-
-Different datasets use different field names for questions and answers. PTS automatically detects appropriate field names for common datasets, but you can also specify them manually:
+This is the highest-value path: it reuses curated PTS datasets instead of
+re-running the search from scratch. **v1 files work directly** — they are migrated
+on read.
 
 ```bash
-pts run --model="Qwen/Qwen3-0.6B" --dataset="your-dataset" --query-key="question" --answer-key="answer"
+# 1. Calibrate a Jacobian lens for the model (once).
+pts fit-jlens --model Qwen/Qwen3-0.6B --output-path ./jlens/qwen3-0.6b
+
+# 2. Read the workspace around every existing event.
+pts enrich --input-path pivotal_tokens.jsonl \
+           --output-path events_latent.jsonl \
+           --model Qwen/Qwen3-0.6B \
+           --jlens-path ./jlens/qwen3-0.6b \
+           --readout-method jlens \
+           --with-latent --shuffle-control
 ```
 
-For example:
-- `codelion/optillmbench`: Uses "question" and "answer" fields
-- Other datasets may use fields like:
-  - "instruction"/"output"
-  - "problem"/"solution" 
-  - "prompt"/"canonical_solution"
+No J-lens yet? `--readout-method logit_lens` needs no calibration and works
+immediately — it is the same construction with `J = I`. It is also weaker
+evidence; see [docs/latent_pts.md](docs/latent_pts.md).
 
-If not specified, PTS will attempt to automatically detect the appropriate fields based on common naming patterns.
-
-## Command Reference
-
-### `pts run`
-
-Find pivotal tokens or thought anchors in a dataset:
+### All three scales at once
 
 ```bash
-pts run --model="MODEL_NAME" --dataset="DATASET_NAME" [options]
+pts run --granularity all \
+        --model Qwen/Qwen3-0.6B \
+        --dataset codelion/optillmbench \
+        --readout-method jlens --jlens-path ./jlens/qwen3-0.6b \
+        --output-path events.jsonl
 ```
 
-Options:
-- `--model`: Model to use for generation
-- `--dataset`: Dataset to search (default: "codelion/optillmbench")
-- `--config`: Dataset configuration name (if applicable, e.g., "main" for openai/gsm8k)
-- `--output-path`: Path to save pivotal tokens (default: "pivotal_tokens.jsonl")
-- `--query-key`: Key for question/instruction field in dataset (auto-detected if not specified)
-- `--answer-key`: Key for answer/output field in dataset (auto-detected if not specified)
-- `--prob-threshold`: Probability threshold for pivotal tokens (default: 0.2)
-- `--temperature`: Sampling temperature (default: 0.6)
-- `--top-p`: Top-p (nucleus) sampling parameter (default: 0.95)
-- `--top-k`: Top-k sampling parameter (default: 20)
-- `--min-p`: Min-p sampling parameter (default: 0.0)
-- `--num-samples`: Number of samples for probability estimation (default: 10)
-- `--max-pairs`: Maximum number of pairs to generate (default: 1000)
-- `--generate-thought-anchors`: Generate thought anchors dataset instead of pivotal tokens
-
-### `pts export`
-
-Export pivotal tokens or thought anchors to different formats:
+### Visualize
 
 ```bash
-pts export --input-path="TOKENS_PATH" --format="FORMAT" [options]
+cd visualizer && python app.py
 ```
 
-Options:
-- `--input-path`: Path to pivotal tokens file
-- `--format`: Export format ("dpo", "steering", or "thought_anchors")
-- `--output-path`: Path to save exported data
-- `--model`: Model to use for extracting steering vectors (required for "steering" format)
+Or use the [hosted visualizer](https://huggingface.co/spaces/codelion/pts-visualizer).
 
-### `pts push`
+## Commands
 
-Push dataset to Hugging Face:
+| Command | Does |
+|---|---|
+| `pts run --granularity token\|sentence\|latent\|all` | Search for pivotal events |
+| `pts enrich --with-latent` | Add latent meta-token events to an existing dataset |
+| `pts fit-jlens` | Calibrate a Jacobian lens for a model |
+| `pts link` | Link latent → token → sentence into causal chains |
+| `pts migrate` | Convert v1 files to the v2 event schema |
+| `pts export --format …` | `causal_events`, `metatokens`, `pivotal_tokens`, `thought_anchors`, `dpo`, `steering` |
+| `pts push` | Upload to Hugging Face |
+
+## Downstream uses
 
 ```bash
-pts push --input-path="FILE_PATH" --hf-repo="USERNAME/REPO_NAME" [options]
+# DPO pairs. --dataset is required so a REAL success oracle can be rebuilt.
+pts export --input-path events.jsonl --format dpo --output-path dpo.jsonl \
+           --model Qwen/Qwen3-0.6B --dataset codelion/optillmbench --find-rejected-tokens
+
+# Steering vectors (works with OptiLLM's autothink).
+pts export --input-path events.jsonl --format steering --output-path steering.jsonl \
+           --model Qwen/Qwen3-0.6B
 ```
 
-Options:
-- `--input-path`: Path to file to push
-- `--hf-repo`: Hugging Face repository name
-- `--private`: Make the repository private (default: False)
-- `--no-readme`: Skip creating a README file (a README is created by default)
-- `--model`: Model name to include in the README (optional)
+## Upgrading from v1
 
-## Examples
+**Your existing datasets keep working.** Every command reads v1 pivotal-token and
+thought-anchor JSONL directly.
 
-### Finding Pivotal Tokens with OptillmBench
+Several v1 bugs were silently producing **wrong numbers**, and fixing them changes
+results. If you have v1 datasets or published results, read
+[docs/migration.md](docs/migration.md) — in particular: v1 DPO exports contained
+no positive tokens at all (the rejected-token search ran against a dummy oracle
+that reported every completion as a success), and thought-anchor probability
+deltas were invalid after a memory-cleanup path blanked the sentences it was
+still reading.
 
-```bash
-pts run --model="Qwen/Qwen3-0.6B" \
-    --dataset="codelion/optillmbench" \
-    --output-path="optillm_pivotal_tokens.jsonl" \
-    --prob-threshold=0.2 \
-    --temperature=0.6 \
-    --top-p=0.95 \
-    --top-k=20 \
-    --min-p=0.0
-```
+## Caveats
 
-### Working with a Custom Dataset
+Latent PTS is the newest and least settled part of this. Do not oversell it.
 
-```bash
-pts run --model="Qwen/Qwen3-0.6B" \
-    --dataset="my-custom-dataset" \
-    --query-key="input_text" \
-    --answer-key="target_text" \
-    --output-path="custom_pivotal_tokens.jsonl" \
-    --prob-threshold=0.2 \
-    --temperature=0.6 \
-    --top-p=0.95 \
-    --top-k=20 \
-    --min-p=0.0
-```
+- **Latent events are hypotheses, not measurements.** A latent event's `score` is
+  a readout score, **not** a probability delta. `prob_delta` and `is_positive` are
+  `null` on every latent event, deliberately. Do not compare or threshold latent
+  and emitted scores together — they are not on the same scale.
+- **Latent events are observational.** Nothing was intervened on. Showing a
+  meta-token *causes* an emitted event requires steering or ablating it and
+  re-measuring success. Not implemented.
+- **Readouts are noisy.** Neither the J-lens nor the logit lens is guaranteed
+  faithful to what the model represents.
+- **This is an independent reimplementation.** No reference code was released with
+  the workspace paper. The J-lens here is written from the published equations and
+  verified for internal correctness against a brute-force autograd Jacobian, but it
+  has **not** been validated against the authors' results.
+- **"Meta-token" is our term, not the paper's.**
+- **Links are scored guesses.** Always run `--shuffle-control`: if the observed
+  link scores are not clearly above the shuffled baseline, the structure is not
+  distinguishable from chance.
+- **PTS records are model-specific.** A token pivotal for one model says nothing
+  about another.
 
-### Working with a Dataset Requiring Configuration
+## Relation to prior work
 
-```bash
-pts run --model="Qwen/Qwen3-0.6B" \
-    --dataset="openai/gsm8k" \
-    --config="main" \
-    --split="train" \
-    --output-path="gsm8k_pivotal_tokens.jsonl" \
-    --prob-threshold=0.2 \
-    --temperature=0.6 \
-    --max-examples=10
-```
+PTS was originally inspired by the Pivotal Token Search idea in the
+[Phi-4 technical report](https://arxiv.org/abs/2412.08905). This project extends
+it into a multiscale mechanistic interpretability framework. **Token PTS**
+corresponds to emitted pivotal tokens. **Sentence PTS** corresponds to
+thought-anchor-style reasoning steps. **Latent PTS** uses workspace / J-space-style
+readouts, inspired by Anthropic's
+[*Verbalizable Representations Form a Global Workspace in Language Models*](https://transformer-circuits.pub/2026/workspace/index.html),
+to search for hidden verbalizable meta-tokens that may precede emitted pivotal
+tokens.
 
-### Creating a DPO Dataset
+Inspired by, related to, and compatible with — not the same as, and not validated
+against.
 
-```bash
-# First find pivotal tokens
-pts run --model="Qwen/Qwen3-0.6B" \
-    --dataset="codelion/optillmbench" \
-    --output-path="optillm_pivotal_tokens.jsonl" \
-    --temperature=0.6 \
-    --top-p=0.95 \
-    --top-k=20 \
-    --min-p=0.0
+## Documentation
 
-# Then export to DPO format - MUST provide a model and find-rejected-tokens flag
-pts export --input-path="optillm_pivotal_tokens.jsonl" \
-    --format="dpo" \
-    --output-path="optillm_dpo_dataset.jsonl" \
-    --model="Qwen/Qwen3-0.6B" \
-    --find-rejected-tokens \
-    --min-prob-delta=0.1
-```
+- [docs/latent_pts.md](docs/latent_pts.md) — the J-lens, the math, and what would make it convincing
+- [docs/dataset_schema_v2.md](docs/dataset_schema_v2.md) — the unified event schema
+- [docs/migration.md](docs/migration.md) — upgrading from v1, and the bugs that changed results
 
-### Extracting Steering Vectors
+## Datasets
 
-```bash
-pts export --input-path="pivotal_tokens.jsonl" \
-    --format="steering" \
-    --output-path="steering_vectors.jsonl" \
-    --model="Qwen/Qwen3-0.6B" \
-    --layer-nums=19,23,27
-```
+Existing v1 datasets on Hugging Face (all still load):
 
-### Generating Thought Anchors
+- [codelion/Qwen3-0.6B-pts](https://huggingface.co/datasets/codelion/Qwen3-0.6B-pts)
+- [codelion/Qwen3-0.6B-pts-thought-anchors](https://huggingface.co/datasets/codelion/Qwen3-0.6B-pts-thought-anchors)
+- [codelion/Qwen3-0.6B-pts-steering-vectors](https://huggingface.co/datasets/codelion/Qwen3-0.6B-pts-steering-vectors)
+- [codelion/DeepSeek-R1-Distill-Qwen-1.5B-pts](https://huggingface.co/datasets/codelion/DeepSeek-R1-Distill-Qwen-1.5B-pts)
 
-```bash
-# Generate thought anchors dataset
-pts run --model="Qwen/Qwen3-0.6B" \
-    --dataset="codelion/optillmbench" \
-    --output-path="thought_anchors.jsonl" \
-    --generate-thought-anchors \
-    --prob-threshold=0.2 \
-    --temperature=0.6 \
-    --num-samples=20
+## License
 
-# Export thought anchors for inference systems
-pts export --input-path="thought_anchors.jsonl" \
-    --format="thought_anchors" \
-    --output-path="thought_anchors_export.jsonl"
-
-# Push to Hugging Face
-pts push --input-path="thought_anchors_export.jsonl" \
-    --hf-repo="username/thought-anchors-dataset" \
-    --model="Qwen/Qwen3-0.6B"
-```
-
-## Citation
-
-If you use this tool in your research, please cite:
-
-```bibtex
-@software{pts,
-  title = {PTS: Pivotal Token Search},
-  author = {Asankhaya Sharma},
-  year = {2025},
-  publisher = {GitHub},
-  url = {https://github.com/codelion/pts}
-}
-```
+Apache 2.0
