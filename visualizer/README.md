@@ -15,52 +15,63 @@ tags:
   - llm-interpretability
   - reasoning
   - visualization
+datasets:
+  - codelion/Qwen3-0.6B-pts
+  - codelion/Qwen3-0.6B-pts-thought-anchors
+  - codelion/Qwen3-0.6B-pts-steering-vectors
+  - codelion/Qwen3-0.6B-pts-dpo-pairs
+  - codelion/DeepSeek-R1-Distill-Qwen-1.5B-pts
+  - codelion/DeepSeek-R1-Distill-Qwen-1.5B-pts-thought-anchors
+  - codelion/DeepSeek-R1-Distill-Qwen-1.5B-pts-steering-vectors
+  - codelion/DeepSeek-R1-Distill-Qwen-1.5B-pts-dpo-pairs
 ---
 
-# PTS Visualizer
+# PTS Visualizer — Pivotal Token Search
 
-Interactive visualization platform for exploring **Pivotal Tokens**, **Thought Anchors**, and **Reasoning Circuits** in language models.
+Interactive visualization for **Pivotal Token Search**: the reasoning events that
+shift a language model's probability of solving a task, at three representational
+scales — latent workspace meta-tokens, emitted pivotal tokens, and sentence-level
+thought anchors — as a single kind of object.
 
-Inspired by [Neuronpedia](https://neuronpedia.org/), this tool helps researchers and practitioners understand how language models reason through complex tasks.
+## Views
 
-## Features
+### Overview
+Per-scale event counts, causal-link count, and separate distributions for
+emitted probability deltas and latent readout scores (they are different
+quantities and are never binned together).
 
-### 📊 Overview Dashboard
-- Dataset statistics and distributions
-- Quick summary of positive/negative impacts
-- Category and pattern analysis
+### Event Explorer
+Every event in context, filterable by scale, category, valence, score, and (for
+latent events) layer. Latent readouts are shown as readout scores, never as
+probability deltas.
 
-### 🔍 Token Explorer
-- Highlight pivotal tokens in context
-- Visualize probability changes before/after tokens
-- Explore token-level impacts on success
+### Causal Event Graph
+The latent → token → sentence → outcome graph for a query, with nodes shaped by
+scale and edges from the recorded causal links.
 
-### 🕸️ Reasoning Graph
-- Interactive dependency graph for thought anchors
-- Visualize causal relationships between reasoning steps
-- Color-coded by impact (green = positive, red = negative)
-- Node size indicates importance
+### Embedding Space
+t-SNE of event embeddings, colored by category or impact.
 
-### 🗺️ Embedding Space
-- t-SNE visualization of sentence/token embeddings
-- Color by category, pattern, or impact
-- Explore clusters and patterns in reasoning
+### Reasoning Timeline
+All scales on one shared generation axis: latent meta-tokens, pivotal tokens,
+thought-anchor sentences, and the resulting success-probability curve — plus a
+workspace heatmap of meta-token readout scores by position.
 
-### ⚡ Circuit Tracer
-- Step-by-step walkthrough of reasoning traces
-- Probability progression chart
-- Verification scores and error detection
+## Supported datasets
 
-## Supported Datasets
+Loads any PTS dataset from the Hub (and legacy pivotal-token / thought-anchor /
+steering-vector files, which are upgraded on the fly):
 
-Load from HuggingFace Hub:
-- `codelion/Qwen3-0.6B-pts` - Pivotal tokens
-- `codelion/Qwen3-0.6B-pts-thought-anchors` - Thought anchors
-- `codelion/Qwen3-0.6B-pts-steering-vectors` - Steering vectors
-- `codelion/Qwen3-0.6B-pts-dpo-pairs` - DPO training pairs
+- `codelion/Qwen3-0.6B-pts`
+- `codelion/Qwen3-0.6B-pts-thought-anchors`
+- `codelion/Qwen3-0.6B-pts-steering-vectors`
+- `codelion/Qwen3-0.6B-pts-dpo-pairs`
+- `codelion/DeepSeek-R1-Distill-Qwen-1.5B-pts`
 - `codelion/DeepSeek-R1-Distill-Qwen-1.5B-pts-thought-anchors`
+- `codelion/DeepSeek-R1-Distill-Qwen-1.5B-pts-steering-vectors`
+- `codelion/DeepSeek-R1-Distill-Qwen-1.5B-pts-dpo-pairs`
 
-Or upload your own JSONL files!
+Or upload your own JSONL files.
 
 ## How to Use
 

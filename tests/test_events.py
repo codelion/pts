@@ -10,13 +10,13 @@ from pts.events import (
     EVENT_TOKEN,
     CausalReasoningEvent,
     from_any_record,
-    from_v1_pivotal_token,
-    from_v1_thought_anchor,
+    from_legacy_pivotal_token,
+    from_legacy_thought_anchor,
     make_latent_event,
     make_sentence_event,
     make_token_event,
-    to_v1_pivotal_token,
-    to_v1_thought_anchor,
+    to_legacy_pivotal_token,
+    to_legacy_thought_anchor,
 )
 
 
@@ -62,7 +62,7 @@ def v1_anchor():
 
 
 def test_v1_token_migrates(v1_token):
-    e = from_v1_pivotal_token(v1_token)
+    e = from_legacy_pivotal_token(v1_token)
     assert e.event_type == EVENT_TOKEN
     assert e.granularity == "token"
     assert e.visibility == "emitted"
@@ -76,10 +76,10 @@ def test_v1_token_migrates(v1_token):
 
 
 def test_v1_anchor_migrates(v1_anchor):
-    e = from_v1_thought_anchor(v1_anchor)
+    e = from_legacy_thought_anchor(v1_anchor)
     assert e.event_type == EVENT_SENTENCE
     assert e.granularity == "sentence"
-    # v1's prob_with/prob_without map onto prob_after/prob_before, not the
+    # the legacy format's prob_with/prob_without map onto prob_after/prob_before, not the
     # other way round. Getting this backwards would flip every sign.
     assert e.prob_after == pytest.approx(0.72)
     assert e.prob_before == pytest.approx(0.38)
@@ -89,7 +89,7 @@ def test_v1_anchor_migrates(v1_anchor):
 
 
 def test_v1_anchor_keeps_extra_fields_in_metadata(v1_anchor):
-    e = from_v1_thought_anchor(v1_anchor)
+    e = from_legacy_thought_anchor(v1_anchor)
     assert e.metadata["suffix_context"] == "So the answer is 408."
     assert e.metadata["alternatives_tested"] == ["I'll just guess."]
     assert e.metadata["causal_dependencies"] == [3, 4]
@@ -106,7 +106,7 @@ def test_event_ids_differ_across_events(v1_token, v1_anchor):
 
 
 def test_v1_token_round_trips(v1_token):
-    back = to_v1_pivotal_token(from_v1_pivotal_token(v1_token))
+    back = to_legacy_pivotal_token(from_legacy_pivotal_token(v1_token))
     for key in ("query", "pivot_context", "pivot_token", "pivot_token_id",
                 "prob_before", "prob_after", "prob_delta", "is_positive",
                 "model_id", "task_type", "dataset_id", "dataset_item_id"):
@@ -114,7 +114,7 @@ def test_v1_token_round_trips(v1_token):
 
 
 def test_v1_anchor_round_trips(v1_anchor):
-    back = to_v1_thought_anchor(from_v1_thought_anchor(v1_anchor))
+    back = to_legacy_thought_anchor(from_legacy_thought_anchor(v1_anchor))
     for key in ("query", "sentence", "sentence_id", "prefix_context",
                 "prob_with_sentence", "prob_without_sentence", "prob_delta",
                 "suffix_context", "alternatives_tested", "causal_dependencies"):
@@ -128,7 +128,7 @@ def test_v2_round_trips_through_jsonl(v1_token):
 
 
 def test_unknown_fields_survive_a_round_trip():
-    # A v2.1 reader must not silently drop fields a v2.0 reader doesn't know.
+    # A a future version reader must not silently drop fields a 1.0 reader doesn't know.
     raw = from_any_record({
         "model_id": "m", "query": "q", "pivot_token": "t", "pivot_context": "c",
         "pivot_token_id": 1, "prob_before": 0.1, "prob_after": 0.5,

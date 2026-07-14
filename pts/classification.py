@@ -1,7 +1,7 @@
 """
 Category taxonomy shared by latent, token, and sentence events.
 
-One taxonomy across all three scales is what makes the multiscale claim
+One taxonomy across all three scales is what makes the reasoning claim
 testable: if a latent ``verification`` meta-token precedes a token
 ``verification`` event which expands into a sentence ``verification`` anchor,
 that chain is only visible when all three are labelled from the same vocabulary.
@@ -112,7 +112,7 @@ CATEGORY_PATTERNS: Dict[str, List[str]] = {
     ],
 }
 
-# The v1 thought-anchor taxonomy, mapped onto the unified one so that migrated
+# The legacy thought-anchor taxonomy, mapped onto the unified one so that migrated
 # sentence events land in the same category space as everything else.
 V1_SENTENCE_CATEGORY_MAP: Dict[str, str] = {
     "problem_setup": INTERPRETATION,

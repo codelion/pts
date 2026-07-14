@@ -52,13 +52,13 @@ def load_jsonl_file(file_path: str) -> pd.DataFrame:
 def detect_dataset_type(df: pd.DataFrame) -> str:
     """Detect the type of PTS dataset.
 
-    PTS v2 emits a single unified record type (``CausalReasoningEvent``) that
+    PTS emits a single unified record type (``CausalReasoningEvent``) that
     carries ``event_type`` + ``granularity``. Those are checked first; the v1
     detection rules below them are unchanged so old datasets keep working.
     """
     columns = set(df.columns)
 
-    # --- PTS v2 unified event schema -------------------------------------
+    # --- PTS unified event schema -------------------------------------
     if 'event_type' in columns:
         event_types = set()
         if not df.empty:
@@ -87,7 +87,7 @@ def detect_dataset_type(df: pd.DataFrame) -> str:
 
 
 # ============================================================================
-# PTS v2 event schema: constants and helpers
+# PTS event schema: constants and helpers
 # ============================================================================
 
 EVENT_LATENT = "latent_metatoken"
@@ -100,7 +100,7 @@ GRANULARITY_FOR_EVENT_TYPE = {
     EVENT_SENTENCE: "sentence",
 }
 
-V2_TYPES = ('causal_events', 'latent_events')
+PTS_TYPES = ('causal_events', 'latent_events')
 
 # The design system lives at the bottom of this file (see "Design system"), but
 # the palette is needed up here by the chart helpers. Two axes, kept strictly
@@ -118,8 +118,8 @@ C_PANEL_HI    = '#161E2C'
 C_LINE        = '#212C3D'
 C_LINE_SOFT   = '#1A2333'
 C_TEXT        = '#CBD5E4'
-C_TEXT_MUTED  = '#71809A'
-C_TEXT_FAINT  = '#4A566B'
+C_TEXT_MUTED  = '#A6B2C7'
+C_TEXT_FAINT  = '#8592A8'
 
 C_LATENT      = '#A78BFA'   # violet   -- hidden, deep
 C_TOKEN       = '#38BDF8'   # sky      -- emitted, a single decision point
@@ -142,24 +142,24 @@ CATEGORY_COLORS = [
 ]
 
 
-def is_v2_events(df: pd.DataFrame) -> bool:
-    """True when the dataframe holds PTS v2 unified events."""
+def is_pts_events(df: pd.DataFrame) -> bool:
+    """True when the dataframe holds PTS unified events."""
     return not df.empty and 'event_type' in df.columns
 
 
-def as_v2_events(df: pd.DataFrame) -> pd.DataFrame:
-    """Present a v1 dataframe as v2 events, in memory.
+def as_pts_events(df: pd.DataFrame) -> pd.DataFrame:
+    """Present a v1 dataframe as PTS events, in memory.
 
-    This is the whole PTS thesis applied to the UI: a v1 pivotal-token file *is*
-    a token-scale event stream, and a v1 thought-anchor file *is* a
-    sentence-scale one. They differ from v2 only in what the columns are called.
-    Upgrading them here means the multiscale views work on every published
+    This is the whole PTS thesis applied to the UI: a legacy pivotal-token file *is*
+    a token-scale event stream, and a legacy thought-anchor file *is* a
+    sentence-scale one. They differ only in what the columns are called.
+    Upgrading them here means the reasoning views work on every published
     dataset instead of showing an empty box until someone re-exports.
 
-    Returns the frame unchanged if it is already v2, or if it is neither shape
+    Returns the frame unchanged if it is already a PTS event frame, or neither shape
     (steering vectors, DPO pairs).
     """
-    if df.empty or is_v2_events(df):
+    if df.empty or is_pts_events(df):
         return df
 
     out = df.copy()
@@ -180,7 +180,7 @@ def as_v2_events(df: pd.DataFrame) -> pd.DataFrame:
         out['label'] = out['sentence']
         out['context'] = out.get('prefix_context', '')
         out['position'] = out['sentence_id']
-        # v1 named these prob_with/prob_without; v2 calls them after/before.
+        # legacy named these prob_with/prob_without; PTS calls them after/before.
         if 'prob_with_sentence' in cols:
             out['prob_after'] = out['prob_with_sentence']
         if 'prob_without_sentence' in cols:
@@ -307,7 +307,7 @@ def _filter_by_query(df: pd.DataFrame, selected_query: Optional[str]) -> pd.Data
 
 
 def _event_hover(row) -> str:
-    """Hover text shared by the v2 charts."""
+    """Hover text shared by the charts."""
     label = str(_val(row, 'label', _val(row, 'pivot_token', _val(row, 'sentence', ''))))
     if len(label) > 90:
         label = label[:87] + '...'
@@ -569,8 +569,8 @@ def create_thought_anchor_graph(df: pd.DataFrame, selected_query: str = None) ->
     """Create an interactive graph visualization of thought anchor dependencies."""
     dataset_type = detect_dataset_type(df)
 
-    # PTS v2 events carry their own causal edges; use the unified graph.
-    if dataset_type in V2_TYPES:
+    # PTS events carry their own causal edges; use the unified graph.
+    if dataset_type in PTS_TYPES:
         return create_causal_event_graph(df, selected_query)
 
     # For pivotal tokens and steering vectors, create a token impact visualization
@@ -702,10 +702,10 @@ def create_thought_anchor_graph(df: pd.DataFrame, selected_query: str = None) ->
 
 
 # ============================================================================
-# PTS v2: multiscale timeline, causal event graph, workspace heatmap
+# PTS: reasoning timeline, causal event graph, workspace heatmap
 # ============================================================================
 
-def create_multiscale_timeline(df: pd.DataFrame, selected_query: str = None) -> go.Figure:
+def create_reasoning_timeline(df: pd.DataFrame, selected_query: str = None) -> go.Figure:
     """Four scales of reasoning events on one shared generation axis.
 
     Row 1  latent meta-tokens        (diamonds, y = layer, size = readout score)
@@ -714,15 +714,15 @@ def create_multiscale_timeline(df: pd.DataFrame, selected_query: str = None) -> 
     Row 4  success probability       (from prob_before/prob_after of emitted events)
     """
     if df is None or df.empty:
-        return _empty_fig("No data loaded. Load a PTS dataset to see the multiscale timeline.", 640)
+        return _empty_fig("No data loaded. Load a PTS dataset to see the reasoning timeline.", 640)
 
-    # A v1 pivotal-token file IS a token-scale event stream, and a v1
+    # A legacy pivotal-token file IS a token-scale event stream, and a v1
     # thought-anchor file IS a sentence-scale one -- that is the whole PTS
     # thesis. So upgrade them here rather than refusing, and every published
     # dataset renders instead of showing an empty box. Latent rows will simply
     # be absent until the file is enriched.
-    df = as_v2_events(df)
-    if not is_v2_events(df):
+    df = as_pts_events(df)
+    if not is_pts_events(df):
         return _empty_fig(
             "This view needs reasoning events.<br>"
             "Steering-vector and DPO files contain none.",
@@ -897,7 +897,7 @@ def create_multiscale_timeline(df: pd.DataFrame, selected_query: str = None) -> 
     fig.update_xaxes(title_text="Generation position / event order", row=4, col=1)
 
     fig.update_layout(
-        title="Multiscale Reasoning Timeline",
+        title="Reasoning Timeline",
         template="pts",
         height=760,
         showlegend=True,
@@ -909,7 +909,7 @@ def create_multiscale_timeline(df: pd.DataFrame, selected_query: str = None) -> 
 
 
 def create_causal_event_graph(df: pd.DataFrame, selected_query: str = None) -> go.Figure:
-    """Causal graph over v2 events: latent -> token -> sentence -> outcome.
+    """Causal graph over unified events: latent -> token -> sentence -> outcome.
 
     Edges come from ``precedes_event_ids`` / ``linked_event_ids`` /
     ``parent_event_id``. Node shape encodes granularity, node color encodes
@@ -918,8 +918,8 @@ def create_causal_event_graph(df: pd.DataFrame, selected_query: str = None) -> g
     if df is None or df.empty:
         return _empty_fig("No data loaded. Load a PTS dataset to see the causal event graph.", 550)
 
-    # v1 datasets keep the old graph exactly as it was.
-    if not is_v2_events(df):
+    # legacy datasets keep the old graph exactly as it was.
+    if not is_pts_events(df):
         return create_thought_anchor_graph(df, selected_query)
 
     work = _filter_by_query(df, selected_query)
@@ -1058,10 +1058,10 @@ def create_workspace_heatmap(df: pd.DataFrame, selected_query: str = None) -> go
     if df is None or df.empty:
         return _empty_fig("No data loaded. Load a PTS dataset with latent events.", 500)
 
-    df = as_v2_events(df)
-    if not is_v2_events(df):
+    df = as_pts_events(df)
+    if not is_pts_events(df):
         return _empty_fig(
-            "The workspace heatmap needs latent meta-token events (PTS v2).<br>"
+            "The workspace heatmap needs latent meta-token events (PTS).<br>"
             "Generate them with <code>pts run --scale=latent</code> or "
             "<code>pts enrich</code>.",
             500,
@@ -1141,7 +1141,7 @@ def create_workspace_heatmap(df: pd.DataFrame, selected_query: str = None) -> go
 
 
 def create_event_trace(df: pd.DataFrame, selected_query: str) -> Tuple[str, go.Figure]:
-    """Step-by-step HTML cards + probability progression for v2 events."""
+    """Step-by-step HTML cards + probability progression for PTS events."""
     if df is None or df.empty:
         return "No events found for this query", _empty_fig("No events", 300)
 
@@ -1280,7 +1280,7 @@ def create_probability_space_visualization(df: pd.DataFrame, color_by: str = 'is
     # Create hover text
     hover_texts = []
     for _, row in df.iterrows():
-        # v1 calls it pivot_token, v2 calls it label.
+        # legacy calls it pivot_token, PTS calls it label.
         token_text = _val(row, 'pivot_token', _val(row, 'label', 'N/A'))
         text = f"Token: {token_text}<br>"
         text += f"Before: {_num(_val(row, 'prob_before')):.3f}<br>"
@@ -1365,9 +1365,9 @@ def create_embedding_visualization(df: pd.DataFrame, color_by: str = 'is_positiv
         if dataset_type == 'pivotal_tokens' and 'prob_before' in df.columns and 'prob_after' in df.columns:
             return create_probability_space_visualization(df, color_by)
 
-        # v2 events: only emitted events live in probability space. Latent
+        # unified events: only emitted events live in probability space. Latent
         # events have no prob_before/prob_after and must not be plotted there.
-        if dataset_type in V2_TYPES and 'prob_before' in df.columns and 'prob_after' in df.columns:
+        if dataset_type in PTS_TYPES and 'prob_before' in df.columns and 'prob_after' in df.columns:
             emitted = df[df.apply(_granularity, axis=1) != 'latent']
             emitted = emitted.dropna(subset=['prob_before', 'prob_after'])
             if emitted.empty:
@@ -1442,7 +1442,7 @@ def create_embedding_visualization(df: pd.DataFrame, color_by: str = 'is_positiv
 
     fig = go.Figure()
 
-    # Determine text field for hover (v1: sentence/pivot_token, v2: label)
+    # Determine text field for hover (legacy: sentence/pivot_token; PTS: label)
     if 'sentence' in plot_df.columns:
         text_field = 'sentence'
     elif 'pivot_token' in plot_df.columns:
@@ -1638,8 +1638,8 @@ def create_circuit_visualization(df: pd.DataFrame, query_idx: int = 0) -> Tuple[
     # Filter to this query
     query_df = df[df['query'] == selected_query].copy()
 
-    # PTS v2 unified events
-    if dataset_type in V2_TYPES:
+    # PTS unified events
+    if dataset_type in PTS_TYPES:
         return create_event_trace(query_df, selected_query)
 
     # For pivotal tokens and steering vectors, use the token trace visualization
@@ -1758,7 +1758,7 @@ def create_statistics_dashboard(df: pd.DataFrame) -> Tuple[str, go.Figure]:
         return "No data available", go.Figure()
 
     dataset_type = detect_dataset_type(df)
-    is_v2 = dataset_type in V2_TYPES
+    is_pts = dataset_type in PTS_TYPES
 
     # Build statistics
     stats = {
@@ -1766,7 +1766,7 @@ def create_statistics_dashboard(df: pd.DataFrame) -> Tuple[str, go.Figure]:
         "Dataset Type": dataset_type,
     }
 
-    if is_v2:
+    if is_pts:
         gran = df.apply(_granularity, axis=1)
         stats["Latent Events"] = int((gran == 'latent').sum())
         stats["Token Events"] = int((gran == 'token').sum())
@@ -1840,9 +1840,9 @@ def create_statistics_dashboard(df: pd.DataFrame) -> Tuple[str, go.Figure]:
         )
     html_parts.append('</div>')
 
-    # v2 gets its own panel set: emitted deltas and latent readout scores are
+    # causal-event datasets get their own panel set: emitted deltas and latent readout scores are
     # different quantities and are never binned into the same histogram.
-    if is_v2:
+    if is_pts:
         fig = make_subplots(
             rows=1, cols=3,
             subplot_titles=(
@@ -2056,7 +2056,7 @@ def load_dataset_action(source_type: str, dataset_id: str, file_upload):
     circuit_html, circuit_fig = create_circuit_visualization(df)
 
     first_query = df['query'].iloc[0] if 'query' in df.columns and len(df) else None
-    timeline_fig = create_multiscale_timeline(df, first_query)
+    timeline_fig = create_reasoning_timeline(df, first_query)
     heatmap_fig = create_workspace_heatmap(df, first_query)
 
     # Event Explorer filter choices come from the data itself.
@@ -2167,11 +2167,11 @@ def get_event_details(idx: int) -> Tuple[str, go.Figure]:
 
     row = df.iloc[idx]
 
-    # v2 latent events get their own card: no before/after probability exists.
-    if is_v2_events(df) and _granularity(row) == 'latent':
+    # latent events get their own card: no before/after probability exists.
+    if is_pts_events(df) and _granularity(row) == 'latent':
         return create_latent_detail_html(row), create_readout_score_chart(row)
 
-    # v1 pivot_context/prefix_context, v2 context. Same for the label.
+    # legacy pivot_context/prefix_context, PTS context. Same for the label.
     context = _val(row, 'pivot_context', _val(row, 'prefix_context', _val(row, 'context', '')))
     token = _val(row, 'pivot_token', _val(row, 'sentence', _val(row, 'label', '')))
     prob_delta = _num(_val(row, 'prob_delta'))
@@ -2200,8 +2200,8 @@ get_token_details = get_event_details
 def _row_score(row) -> float:
     """The score used by the Event Explorer's min-score filter.
 
-    v2 events carry ``score`` directly. v1 records get |prob_delta| (or the
-    thought-anchor importance score), which is the same quantity v2 stores.
+    PTS events carry ``score`` directly. legacy records get |prob_delta| (or the
+    thought-anchor importance score), which is the same quantity PTS stores.
     """
     score = _val(row, 'score')
     if score is not None:
@@ -2221,8 +2221,8 @@ def describe_event_selection(df: pd.DataFrame) -> Tuple[str, go.Figure]:
             _empty_fig("No events match these filters", 320),
         )
 
-    v2 = is_v2_events(df)
-    if v2:
+    is_pts = is_pts_events(df)
+    if is_pts:
         gran = df.apply(_granularity, axis=1)
         counts = {
             'latent': int((gran == 'latent').sum()),
@@ -2299,12 +2299,12 @@ def apply_event_filters(event_type: str, granularity: str, polarity: str,
         return (summary, fig, gr.update(maximum=0, value=0), DPO_NOTICE_HTML, go.Figure())
 
     work = df.copy()
-    v2 = is_v2_events(work)
+    is_pts = is_pts_events(work)
 
-    if v2 and event_type and event_type != "All" and 'event_type' in work.columns:
+    if is_pts and event_type and event_type != "All" and 'event_type' in work.columns:
         work = work[work['event_type'].astype(str) == event_type]
 
-    if v2 and granularity and granularity != "All" and not work.empty:
+    if is_pts and granularity and granularity != "All" and not work.empty:
         work = work[work.apply(_granularity, axis=1) == granularity]
 
     if polarity and polarity != "All" and not work.empty:
@@ -2430,7 +2430,7 @@ def _query_at_index(df: pd.DataFrame, query_idx: int) -> Optional[str]:
 
 
 def update_circuit_view(query_idx: int):
-    """Update the Multiscale Reasoning Timeline tab (timeline + heatmap + trace)."""
+    """Update the Reasoning Timeline tab (timeline + heatmap + trace)."""
     dataset_type = current_data.get("type", "unknown")
     df = current_data["df"]
 
@@ -2455,7 +2455,7 @@ def update_circuit_view(query_idx: int):
 
     selected_query = _query_at_index(df, query_idx)
     circuit_html, circuit_fig = create_circuit_visualization(df, query_idx)
-    timeline_fig = create_multiscale_timeline(df, selected_query)
+    timeline_fig = create_reasoning_timeline(df, selected_query)
     heatmap_fig = create_workspace_heatmap(df, selected_query)
 
     return circuit_html, circuit_fig, timeline_fig, heatmap_fig
@@ -2496,7 +2496,7 @@ def refresh_all():
     embed_fig = create_embedding_visualization(df)
     circuit_html, circuit_fig = create_circuit_visualization(df)
     first_query = _query_at_index(df, 0)
-    timeline_fig = create_multiscale_timeline(df, first_query)
+    timeline_fig = create_reasoning_timeline(df, first_query)
     heatmap_fig = create_workspace_heatmap(df, first_query)
 
     return (stats_html, stats_fig, graph_fig, embed_fig, circuit_html, circuit_fig,
@@ -2508,22 +2508,23 @@ def refresh_all():
 # ============================================================================
 
 # Pre-defined HuggingFace datasets.
-# The v1 datasets below still load and render exactly as they did before; the
-# v2 causal-event datasets use the unified CausalReasoningEvent schema.
-# Only datasets that actually exist on the Hub. The visualizer reads v2
+# The legacy datasets below still load and render exactly as they did before; the
+# causal-event datasets use the unified CausalReasoningEvent schema.
+# Only datasets that actually exist on the Hub. The visualizer reads PTS
 # causal-event files too -- upload one and add it here, or load it from disk with
-# the file upload. Listing v2 datasets that have not been published yet would put
+# the file upload. Listing PTS datasets that have not been published yet would put
 # entries in the dropdown that can only fail.
 HF_DATASETS = [
     "codelion/Qwen3-0.6B-pts",
     "codelion/Qwen3-0.6B-pts-thought-anchors",
     "codelion/Qwen3-0.6B-pts-steering-vectors",
+    "codelion/Qwen3-0.6B-pts-dpo-pairs",
     "codelion/DeepSeek-R1-Distill-Qwen-1.5B-pts",
     "codelion/DeepSeek-R1-Distill-Qwen-1.5B-pts-thought-anchors",
     "codelion/DeepSeek-R1-Distill-Qwen-1.5B-pts-steering-vectors",
+    "codelion/DeepSeek-R1-Distill-Qwen-1.5B-pts-dpo-pairs",
 ]
 
-# Default to a v1 dataset that is known to exist on the Hub.
 DEFAULT_DATASET = "codelion/Qwen3-0.6B-pts"
 
 
@@ -2811,11 +2812,12 @@ input[type=range] {{ accent-color: {C_LATENT}; }}
 
 MASTHEAD = f"""
 <div class="pts-masthead">
-  <div class="pts-wordmark">PTS<span class="tag">v2 · MULTISCALE</span></div>
+  <div class="pts-wordmark">PTS<span class="tag">PIVOTAL TOKEN SEARCH</span></div>
   <p class="pts-tagline">
     A causal-event search framework for model reasoning. PTS finds the
-    <b>pivotal reasoning events</b> that shift a model's probability of solving a task &mdash;
-    and finds them at three representational scales at once, as a single kind of object.
+    <b>pivotal reasoning events</b> that shift a model's probability of solving a task,
+    at three representational scales &mdash; latent, token, and sentence &mdash; as a
+    single kind of object.
   </p>
   <div class="pts-channels">
     <div class="pts-chan" style="--c:{C_LATENT}">
@@ -2838,7 +2840,7 @@ MASTHEAD = f"""
 """
 
 
-with gr.Blocks(title="PTS · multiscale reasoning events", theme=PTS_THEME, css=CSS) as demo:
+with gr.Blocks(title="PTS · Pivotal Token Search", theme=PTS_THEME, css=CSS) as demo:
 
     gr.HTML(MASTHEAD)
 
@@ -2887,7 +2889,7 @@ with gr.Blocks(title="PTS · multiscale reasoning events", theme=PTS_THEME, css=
         with gr.TabItem("Overview"):
             gr.Markdown("### Dataset Statistics")
             gr.Markdown(
-                "*For PTS v2 datasets this counts events at all three scales "
+                "*For PTS datasets this counts events at all three scales "
                 "(latent / token / sentence) and the causal links between them. "
                 "Emitted Δ-probabilities and latent readout scores are charted "
                 "separately: they are different quantities and are not comparable.*"
@@ -2955,7 +2957,7 @@ with gr.Blocks(title="PTS · multiscale reasoning events", theme=PTS_THEME, css=
             (squares) → outcome (star). Edges come from the event links
             (`precedes_event_ids` / `linked_event_ids` / `parent_event_id`).
             Green = positive impact, red = negative impact, purple = latent (no measured valence).
-            Node size reflects score. v1 datasets fall back to the original reasoning graph.*
+            Node size reflects score. legacy datasets fall back to the original reasoning graph.*
             """)
             with gr.Row():
                 query_filter = gr.Dropdown(
@@ -2978,9 +2980,9 @@ with gr.Blocks(title="PTS · multiscale reasoning events", theme=PTS_THEME, css=
                 )
             embed_plot = gr.Plot()
 
-        # Multiscale Reasoning Timeline Tab (was: Circuit Tracer)
-        with gr.TabItem("Multiscale Reasoning Timeline"):
-            gr.Markdown("### Multiscale Reasoning Timeline")
+        # Reasoning Timeline Tab (was: Circuit Tracer)
+        with gr.TabItem("Reasoning Timeline"):
+            gr.Markdown("### Reasoning Timeline")
             gr.Markdown(
                 "*One shared generation axis across four scales: latent meta-tokens, "
                 "emitted pivotal tokens, thought-anchor sentences, and the resulting "
@@ -2992,7 +2994,7 @@ with gr.Blocks(title="PTS · multiscale reasoning events", theme=PTS_THEME, css=
                     minimum=0, maximum=100, step=1, value=0,
                     label="Query Index"
                 )
-            timeline_plot = gr.Plot(label="Multiscale Timeline")
+            timeline_plot = gr.Plot(label="Reasoning Timeline")
 
             gr.Markdown("#### Latent Workspace Heatmap")
             gr.Markdown(

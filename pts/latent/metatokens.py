@@ -2,7 +2,7 @@
 Turning J-lens readouts into latent meta-token events, and enriching existing
 PTS datasets with them.
 
-The enrichment path is the point of PTS v2: we already have curated token-level
+The enrichment path is the point of PTS: we already have curated token-level
 and sentence-level datasets, and re-running the full search to get latent events
 would be wasteful. Instead, replay each existing event's context through the
 model, read the workspace just before the event fired, and attach whatever the

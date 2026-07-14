@@ -1,8 +1,8 @@
 """
-Storage for unified causal reasoning events (PTS v2).
+Storage for unified causal reasoning events (PTS).
 
 ``EventStorage`` holds ``CausalReasoningEvent`` records and reads/writes JSONL.
-It accepts v1 pivotal-token and v1 thought-anchor records on load and migrates
+It accepts legacy pivotal-token and legacy thought-anchor records on load and migrates
 them on the way in, so an old dataset opens without a separate migration step.
 """
 
@@ -59,7 +59,7 @@ class EventStorage:
     # -- mutation ---------------------------------------------------------
 
     def add_event(self, event: Any) -> Optional[CausalReasoningEvent]:
-        """Add an event. Accepts v2 events, v1 records, or legacy dataclasses.
+        """Add an event. Accepts PTS events, legacy records, or legacy dataclasses.
 
         Adding an event whose ``event_id`` is already present is a no-op. The
         v1 searchers wrote to storage *and* let the CLI write the same object
@@ -144,7 +144,7 @@ class EventStorage:
 
         msg = f"Loaded {len(self.events)} events from {filepath}"
         if migrated:
-            msg += f" ({migrated} migrated from v1)"
+            msg += f" ({migrated} migrated from the legacy format)"
         if skipped:
             msg += f", {skipped} skipped"
         logger.info(msg)
@@ -287,7 +287,7 @@ class EventStorage:
             ),
             "max_readout_score": max((e.score for e in latent), default=None),
         }
-        # v1's get_anchor_summary reads these names; they mean emitted-only.
+        # the legacy format's get_anchor_summary reads these names; they mean emitted-only.
         summary["average_score"] = summary["average_abs_prob_delta"]
         summary["max_score"] = summary["max_abs_prob_delta"]
         return summary
@@ -305,7 +305,7 @@ class EventStorage:
 class TokenStorage(EventStorage):
     """Backwards-compatible alias for the v1 ``TokenStorage`` API.
 
-    v1 code holds dicts in ``.tokens`` and calls ``add_token``. Both keep
+    legacy code holds dicts in ``.tokens`` and calls ``add_token``. Both keep
     working: ``.tokens`` is a live view rendering events back to dicts.
     """
 

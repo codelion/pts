@@ -41,7 +41,7 @@ def events():
 # -- storage ---------------------------------------------------------------
 
 def test_storage_dedupes_by_event_id():
-    # v1's searcher and CLI each wrote every token, silently doubling datasets.
+    # the legacy format's searcher and CLI each wrote every token, silently doubling datasets.
     e = make_token_event(query="q", context="c", token="t", token_id=1,
                          prob_before=0.1, prob_after=0.5, model_id="m")
     s = EventStorage()

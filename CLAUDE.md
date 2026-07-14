@@ -4,7 +4,7 @@ Guidance for Claude Code (claude.ai/code) when working in this repository.
 
 ## Project overview
 
-PTS is a **multiscale causal-event search framework for model reasoning**. It
+PTS is a **causal-event search framework for model reasoning**. It
 finds pivotal reasoning events at three representational scales and scores them
 all by their effect on the probability of solving the task:
 
@@ -19,7 +19,7 @@ success / failure probability shift
 ```
 
 All three are `CausalReasoningEvent` records. The name stays PTS ("Pivotal
-Token/Thought Search"); v2 generalizes it rather than replacing it.
+Token Search"). Pivotal tokens are one of three scales it searches.
 
 ## The invariant that matters most
 
@@ -63,7 +63,7 @@ pts run --granularity token|sentence|latent|all --model M --output-path events.j
 pts fit-jlens --model M --output-path ./jlens/m          # calibrate the Jacobian lens
 pts enrich --input-path events.jsonl --with-latent --model M --jlens-path ./jlens/m
 pts link --input-path events.jsonl --output-path linked.jsonl --shuffle-control
-pts migrate --input-path v1.jsonl --output-path v2.jsonl
+pts migrate --input-path old.jsonl --output-path events.jsonl
 pts export --format causal_events|metatokens|pivotal_tokens|thought_anchors|dpo|steering
 pts push --input-path X --hf-repo-id user/repo
 ```
@@ -74,18 +74,18 @@ pts push --input-path X --hf-repo-id user/repo
 
 | Module | Role |
 |---|---|
-| `pts/events.py` | `CausalReasoningEvent` + factories + v1 migration/round-trip. Pure Python. |
-| `pts/event_storage.py` | `EventStorage` (JSONL, dedupes by `event_id`). Reads v1 files directly. |
+| `pts/events.py` | `CausalReasoningEvent` + factories + legacy migration/round-trip. Pure Python. |
+| `pts/event_storage.py` | `EventStorage` (JSONL, dedupes by `event_id`). Reads legacy files directly. |
 | `pts/classification.py` | One category taxonomy across all three scales. |
 | `pts/linking.py` | Latent -> token -> sentence links + `shuffle_control` null. |
 | `pts/latent/jlens.py` | The Jacobian lens. `logit_lens` is the same thing with `J = I`. |
 | `pts/latent/activations.py` | Residual capture, architecture sniffing, workspace-layer selection. |
 | `pts/latent/metatokens.py` | Readouts -> latent events; dataset enrichment. |
 | `pts/searchers/base.py` | Model loading, prompt formatting, the probability cache. |
-| `pts/searchers/{token,sentence,latent,multiscale}.py` | The four searchers. |
+| `pts/searchers/{token,sentence,latent,reasoning}.py` | The four searchers. |
 | `pts/oracle.py`, `pts/dataset.py` | Success evaluation and dataset loading (largely unchanged). |
 | `pts/exporters.py` | All output formats + dataset cards. |
-| `pts/core.py`, `pts/storage.py`, `pts/thought_anchors.py` | v1 compatibility shims. |
+| `pts/core.py`, `pts/storage.py`, `pts/thought_anchors.py` | legacy compatibility shims. |
 
 `import pts` must **not** require torch or transformers. The schema, storage,
 classification, and linking layers are pure Python; model-touching code is
@@ -144,7 +144,7 @@ when writing docs. "Meta-token" is our term, not the paper's.
 - **`position` is not one index frame.** Token events and probe latent events use
   absolute prompt-inclusive token indices; enrichment latent events use a negative
   offset from their source; sentence events use sentence indices. Never compare
-  across frames. See `docs/dataset_schema_v2.md`.
+  across frames. See `docs/dataset_schema.md`.
 - `event.context` already contains its special tokens (it was decoded with
   `skip_special_tokens=False`), so re-encode it with `add_special_tokens=False` or
   you get a double BOS and score candidates on a prefix the model never saw.

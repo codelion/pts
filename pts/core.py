@@ -2,11 +2,11 @@
 Compatibility shim for the v1 ``pts.core`` module.
 
 Token PTS now lives in ``pts.searchers.token``. This module re-exports it under
-the v1 names, so existing imports keep resolving::
+the legacy names, so existing imports keep resolving::
 
     from pts.core import PivotalToken, PivotalTokenSearcher   # still works
 
-What changed, and what that means for v1 code (see ``docs/migration.md``):
+What changed, and what that means for legacy code (see ``docs/migration.md``):
 
 * ``PivotalToken(...)`` is now a *constructor function* that returns a
   ``CausalReasoningEvent``. It takes the v1 keyword arguments unchanged, so
@@ -14,21 +14,21 @@ What changed, and what that means for v1 code (see ``docs/migration.md``):
 * The returned object stores the token under ``.label`` and its context under
   ``.context`` (not ``.pivot_token`` / ``.pivot_context``), and ``is_positive``
   is a bool attribute rather than a method. Use
-  ``pts.events.to_v1_pivotal_token(event)`` to get the old dict shape back.
+  ``pts.events.to_legacy_pivotal_token(event)`` to get the old dict shape back.
 * v1 *JSONL files* load unchanged -- ``EventStorage`` migrates them on read --
   which is the compatibility that actually matters for published datasets.
 """
 
 from typing import Any, Optional
 
-from .events import CausalReasoningEvent, make_token_event, to_v1_pivotal_token
+from .events import CausalReasoningEvent, make_token_event, to_legacy_pivotal_token
 from .searchers.token import PivotalTokenSearcher, TokenPTSSearcher
 
 __all__ = [
     "PivotalToken",
     "PivotalTokenSearcher",
     "TokenPTSSearcher",
-    "to_v1_pivotal_token",
+    "to_legacy_pivotal_token",
 ]
 
 
@@ -50,7 +50,7 @@ def PivotalToken(
     """v1 ``PivotalToken`` constructor, returning a unified event.
 
     ``prob_delta`` is accepted for signature compatibility but recomputed from
-    ``prob_after - prob_before``, which is what v1 did anyway.
+    ``prob_after - prob_before``, which is what the legacy format did anyway.
     """
     event = make_token_event(
         query=query,

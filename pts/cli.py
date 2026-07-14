@@ -5,7 +5,7 @@ Command-line interface for PTS.
     pts enrich    add latent meta-token events to an existing dataset
     pts fit-jlens calibrate a Jacobian lens for a model
     pts link      link latent, token, and sentence events into causal chains
-    pts migrate   convert v1 pivotal-token / thought-anchor files to v2 events
+    pts migrate   convert legacy pivotal-token / thought-anchor files to PTS events
     pts export    render events into a downstream format
     pts push      upload a dataset to Hugging Face
 """
@@ -62,7 +62,7 @@ def run_pts(args) -> None:
     from .linking import EventLinker
 
     granularity = args.granularity
-    # v1 alias: --generate-thought-anchors is sentence-level PTS.
+    # alias: --generate-thought-anchors is sentence-level PTS.
     if getattr(args, "generate_thought_anchors", False):
         logger.info(
             "--generate-thought-anchors maps to --granularity sentence; "
@@ -112,9 +112,9 @@ def run_pts(args) -> None:
         debug_mode=args.debug,
     )
 
-    from .searchers.multiscale import MultiScaleSearcher
+    from .searchers.reasoning import ReasoningSearcher
 
-    searcher = MultiScaleSearcher(
+    searcher = ReasoningSearcher(
         model_name=args.model,
         oracle=oracle,
         granularities=granularities,
@@ -161,7 +161,7 @@ def run_pts(args) -> None:
             logger.warning("Interrupted; saving what we have")
             break
         except Exception as e:
-            # Log the traceback rather than swallowing it. v1 caught bare
+            # Log the traceback rather than swallowing it. the legacy code caught bare
             # Exception and printed one line, which is how a guaranteed
             # UnboundLocalError in the anchor search went unnoticed.
             logger.exception(f"Error processing example {i}: {e}")
@@ -620,7 +620,7 @@ def parse_args(argv=None):
     add_common(run_p)
 
     # -- migrate --
-    mig_p = sub.add_parser("migrate", help="Convert v1 records to the v2 event schema")
+    mig_p = sub.add_parser("migrate", help="Convert legacy records to the unified event schema")
     mig_p.add_argument("--input-path", required=True)
     mig_p.add_argument("--output-path", required=True)
     add_common(mig_p)

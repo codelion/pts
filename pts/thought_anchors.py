@@ -10,22 +10,22 @@ not a separate mechanism. The implementation now lives in
 Three v1 defects were fixed in the move, and they changed results rather than
 just tidying code (see ``docs/migration.md``):
 
-* v1 deleted its own ``reasoning_trace`` parameter under memory pressure, which
+* the legacy code deleted its own ``reasoning_trace`` parameter under memory pressure, which
   raised ``UnboundLocalError`` on the next anchor and -- because the CLI caught
   every exception -- silently dropped the whole example.
-* v1 blanked already-processed sentences in place (``sentences[j] = ""``) while
+* the legacy format blanked already-processed sentences in place (``sentences[j] = ""``) while
   later iterations still read them, so every ``prob_delta`` computed after that
   point was measured against a blank-padded prefix. Those numbers were wrong,
   not merely noisy.
-* v1 truncated the stored trace to 3000 characters with no marker.
+* the legacy format truncated the stored trace to 3000 characters with no marker.
 
-Anchors found by v2 on the same trace can therefore differ from v1's.
+Anchors found now can therefore differ from those the older code produced.
 """
 
 from typing import Any, Optional
 
 from .event_storage import EventStorage
-from .events import CausalReasoningEvent, make_sentence_event, to_v1_thought_anchor
+from .events import CausalReasoningEvent, make_sentence_event, to_legacy_thought_anchor
 from .searchers.sentence import SentencePTSSearcher, SentenceSegmenter
 
 __all__ = [
@@ -35,7 +35,7 @@ __all__ = [
     "SentenceSegmenter",
     "SentenceClassifier",
     "SentencePTSSearcher",
-    "to_v1_thought_anchor",
+    "to_legacy_thought_anchor",
 ]
 
 
@@ -76,13 +76,13 @@ def ThoughtAnchor(
 
 
 class ThoughtAnchorSearcher(SentencePTSSearcher):
-    """v1 name for ``SentencePTSSearcher``."""
+    """legacy name for ``SentencePTSSearcher``."""
 
 
 class SentenceClassifier:
     """v1 sentence classifier, backed by the unified taxonomy.
 
-    v1 had its own 8-category vocabulary. Those categories now map onto the
+    the legacy format had its own 8-category vocabulary. Those categories now map onto the
     unified ones (``self_checking`` -> ``verification``, and so on), so latent,
     token, and sentence events can be compared in one category space.
     """
@@ -94,7 +94,7 @@ class SentenceClassifier:
 
 
 class ThoughtAnchorStorage(EventStorage):
-    """v1 name for event storage, with the v1 method names."""
+    """legacy name for event storage, with the v1 method names."""
 
     def add_thought_anchor(self, anchor: Any) -> Optional[CausalReasoningEvent]:
         return self.add_event(anchor)

@@ -1,7 +1,7 @@
 """
 Linking latent, token, and sentence events into causal chains.
 
-The central empirical claim PTS v2 exists to test is::
+The central empirical claim PTS exists to test is::
 
     Many emitted pivotal tokens and thought-anchor sentences are preceded by
     latent verbalizable meta-tokens in the model's workspace.

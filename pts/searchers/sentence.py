@@ -62,7 +62,7 @@ class SentenceSegmenter:
         match = re.search(r"</think>(.*)", response, re.DOTALL)
         return match.group(1).strip() if match else response
 
-    # v1 name
+    # legacy name
     def segment_reasoning_trace(self, text: str) -> List[str]:
         return self.segment(text)
 
@@ -326,7 +326,7 @@ class SentencePTSSearcher(BasePTSSearcher):
             return
 
         # `sentences` is read for every later iteration (prefixes, suffixes,
-        # dependency analysis). v1 blanked already-processed entries in place
+        # dependency analysis). the legacy format blanked already-processed entries in place
         # under memory pressure, which silently invalidated every prob_delta
         # computed afterwards. Nothing here mutates it.
         self.logger.info(f"Segmented reasoning trace into {len(sentences)} sentences")
@@ -415,7 +415,7 @@ class SentencePTSSearcher(BasePTSSearcher):
                 confidence=verification_score,
                 metadata={
                     "suffix_context": " ".join(sentences[i + 1:]),
-                    # Stored whole. v1 truncated to 3000 chars with no marker,
+                    # Stored whole. the legacy format truncated to 3000 chars with no marker,
                     # so consumers could not tell a complete trace from a
                     # chopped one.
                     "full_reasoning_trace": reasoning_trace,
@@ -444,6 +444,6 @@ class SentencePTSSearcher(BasePTSSearcher):
         if self.event_storage.filepath:
             self.event_storage.save()
 
-    # v1 name
+    # legacy name
     def search_thought_anchors(self, *args, **kwargs):
         return self.search(*args, **kwargs)

@@ -1,7 +1,7 @@
 """
 Rendering unified events into downstream formats.
 
-``causal_events``    the full v2 event stream (the canonical format)
+``causal_events``    the full PTS event stream (the canonical format)
 ``metatokens``       latent events only
 ``pivotal_tokens``   the v1 token shape, for consumers of the old datasets
 ``thought_anchors``  the v1 sentence shape
@@ -34,8 +34,8 @@ from .events import (
     EVENT_LATENT,
     EVENT_SENTENCE,
     EVENT_TOKEN,
-    to_v1_pivotal_token,
-    to_v1_thought_anchor,
+    to_legacy_pivotal_token,
+    to_legacy_thought_anchor,
 )
 
 logger = logging.getLogger(__name__)
@@ -116,7 +116,7 @@ class EventExporter:
                 f.write(json.dumps(record) + "\n")
         logger.info(f"Wrote {len(records)} records to {path}")
 
-    # -- v2-native ---------------------------------------------------------
+    # -- native ---------------------------------------------------------
 
     def export_causal_events(
         self,
@@ -153,7 +153,7 @@ class EventExporter:
             )
         self._write(output_path, [e.to_dict() for e in events])
 
-    # -- v1-shaped views ---------------------------------------------------
+    # -- legacy-shaped views ---------------------------------------------------
 
     def export_pivotal_tokens(self, output_path: str, min_prob_delta: float = 0.0) -> None:
         events = [
@@ -162,7 +162,7 @@ class EventExporter:
             and e.prob_delta is not None
             and abs(e.prob_delta) >= min_prob_delta
         ]
-        self._write(output_path, [to_v1_pivotal_token(e) for e in events])
+        self._write(output_path, [to_legacy_pivotal_token(e) for e in events])
 
     def export_thought_anchors(self, output_path: str, min_prob_delta: float = 0.0) -> None:
         events = [
@@ -171,7 +171,7 @@ class EventExporter:
             and e.prob_delta is not None
             and abs(e.prob_delta) >= min_prob_delta
         ]
-        self._write(output_path, [to_v1_thought_anchor(e) for e in events])
+        self._write(output_path, [to_legacy_thought_anchor(e) for e in events])
 
     # -- DPO ---------------------------------------------------------------
 
@@ -196,10 +196,10 @@ class EventExporter:
         one must be found by testing candidate tokens against a real success
         oracle.
 
-        v1 built that oracle as a ``DummyOracle``, which reports every completion
+        the legacy code built that oracle as a ``DummyOracle``, which reports every completion
         as a success. Every candidate therefore scored ``P(success) = 1.0``, the
         "does this token hurt?" test (``prob_before - prob_after >= threshold``)
-        could never fire, and every positive token was silently dropped. v1's DPO
+        could never fire, and every positive token was silently dropped. the legacy format's DPO
         exports consequently contained only negative-delta tokens, whose partner
         was picked by next-token likelihood rather than by any measured effect.
 
@@ -480,7 +480,7 @@ class EventExporter:
                 f"Steering layer {layer} is out of range for a {num_layers}-layer model. "
                 f"Pass --select-layer with a value in [0, {num_layers - 1}]."
             )
-        # v1 hooked every layer in --layer-nums, then used only the first and threw
+        # hooked every layer in --layer-nums, then used only the first and threw
         # the rest away. Only the layer actually used is captured.
         logger.info(f"Extracting activations at layer {layer} of {num_layers}")
 
@@ -537,7 +537,7 @@ class EventExporter:
         for i, event in enumerate(events):
             c = int(labels[i])
             base = (
-                to_v1_pivotal_token(event)
+                to_legacy_pivotal_token(event)
                 if event.event_type == EVENT_TOKEN
                 else {
                     "query": event.query,
@@ -644,7 +644,7 @@ def generate_dataset_card(
         "",
         f"# PTS dataset ({file_type})",
         "",
-        "Generated with [PTS](https://github.com/codelion/pts) v2 (schema version 2.0).",
+        "Generated with [PTS](https://github.com/codelion/pts) (schema version 1.0).",
         "",
         f"- **Model:** `{model}`",
         f"- **Records:** {total}",
@@ -748,7 +748,7 @@ def generate_dataset_card(
         lines += [
             "## Usage",
             "",
-            "Thought anchors are Sentence PTS events rendered in the v1 shape. They can be "
+            "Thought anchors are Sentence PTS events rendered in the legacy shape. They can be "
             "used to focus attention on critical reasoning steps, validate reasoning by "
             "checking for anchor patterns, or guide search toward high-value steps. They "
             "also work with [OptiLLM](https://github.com/codelion/optillm)'s autothink.",
@@ -786,13 +786,13 @@ def generate_dataset_card(
 
 
 # ---------------------------------------------------------------------------
-# v1 compatibility
+# compatibility
 # ---------------------------------------------------------------------------
 
 def generate_readme_content(
     file_type: str, model_name: Optional[str] = None, dataset_info: Optional[str] = None
 ) -> str:
-    """v1 name. Kept so `from pts.exporters import generate_readme_content` resolves."""
+    """legacy name. Kept so `from pts.exporters import generate_readme_content` resolves."""
     content = "\n".join(
         [
             "---",
@@ -814,7 +814,7 @@ def generate_readme_content(
 
 
 class TokenExporter(EventExporter):
-    """v1 name for ``EventExporter``."""
+    """legacy name for ``EventExporter``."""
 
     def __init__(self, token_storage: Optional[EventStorage] = None, searcher=None):
         super().__init__(token_storage)

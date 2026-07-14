@@ -1,15 +1,12 @@
-# PTS: Pivotal Token/Thought Search
+# PTS: Pivotal Token Search
 
 [![Open in Spaces](https://huggingface.co/datasets/huggingface/badges/resolve/main/open-in-hf-spaces-sm.svg)](https://huggingface.co/spaces/codelion/pts-visualizer)
 
-**PTS is a multiscale causal-event search framework for model reasoning.** It
-identifies the hidden workspace states, emitted tokens, and sentence-level
-reasoning steps that causally shift a model's probability of solving a task.
-
-PTS started as Pivotal Token Search: finding emitted tokens that significantly
-change a model's chance of getting the answer right. In v2, PTS generalizes into
-a unified mechanistic interpretability framework that searches for pivotal
-reasoning events at **three representational scales**.
+**PTS is a causal-event search framework for model reasoning.** It identifies the
+pivotal reasoning events that causally shift a model's probability of solving a
+task, and it finds them at **three representational scales** — hidden workspace
+states, emitted tokens, and sentence-level reasoning steps — as a single kind of
+object.
 
 ```
 latent meta-token / workspace event        <- Latent PTS
@@ -75,7 +72,7 @@ pts run --granularity sentence --model Qwen/Qwen3-0.6B --output-path events.json
 ### Latent PTS — enrich a dataset you already have
 
 This is the highest-value path: it reuses curated PTS datasets instead of
-re-running the search from scratch. **v1 files work directly** — they are migrated
+re-running the search from scratch. **legacy files work directly** — they are migrated
 on read.
 
 ```bash
@@ -121,7 +118,7 @@ Or use the [hosted visualizer](https://huggingface.co/spaces/codelion/pts-visual
 | `pts enrich --with-latent` | Add latent meta-token events to an existing dataset |
 | `pts fit-jlens` | Calibrate a Jacobian lens for a model |
 | `pts link` | Link latent → token → sentence into causal chains |
-| `pts migrate` | Convert v1 files to the v2 event schema |
+| `pts migrate` | Convert legacy files to the PTS event schema |
 | `pts export --format …` | `causal_events`, `metatokens`, `pivotal_tokens`, `thought_anchors`, `dpo`, `steering` |
 | `pts push` | Upload to Hugging Face |
 
@@ -137,14 +134,14 @@ pts export --input-path events.jsonl --format steering --output-path steering.js
            --model Qwen/Qwen3-0.6B
 ```
 
-## Upgrading from v1
+## Upgrading from legacy files
 
-**Your existing datasets keep working.** Every command reads v1 pivotal-token and
+**Your existing datasets keep working.** Every command reads legacy pivotal-token and
 thought-anchor JSONL directly.
 
 Several v1 bugs were silently producing **wrong numbers**, and fixing them changes
-results. If you have v1 datasets or published results, read
-[docs/migration.md](docs/migration.md) — in particular: v1 DPO exports contained
+results. If you have legacy datasets or published results, read
+[docs/compatibility.md](docs/compatibility.md) — in particular: legacy DPO exports contained
 no positive tokens at all (the rejected-token search ran against a dummy oracle
 that reported every completion as a success), and thought-anchor probability
 deltas were invalid after a memory-cleanup path blanked the sentences it was
@@ -205,17 +202,33 @@ our term, not theirs.
 ## Documentation
 
 - [docs/latent_pts.md](docs/latent_pts.md) — the J-lens, the math, and what would make it convincing
-- [docs/dataset_schema_v2.md](docs/dataset_schema_v2.md) — the unified event schema
-- [docs/migration.md](docs/migration.md) — upgrading from v1, and the bugs that changed results
+- [docs/dataset_schema.md](docs/dataset_schema.md) — the unified event schema
+- [docs/compatibility.md](docs/compatibility.md) — upgrading from legacy files, and the bugs that changed results
 
 ## Datasets
 
-Existing v1 datasets on Hugging Face (all still load):
+Datasets on Hugging Face:
 
 - [codelion/Qwen3-0.6B-pts](https://huggingface.co/datasets/codelion/Qwen3-0.6B-pts)
 - [codelion/Qwen3-0.6B-pts-thought-anchors](https://huggingface.co/datasets/codelion/Qwen3-0.6B-pts-thought-anchors)
 - [codelion/Qwen3-0.6B-pts-steering-vectors](https://huggingface.co/datasets/codelion/Qwen3-0.6B-pts-steering-vectors)
 - [codelion/DeepSeek-R1-Distill-Qwen-1.5B-pts](https://huggingface.co/datasets/codelion/DeepSeek-R1-Distill-Qwen-1.5B-pts)
+
+Explore them interactively in the [PTS Visualizer](https://huggingface.co/spaces/codelion/pts-visualizer).
+
+## Citation
+
+If you use PTS in your research, please cite:
+
+```bibtex
+@software{pts,
+  title = {PTS: Pivotal Token Search},
+  author = {Asankhaya Sharma},
+  year = {2025},
+  publisher = {GitHub},
+  url = {https://github.com/codelion/pts}
+}
+```
 
 ## License
 

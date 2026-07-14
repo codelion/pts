@@ -89,7 +89,7 @@ def test_v1_views_round_trip(tmp_path, storage):
 
 
 def test_dpo_refuses_to_fabricate_without_an_oracle(tmp_path, storage, caplog):
-    """v1 emitted DPO pairs whose 'rejected' token was never measured.
+    """the legacy path emitted DPO pairs whose 'rejected' token was never measured.
 
     With no oracle available, the correct behaviour is to write nothing and say
     why -- not to fall back to a likelihood heuristic and present it as a

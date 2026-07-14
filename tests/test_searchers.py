@@ -31,7 +31,7 @@ class CountingOracle(Oracle):
 
 
 class CategoryOracle(Oracle):
-    """Formats a different prompt per category -- the thing v1's cache key ignored."""
+    """Formats a different prompt per category -- the thing the legacy format's cache key ignored."""
 
     def __init__(self):
         self.calls = 0
@@ -122,7 +122,7 @@ def test_cache_is_bounded(base):
     )
     for i in range(10):
         s.estimate_success_probability(f"query {i}")
-    # v1 responded to memory pressure by clearing the whole cache, which freed
+    # the legacy path responded to memory pressure by clearing the whole cache, which freed
     # nothing and forced full recomputation. A bound makes that unnecessary.
     assert len(s.prob_cache) == 3
 
@@ -156,7 +156,7 @@ def test_token_searcher_emits_unified_events(base):
 
 
 def test_searcher_writes_each_event_once(base):
-    """v1's searcher AND its CLI both wrote every token, doubling the dataset."""
+    """the legacy format's searcher AND its CLI both wrote every token, doubling the dataset."""
     s = TokenPTSSearcher(
         model_name=TINY, oracle=CountingOracle(), device="cpu",
         num_samples=2, batch_size=2, max_new_tokens=8, prob_threshold=0.0,
@@ -254,7 +254,7 @@ def test_sentence_searcher_emits_unified_events(base):
         assert e.granularity == "sentence"
         assert e.search_method == "sentence_pts"
         assert e.prob_delta is not None
-        # v1 truncated the stored trace to 3000 chars with no marker.
+        # the legacy format truncated the stored trace to 3000 chars with no marker.
         assert e.metadata["full_reasoning_trace"].startswith("First I plan")
 
 

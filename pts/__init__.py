@@ -1,5 +1,5 @@
 """
-PTS -- a multiscale causal-event search framework for model reasoning.
+PTS -- a reasoning causal-event search framework for model reasoning.
 
 PTS identifies the hidden workspace states, emitted tokens, and sentence-level
 reasoning steps that causally shift downstream success probability::
@@ -39,10 +39,10 @@ from .events import (  # noqa: F401
     make_sentence_event,
     make_latent_event,
     from_any_record,
-    from_v1_pivotal_token,
-    from_v1_thought_anchor,
-    to_v1_pivotal_token,
-    to_v1_thought_anchor,
+    from_legacy_pivotal_token,
+    from_legacy_thought_anchor,
+    to_legacy_pivotal_token,
+    to_legacy_thought_anchor,
 )
 from .event_storage import EventStorage, TokenStorage  # noqa: F401
 from .classification import (  # noqa: F401

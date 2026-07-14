@@ -75,7 +75,7 @@ class BasePTSSearcher:
         self.oracle = oracle
         self.debug_mode = debug_mode
 
-        # Bounded LRU. v1 responded to memory pressure by clearing the whole
+        # Bounded LRU. the legacy code responded to memory pressure by clearing the whole
         # cache, which freed almost nothing (these are floats keyed by strings)
         # while forcing every subsequent estimate to re-run num_samples
         # generations. A bounded cache makes that unnecessary.

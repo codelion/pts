@@ -28,12 +28,12 @@ class TokenPTSSearcher(BasePTSSearcher):
     """Search for emitted pivotal tokens in model generations."""
 
     def __init__(self, *args, event_storage: Optional[EventStorage] = None, **kwargs):
-        # v1 called this `token_storage`; accept either.
+        # called this `token_storage`; accept either.
         token_storage = kwargs.pop("token_storage", None)
         super().__init__(*args, **kwargs)
         self.event_storage = event_storage or token_storage or EventStorage()
 
-    # Kept so v1 code reaching for `.token_storage` still works.
+    # Kept so legacy code reaching for `.token_storage` still works.
     @property
     def token_storage(self) -> EventStorage:
         return self.event_storage
@@ -195,7 +195,7 @@ class TokenPTSSearcher(BasePTSSearcher):
                             },
                         )
 
-                        # The searcher owns the write. v1 also had the CLI write
+                        # The searcher owns the write. the legacy format also had the CLI write
                         # every yielded token, duplicating each record; storage
                         # now de-duplicates by event_id so that is harmless.
                         self.event_storage.add_event(event)
@@ -269,11 +269,11 @@ class TokenPTSSearcher(BasePTSSearcher):
 
 
 # ---------------------------------------------------------------------------
-# v1 compatibility
+# compatibility
 # ---------------------------------------------------------------------------
 
 class PivotalTokenSearcher(TokenPTSSearcher):
-    """v1 name and method surface, kept working on top of the v2 searcher."""
+    """legacy name and method surface, kept working on top of the searcher."""
 
     def search_pivotal_tokens(self, *args, **kwargs):
         return self.search(*args, **kwargs)

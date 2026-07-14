@@ -1,5 +1,5 @@
 """
-Multiscale PTS -- all three scales over one query, linked into causal chains.
+Reasoning PTS -- all three scales over one query, linked into causal chains.
 
 This is what ``pts run --granularity all`` drives. It exists to produce the one
 artifact the whole framework is aimed at: for a single query, the latent
@@ -28,7 +28,7 @@ from .token import TokenPTSSearcher
 logger = logging.getLogger(__name__)
 
 
-class MultiScaleSearcher:
+class ReasoningSearcher:
     """Run token, sentence, and latent PTS over the same query and link the results."""
 
     def __init__(

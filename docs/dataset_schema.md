@@ -1,10 +1,10 @@
-# PTS v2 dataset schema
+# PTS dataset schema
 
-Every PTS v2 record is one `CausalReasoningEvent`, written as a line of JSONL.
+Every PTS record is one `CausalReasoningEvent`, written as a line of JSONL.
 The same schema carries all three scales, which is what lets a single file hold a
 latent → token → sentence chain.
 
-`schema_version` is `"2.0"`.
+`schema_version` is `"1.0"`.
 
 ## Fields
 
@@ -12,7 +12,7 @@ latent → token → sentence chain.
 
 | Field | Type | Notes |
 |---|---|---|
-| `event_id` | string | Deterministic hash of the identifying parts. Re-migrating the same v1 record yields the same id, so links survive re-runs. |
+| `event_id` | string | Deterministic hash of the identifying parts. Re-migrating the same legacy record yields the same id, so links survive re-runs. |
 | `event_type` | string | `latent_metatoken` \| `pivotal_token` \| `thought_anchor` |
 | `granularity` | string | `latent` \| `token` \| `sentence` |
 | `visibility` | string | `latent` \| `emitted` |
@@ -229,7 +229,7 @@ Note what is `null`.
 ```python
 from pts import EventStorage
 
-# Reads v1 pivotal-token and v1 thought-anchor files too, migrating on load.
+# Reads legacy pivotal-token and legacy thought-anchor files too, migrating on load.
 storage = EventStorage(filepath="events.jsonl")
 
 print(storage.summary())

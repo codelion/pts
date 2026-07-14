@@ -1,5 +1,5 @@
 """
-Unified causal reasoning event schema for PTS v2.
+Unified causal reasoning event schema for PTS.
 
 PTS searches for pivotal reasoning events at three representational scales:
 
@@ -17,7 +17,7 @@ a common principle::
     event_importance = outcome_with_event - outcome_without_or_altered_event
 
 This module defines that schema, factory constructors for each scale, and
-migration helpers that read v1 pivotal-token and thought-anchor records.
+migration helpers that read legacy pivotal-token and thought-anchor records.
 """
 
 import time
@@ -26,7 +26,7 @@ import hashlib
 from dataclasses import dataclass, field, asdict
 from typing import Any, Dict, List, Optional
 
-SCHEMA_VERSION = "2.0"
+SCHEMA_VERSION = "1.0"
 
 # Event types
 EVENT_LATENT = "latent_metatoken"
@@ -75,7 +75,7 @@ def map_v1_category(v1_category: Optional[str]) -> Optional[str]:
 def make_event_id(event_type: str, *parts: Any) -> str:
     """Build a stable event id from its identifying parts.
 
-    Deterministic so that re-migrating the same v1 record yields the same id and
+    Deterministic so that re-migrating the same legacy record yields the same id and
     links stay valid across re-runs. Falls back to a random suffix when no parts
     are supplied.
     """
@@ -165,7 +165,7 @@ class CausalReasoningEvent:
         kwargs = {k: v for k, v in data.items() if k in known}
         # Fields this schema version does not know about are moved into
         # `metadata` rather than dropped. The value survives; its location does
-        # not -- a v2.1 writer reading back its own file will find its field
+        # not -- a future writer reading back its own file will find its field
         # under metadata, not at the top level. Real metadata wins on conflict.
         extra = {k: v for k, v in data.items() if k not in known}
         if extra:
@@ -373,25 +373,25 @@ def make_latent_event(
 
 
 # ---------------------------------------------------------------------------
-# Migration from v1 records
+# Migration from legacy records
 # ---------------------------------------------------------------------------
 
-def is_v1_pivotal_token(record: Dict[str, Any]) -> bool:
+def is_legacy_pivotal_token(record: Dict[str, Any]) -> bool:
     return "pivot_token" in record
 
 
-def is_v1_thought_anchor(record: Dict[str, Any]) -> bool:
+def is_legacy_thought_anchor(record: Dict[str, Any]) -> bool:
     return "sentence" in record and "sentence_id" in record
 
 
-def is_v2_event(record: Dict[str, Any]) -> bool:
+def is_pts_event(record: Dict[str, Any]) -> bool:
     return "event_type" in record and "granularity" in record
 
 
-def from_v1_pivotal_token(record: Dict[str, Any]) -> CausalReasoningEvent:
-    """Convert a v1 pivotal-token record into a unified event.
+def from_legacy_pivotal_token(record: Dict[str, Any]) -> CausalReasoningEvent:
+    """Convert a legacy pivotal-token record into a unified event.
 
-    v1 stored ``prob_before``/``prob_after``/``prob_delta`` explicitly. We trust
+    the legacy format stored ``prob_before``/``prob_after``/``prob_delta`` explicitly. We trust
     the stored ``prob_delta`` when present rather than recomputing, because some
     published datasets were written before rounding changes.
     """
@@ -401,7 +401,7 @@ def from_v1_pivotal_token(record: Dict[str, Any]) -> CausalReasoningEvent:
     if prob_delta is None and prob_before is not None and prob_after is not None:
         prob_delta = prob_after - prob_before
 
-    # Everything v1 carried that has no home in a top-level v2 field is kept.
+    # Everything a legacy record carried that has no home in a top-level field is kept.
     reserved = {
         "query", "pivot_context", "pivot_token", "pivot_token_id",
         "prob_before", "prob_after", "prob_delta", "is_positive",
@@ -439,7 +439,7 @@ def from_v1_pivotal_token(record: Dict[str, Any]) -> CausalReasoningEvent:
         is_positive=record.get("is_positive", _resolve_positivity(prob_delta)),
         search_method="token_pts",
         intervention_type="append_token",
-        # v1 never classified pivotal tokens. Leaving them uncategorized would
+        # never classified pivotal tokens. Leaving them uncategorized would
         # make every cross-scale comparison vacuous: a latent event's category
         # can never match `None`, so category-match rates against migrated
         # tokens would come back at exactly zero -- a null produced by the
@@ -451,10 +451,10 @@ def from_v1_pivotal_token(record: Dict[str, Any]) -> CausalReasoningEvent:
     )
 
 
-def from_v1_thought_anchor(record: Dict[str, Any]) -> CausalReasoningEvent:
-    """Convert a v1 thought-anchor record into a unified event.
+def from_legacy_thought_anchor(record: Dict[str, Any]) -> CausalReasoningEvent:
+    """Convert a legacy thought-anchor record into a unified event.
 
-    v1 named its probabilities ``prob_with_sentence`` / ``prob_without_sentence``;
+    legacy named its probabilities ``prob_with_sentence`` / ``prob_without_sentence``;
     those map onto ``prob_after`` / ``prob_before`` respectively.
     """
     prob_after = record.get("prob_with_sentence")
@@ -503,7 +503,7 @@ def from_v1_thought_anchor(record: Dict[str, Any]) -> CausalReasoningEvent:
         confidence=record.get("verification_score"),
         search_method="sentence_pts",
         intervention_type="replace_sentence",
-        # v1's own 8-category vocabulary ("self_checking", "active_computation")
+        # the legacy format's own 8-category vocabulary ("self_checking", "active_computation")
         # is remapped onto the unified taxonomy shared by all three scales.
         # Without this, a v1 sentence category could never equal a latent event's
         # category, and every latent -> token -> sentence chain would be invisible
@@ -522,7 +522,7 @@ def from_v1_thought_anchor(record: Dict[str, Any]) -> CausalReasoningEvent:
 def from_any_record(record: Any) -> CausalReasoningEvent:
     """Read a record of any known PTS vintage into a unified event.
 
-    Accepts v2 events, v1 pivotal tokens, v1 thought anchors, and objects that
+    Accepts PTS events, legacy pivotal tokens, legacy thought anchors, and objects that
     expose ``to_dict()`` (the legacy ``PivotalToken`` / ``ThoughtAnchor``
     dataclasses).
     """
@@ -535,26 +535,26 @@ def from_any_record(record: Any) -> CausalReasoningEvent:
     if not isinstance(record, dict):
         raise TypeError(f"Cannot read event from {type(record).__name__}")
 
-    if is_v2_event(record):
+    if is_pts_event(record):
         return CausalReasoningEvent.from_dict(record)
-    if is_v1_pivotal_token(record):
-        return from_v1_pivotal_token(record)
-    if is_v1_thought_anchor(record):
-        return from_v1_thought_anchor(record)
+    if is_legacy_pivotal_token(record):
+        return from_legacy_pivotal_token(record)
+    if is_legacy_thought_anchor(record):
+        return from_legacy_thought_anchor(record)
 
     raise ValueError(
-        "Unrecognized PTS record: expected a v2 event (event_type + granularity), "
-        "a v1 pivotal token (pivot_token), or a v1 thought anchor "
+        "Unrecognized PTS record: expected a PTS event (event_type + granularity), "
+        "a legacy pivotal token (pivot_token), or a legacy thought anchor "
         f"(sentence + sentence_id). Got keys: {sorted(record)[:10]}"
     )
 
 
 # ---------------------------------------------------------------------------
-# Derived views: recover the v1 shapes from a unified event
+# Derived views: recover the legacy shapes from a unified event
 # ---------------------------------------------------------------------------
 
-def to_v1_pivotal_token(event: CausalReasoningEvent) -> Dict[str, Any]:
-    """Render a token event back into the v1 pivotal-token shape."""
+def to_legacy_pivotal_token(event: CausalReasoningEvent) -> Dict[str, Any]:
+    """Render a token event back into the legacy pivotal-token shape."""
     if event.event_type != EVENT_TOKEN:
         raise ValueError(f"Not a token event: {event.event_type}")
     return {
@@ -574,8 +574,8 @@ def to_v1_pivotal_token(event: CausalReasoningEvent) -> Dict[str, Any]:
     }
 
 
-def to_v1_thought_anchor(event: CausalReasoningEvent) -> Dict[str, Any]:
-    """Render a sentence event back into the v1 thought-anchor shape."""
+def to_legacy_thought_anchor(event: CausalReasoningEvent) -> Dict[str, Any]:
+    """Render a sentence event back into the legacy thought-anchor shape."""
     if event.event_type != EVENT_SENTENCE:
         raise ValueError(f"Not a sentence event: {event.event_type}")
     meta = event.metadata or {}

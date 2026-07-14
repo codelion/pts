@@ -117,7 +117,7 @@ pts enrich \
   --shuffle-control
 ```
 
-v1 files are migrated on read, so you can point this straight at an old dataset.
+legacy files are migrated on read, so you can point this straight at an old dataset.
 
 ### 3. Or search all three scales at once
 
