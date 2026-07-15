@@ -2089,15 +2089,21 @@ def load_dataset_action(source_type: str, dataset_id: str, file_upload):
     if len(df.columns) > 10:
         columns_info += f" ... and {len(df.columns) - 10} more"
 
-    # Generate all visualizations
+    # Render only what is visible on load -- the Overview (and the cheap Event
+    # Explorer below). The graph, embedding, and timeline tabs each render six
+    # Plotly figures whose serialization + browser paint dominate load on a weak
+    # Space CPU (~90s for all six). They are computed on demand when their tab is
+    # opened (see the tab.select handlers), which keeps load to a couple of
+    # seconds. The Python for each is <0.5s; the cost is figure transfer/paint.
     stats_html, stats_fig = create_statistics_dashboard(df)
-    graph_fig = create_causal_event_graph(df)
-    embed_fig = create_embedding_visualization(df)
-    circuit_html, circuit_fig = create_circuit_visualization(df)
 
-    first_query = df['query'].iloc[0] if 'query' in df.columns and len(df) else None
-    timeline_fig = create_reasoning_timeline(df, first_query)
-    heatmap_fig = create_workspace_heatmap(df, first_query)
+    lazy = _empty_fig("Open this tab to render.", 480)
+    graph_fig = lazy
+    embed_fig = lazy
+    circuit_html = "<div style='padding:24px;color:#8592A8;font-family:monospace'>Open this tab to render.</div>"
+    circuit_fig = lazy
+    timeline_fig = lazy
+    heatmap_fig = lazy
 
     # Event Explorer filter choices come from the data itself.
     type_choices = ["All"]
@@ -2990,7 +2996,7 @@ with gr.Blocks(title="PTS · Pivotal Token Search", theme=PTS_THEME, css=CSS) as
             prob_chart = gr.Plot(label="Probability Change / Readout Score")
 
         # Causal Event Graph Tab
-        with gr.TabItem("Causal Event Graph"):
+        with gr.TabItem("Causal Event Graph") as tab_graph:
             gr.Markdown("### Causal Event Graph")
             gr.Markdown("""
             *Latent meta-tokens (diamonds) → pivotal tokens (circles) → thought anchors
@@ -3008,7 +3014,7 @@ with gr.Blocks(title="PTS · Pivotal Token Search", theme=PTS_THEME, css=CSS) as
             graph_plot = gr.Plot()
 
         # Embedding Visualization Tab
-        with gr.TabItem("Embedding Space"):
+        with gr.TabItem("Embedding Space") as tab_embed:
             gr.Markdown("### Embedding Space Visualization")
             gr.Markdown("*t-SNE projection of sentence/token embeddings. Explore clusters and patterns.*")
             with gr.Row():
@@ -3021,7 +3027,7 @@ with gr.Blocks(title="PTS · Pivotal Token Search", theme=PTS_THEME, css=CSS) as
             embed_plot = gr.Plot()
 
         # Reasoning Timeline Tab (was: Circuit Tracer)
-        with gr.TabItem("Reasoning Timeline"):
+        with gr.TabItem("Reasoning Timeline") as tab_timeline:
             gr.Markdown("### Reasoning Timeline")
             gr.Markdown(
                 "*One shared generation axis across four scales: latent meta-tokens, "
@@ -3056,6 +3062,38 @@ with gr.Blocks(title="PTS · Pivotal Token Search", theme=PTS_THEME, css=CSS) as
                  token_slider, query_filter, ev_type, ev_category,
                  ev_summary, ev_score_plot, token_html, prob_chart],
         api_name=False
+    )
+
+    # Lazy tab rendering: each heavy tab computes its figures only when opened,
+    # so load never pays for all six at once. Recompute-on-open is cheap in
+    # Python and keeps the wiring simple (no stale-cache bugs).
+    def _current_df():
+        df = current_data.get("df")
+        return df if df is not None and hasattr(df, "empty") and not df.empty else None
+
+    def render_graph_tab():
+        df = _current_df()
+        return create_causal_event_graph(df) if df is not None else _empty_fig("No data loaded.", 480)
+
+    def render_embed_tab():
+        df = _current_df()
+        return create_embedding_visualization(df) if df is not None else _empty_fig("No data loaded.", 480)
+
+    def render_timeline_tab():
+        df = _current_df()
+        if df is None:
+            e = _empty_fig("No data loaded.", 480)
+            return "", e, e, e
+        first_q = df['query'].iloc[0] if 'query' in df.columns and len(df) else None
+        c_html, c_fig = create_circuit_visualization(df)
+        return c_html, c_fig, create_reasoning_timeline(df, first_q), create_workspace_heatmap(df, first_q)
+
+    tab_graph.select(fn=render_graph_tab, outputs=[graph_plot], api_name=False)
+    tab_embed.select(fn=render_embed_tab, outputs=[embed_plot], api_name=False)
+    tab_timeline.select(
+        fn=render_timeline_tab,
+        outputs=[circuit_html, circuit_chart, timeline_plot, heatmap_plot],
+        api_name=False,
     )
 
     refresh_btn.click(
