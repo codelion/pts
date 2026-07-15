@@ -294,6 +294,23 @@ def _granularity(row) -> str:
     return GRANULARITY_FOR_EVENT_TYPE.get(str(_val(row, 'event_type', '')), 'token')
 
 
+def _granularity_series(df: pd.DataFrame) -> pd.Series:
+    """Vectorized granularity for a whole frame.
+
+    ``_granularity_series(df)`` is a row-wise Python loop -- seconds over
+    14k events, and it ran on every dataset load. The data already has a
+    ``granularity`` column, so this is a column read with an event_type fallback.
+    """
+    if 'granularity' in df.columns:
+        g = df['granularity'].astype('object').where(df['granularity'].notna(), None)
+    else:
+        g = pd.Series([None] * len(df), index=df.index, dtype='object')
+    if 'event_type' in df.columns:
+        fallback = df['event_type'].map(lambda t: GRANULARITY_FOR_EVENT_TYPE.get(str(t), 'token'))
+        g = g.where(g.notna(), fallback)
+    return g.fillna('token').astype(str)
+
+
 def _event_color(row) -> str:
     """Positive=green, negative=red, latent/unscored=purple-blue.
 
@@ -771,7 +788,7 @@ def create_reasoning_timeline(df: pd.DataFrame, selected_query: str = None) -> g
     xs = _compute_event_x(work)
     work = work.assign(_x=xs)
 
-    gran = work.apply(_granularity, axis=1)
+    gran = _granularity_series(work)
     latent_df = work[gran == 'latent']
     token_df = work[gran == 'token']
     sentence_df = work[gran == 'sentence']
@@ -1108,7 +1125,7 @@ def create_workspace_heatmap(df: pd.DataFrame, selected_query: str = None) -> go
         )
 
     work = _filter_by_query(df, selected_query)
-    latent = work[work.apply(_granularity, axis=1) == 'latent'] if not work.empty else work
+    latent = work[_granularity_series(work) == 'latent'] if not work.empty else work
 
     if latent.empty:
         return _empty_fig(
@@ -1408,7 +1425,7 @@ def create_embedding_visualization(df: pd.DataFrame, color_by: str = 'is_positiv
         # unified events: only emitted events live in probability space. Latent
         # events have no prob_before/prob_after and must not be plotted there.
         if dataset_type in PTS_TYPES and 'prob_before' in df.columns and 'prob_after' in df.columns:
-            emitted = df[df.apply(_granularity, axis=1) != 'latent']
+            emitted = df[_granularity_series(df) != 'latent']
             emitted = emitted.dropna(subset=['prob_before', 'prob_after'])
             if emitted.empty:
                 return _empty_fig(
@@ -1807,7 +1824,7 @@ def create_statistics_dashboard(df: pd.DataFrame) -> Tuple[str, go.Figure]:
     }
 
     if is_pts:
-        gran = df.apply(_granularity, axis=1)
+        gran = _granularity_series(df)
         stats["Latent Events"] = int((gran == 'latent').sum())
         stats["Token Events"] = int((gran == 'token').sum())
         stats["Sentence Events"] = int((gran == 'sentence').sum())
@@ -1892,7 +1909,7 @@ def create_statistics_dashboard(df: pd.DataFrame) -> Tuple[str, go.Figure]:
             ),
         )
 
-        gran = df.apply(_granularity, axis=1)
+        gran = _granularity_series(df)
         emitted = df[gran != 'latent']
         latent = df[gran == 'latent']
 
@@ -2269,7 +2286,7 @@ def describe_event_selection(df: pd.DataFrame) -> Tuple[str, go.Figure]:
 
     is_pts = is_pts_events(df)
     if is_pts:
-        gran = df.apply(_granularity, axis=1)
+        gran = _granularity_series(df)
         counts = {
             'latent': int((gran == 'latent').sum()),
             'token': int((gran == 'token').sum()),
@@ -2297,12 +2314,17 @@ def describe_event_selection(df: pd.DataFrame) -> Tuple[str, go.Figure]:
     html_parts.append('</div>')
 
     fig = go.Figure()
-    emitted_scores = [
-        _row_score(r) for _, r in df[gran != 'latent'].iterrows()
-    ] if (gran != 'latent').any() else []
-    latent_scores = [
-        _num(_val(r, 'score')) for _, r in df[gran == 'latent'].iterrows()
-    ] if (gran == 'latent').any() else []
+    # Vectorized: iterrows over 14k events took seconds. Emitted score is
+    # |prob_delta| (fall back to |score|); latent score is the readout score.
+    # Every series is aligned to df's index so masks never mismatch on datasets
+    # that lack a `score`/`prob_delta` column (e.g. steering vectors).
+    nan = pd.Series([float('nan')] * len(df), index=df.index)
+    score_col = pd.to_numeric(df['score'], errors='coerce') if 'score' in df.columns else nan
+    delta = pd.to_numeric(df['prob_delta'], errors='coerce').abs() if 'prob_delta' in df.columns else nan
+    emitted_all = delta.where(delta.notna(), score_col.abs())
+    is_latent = pd.Series(gran.values == 'latent', index=df.index)
+    emitted_scores = emitted_all[~is_latent].dropna().tolist()
+    latent_scores = score_col[is_latent].dropna().tolist()
 
     # Two separate traces, never one merged histogram: |Δ probability| and
     # readout score are different quantities on different scales.
@@ -2351,7 +2373,7 @@ def apply_event_filters(event_type: str, granularity: str, polarity: str,
         work = work[work['event_type'].astype(str) == event_type]
 
     if is_pts and granularity and granularity != "All" and not work.empty:
-        work = work[work.apply(_granularity, axis=1) == granularity]
+        work = work[_granularity_series(work) == granularity]
 
     if polarity and polarity != "All" and not work.empty:
         def valence(row):
