@@ -27,8 +27,26 @@ from collections import defaultdict
 # ============================================================================
 
 def load_hf_dataset(dataset_id: str, split: str = "train") -> pd.DataFrame:
-    """Load a dataset from HuggingFace Hub."""
+    """Load a dataset from HuggingFace Hub.
+
+    Reads the raw JSONL directly rather than going through
+    ``datasets.load_dataset``. The events schema is deeply nested (link arrays
+    with hundreds of entries, metadata dicts), and Arrow schema inference over
+    that is slow -- ~15s for a 30 MB file vs ~2.5s for a direct download + parse.
+    Falls back to the datasets library for anything not stored as a flat JSONL.
+    """
+    from huggingface_hub import hf_hub_download, list_repo_files
+
     try:
+        files = list_repo_files(dataset_id, repo_type="dataset")
+        jsonl = [f for f in files if f.endswith(".jsonl")]
+        if jsonl:
+            # Prefer the canonical event file when present.
+            preferred = next((f for f in jsonl if "causal_events" in f), jsonl[0])
+            path = hf_hub_download(dataset_id, preferred, repo_type="dataset")
+            rows = [json.loads(l) for l in open(path) if l.strip()]
+            return pd.DataFrame(rows), f"Loaded {len(rows)} items from {dataset_id}"
+
         dataset = load_dataset(dataset_id, split=split)
         df = pd.DataFrame(dataset)
         return df, f"Loaded {len(df)} items from {dataset_id}"
@@ -304,6 +322,22 @@ def _filter_by_query(df: pd.DataFrame, selected_query: Optional[str]) -> pd.Data
             and 'query' in df.columns):
         return df[df['query'] == selected_query].copy()
     return df
+
+
+def _default_query(df: pd.DataFrame, selected_query: Optional[str]) -> Optional[str]:
+    """Resolve a per-query view to one query when none is chosen.
+
+    The causal graph and timeline are per-query by nature -- laying out every
+    event from every query at once is both meaningless and, on an enriched
+    dataset (14k events, 69k links), pathologically slow (a spring layout over
+    the whole graph takes minutes). So a per-query view with no selection shows
+    the first query, not the entire dataset.
+    """
+    if selected_query and isinstance(selected_query, str) and selected_query.strip():
+        return selected_query
+    if 'query' in df.columns and len(df):
+        return str(df['query'].iloc[0])
+    return selected_query
 
 
 def _event_hover(row) -> str:
@@ -922,6 +956,8 @@ def create_causal_event_graph(df: pd.DataFrame, selected_query: str = None) -> g
     if not is_pts_events(df):
         return create_thought_anchor_graph(df, selected_query)
 
+    # Per-query view: never lay out the whole dataset (minutes on 14k nodes).
+    selected_query = _default_query(df, selected_query)
     work = _filter_by_query(df, selected_query)
     if work.empty:
         return _empty_fig("No events for the selected query.", 550)
@@ -998,7 +1034,11 @@ def create_causal_event_graph(df: pd.DataFrame, selected_query: str = None) -> g
 
     traces = [go.Scatter(
         x=edge_x, y=edge_y,
-        line=dict(width=1, color=C_LINE),
+        # Semi-transparent so a dense single-query graph reads as a web rather
+        # than a solid mass, but light enough to actually be visible against the
+        # near-black canvas -- C_LINE (#212C3D) is the panel-border colour and
+        # was indistinguishable from the background.
+        line=dict(width=1, color='rgba(148,163,190,0.45)'),
         hoverinfo='none',
         mode='lines',
         showlegend=False,
