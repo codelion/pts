@@ -1,10 +1,10 @@
 ---
 title: PTS Visualizer
-emoji: 🔍
-colorFrom: indigo
-colorTo: green
+emoji: 🔬
+colorFrom: purple
+colorTo: blue
 sdk: gradio
-sdk_version: 4.31.0
+sdk_version: 5.50.0
 app_file: app.py
 pinned: false
 license: apache-2.0
@@ -15,52 +15,53 @@ tags:
   - llm-interpretability
   - reasoning
   - visualization
+datasets:
+  - codelion/Qwen3-0.6B-pts
+  - codelion/DeepSeek-R1-Distill-Qwen-1.5B-pts
 ---
 
-# PTS Visualizer
+# PTS Visualizer — Pivotal Token Search
 
-Interactive visualization platform for exploring **Pivotal Tokens**, **Thought Anchors**, and **Reasoning Circuits** in language models.
+Interactive visualization for **Pivotal Token Search**: the reasoning events that
+shift a language model's probability of solving a task, at three representational
+scales — latent workspace meta-tokens, emitted pivotal tokens, and sentence-level
+thought anchors — as a single kind of object.
 
-Inspired by [Neuronpedia](https://neuronpedia.org/), this tool helps researchers and practitioners understand how language models reason through complex tasks.
+## Views
 
-## Features
+### Overview
+Per-scale event counts, causal-link count, and separate distributions for
+emitted probability deltas and latent readout scores (they are different
+quantities and are never binned together).
 
-### 📊 Overview Dashboard
-- Dataset statistics and distributions
-- Quick summary of positive/negative impacts
-- Category and pattern analysis
+### Event Explorer
+Every event in context, filterable by scale, category, valence, score, and (for
+latent events) layer. Latent readouts are shown as readout scores, never as
+probability deltas.
 
-### 🔍 Token Explorer
-- Highlight pivotal tokens in context
-- Visualize probability changes before/after tokens
-- Explore token-level impacts on success
+### Causal Event Graph
+The latent → token → sentence → outcome graph for a query, with nodes shaped by
+scale and edges from the recorded causal links.
 
-### 🕸️ Reasoning Graph
-- Interactive dependency graph for thought anchors
-- Visualize causal relationships between reasoning steps
-- Color-coded by impact (green = positive, red = negative)
-- Node size indicates importance
+### Embedding Space
+t-SNE of event embeddings, colored by category or impact.
 
-### 🗺️ Embedding Space
-- t-SNE visualization of sentence/token embeddings
-- Color by category, pattern, or impact
-- Explore clusters and patterns in reasoning
+### Reasoning Timeline
+All scales on one shared generation axis: latent meta-tokens, pivotal tokens,
+thought-anchor sentences, and the resulting success-probability curve — plus a
+workspace heatmap of meta-token readout scores by position.
 
-### ⚡ Circuit Tracer
-- Step-by-step walkthrough of reasoning traces
-- Probability progression chart
-- Verification scores and error detection
+## Supported datasets
 
-## Supported Datasets
+Built for the unified PTS reasoning-event datasets, which drive every view:
 
-Load from HuggingFace Hub:
-- `codelion/Qwen3-0.6B-pts` - Pivotal tokens
-- `codelion/Qwen3-0.6B-pts-thought-anchors` - Thought anchors
-- `codelion/Qwen3-0.6B-pts-steering-vectors` - Steering vectors
-- `codelion/Qwen3-0.6B-pts-dpo-pairs` - DPO training pairs
-- `codelion/DeepSeek-R1-Distill-Qwen-1.5B-pts-thought-anchors`
+- `codelion/Qwen3-0.6B-pts`
+- `codelion/DeepSeek-R1-Distill-Qwen-1.5B-pts`
 
-Or upload your own JSONL files!
+Any PTS file can also be loaded by pasting its dataset id or uploading a JSONL
+(legacy pivotal-token and thought-anchor files are upgraded on the fly).
+Steering-vector datasets are a separate downstream artifact for
+[OptiLLM](https://github.com/codelion/optillm) and are not the focus here.
 
 ## How to Use
 
