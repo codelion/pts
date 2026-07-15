@@ -17,13 +17,7 @@ tags:
   - visualization
 datasets:
   - codelion/Qwen3-0.6B-pts
-  - codelion/Qwen3-0.6B-pts-thought-anchors
-  - codelion/Qwen3-0.6B-pts-steering-vectors
-  - codelion/Qwen3-0.6B-pts-dpo-pairs
   - codelion/DeepSeek-R1-Distill-Qwen-1.5B-pts
-  - codelion/DeepSeek-R1-Distill-Qwen-1.5B-pts-thought-anchors
-  - codelion/DeepSeek-R1-Distill-Qwen-1.5B-pts-steering-vectors
-  - codelion/DeepSeek-R1-Distill-Qwen-1.5B-pts-dpo-pairs
 ---
 
 # PTS Visualizer — Pivotal Token Search
@@ -59,19 +53,15 @@ workspace heatmap of meta-token readout scores by position.
 
 ## Supported datasets
 
-Loads any PTS dataset from the Hub (and legacy pivotal-token / thought-anchor /
-steering-vector files, which are upgraded on the fly):
+Built for the unified PTS reasoning-event datasets, which drive every view:
 
 - `codelion/Qwen3-0.6B-pts`
-- `codelion/Qwen3-0.6B-pts-thought-anchors`
-- `codelion/Qwen3-0.6B-pts-steering-vectors`
-- `codelion/Qwen3-0.6B-pts-dpo-pairs`
 - `codelion/DeepSeek-R1-Distill-Qwen-1.5B-pts`
-- `codelion/DeepSeek-R1-Distill-Qwen-1.5B-pts-thought-anchors`
-- `codelion/DeepSeek-R1-Distill-Qwen-1.5B-pts-steering-vectors`
-- `codelion/DeepSeek-R1-Distill-Qwen-1.5B-pts-dpo-pairs`
 
-Or upload your own JSONL files.
+Any PTS file can also be loaded by pasting its dataset id or uploading a JSONL
+(legacy pivotal-token and thought-anchor files are upgraded on the fly).
+Steering-vector datasets are a separate downstream artifact for
+[OptiLLM](https://github.com/codelion/optillm) and are not the focus here.
 
 ## How to Use
 
