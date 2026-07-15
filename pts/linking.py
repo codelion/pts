@@ -15,6 +15,7 @@ any of it.
 """
 
 import logging
+from functools import lru_cache
 import random
 from dataclasses import dataclass, asdict
 from typing import Any, Dict, List, Optional, Sequence
@@ -61,8 +62,20 @@ class EventLink:
         return asdict(self)
 
 
-def _tokenize(text: str) -> set:
-    return {w for w in "".join(c if c.isalnum() else " " for c in text.lower()).split() if len(w) > 2}
+@lru_cache(maxsize=100_000)
+def _tokenize(text: str) -> frozenset:
+    """Word set of a string, memoized.
+
+    Linking compares each emitted event's context against many latent events, so
+    the same ~800-char context is tokenized thousands of times. Without the cache
+    this dominates linking on a large latent set (246k events -> tens of millions
+    of re-tokenizations, hours of pure string work). The cache is bounded so it
+    cannot grow without limit on a huge, all-distinct corpus.
+    """
+    return frozenset(
+        w for w in "".join(c if c.isalnum() else " " for c in text.lower()).split()
+        if len(w) > 2
+    )
 
 
 def context_overlap(a: str, b: str) -> float:
