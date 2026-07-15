@@ -2582,17 +2582,18 @@ def refresh_all():
 # causal-event files too -- upload one and add it here, or load it from disk with
 # the file upload. Listing PTS datasets that have not been published yet would put
 # entries in the dropdown that can only fail.
-# Only datasets the visualizer actually renders something for. The unified
-# `-pts` datasets already contain the sentence-scale (thought-anchor) events, so
-# the separate `-thought-anchors` repos are duplicate subsets; the `-dpo-pairs`
-# repos are training data (prompt/chosen/rejected), not events, and produce no
-# charts. Both are still linked in this Space's README `datasets:` list for
-# discovery, but there is no reason to offer them here.
+# The unified `-pts` datasets are what this visualizer is for: pivotal reasoning
+# events at all three scales, with the multiscale timeline, causal graph, and
+# workspace heatmap. The other PTS repos don't earn a slot here:
+#   - `-thought-anchors`  duplicate the sentence events already in `-pts`
+#   - `-dpo-pairs`        are training pairs, not events (no charts render)
+#   - `-steering-vectors` are activation vectors -- only the embedding tab
+#                         applies; the multiscale views are token-only
+# All of them remain linked in this Space's README `datasets:` list for
+# discovery. Any of them can still be loaded by pasting its id or uploading it.
 HF_DATASETS = [
     "codelion/Qwen3-0.6B-pts",
-    "codelion/Qwen3-0.6B-pts-steering-vectors",
     "codelion/DeepSeek-R1-Distill-Qwen-1.5B-pts",
-    "codelion/DeepSeek-R1-Distill-Qwen-1.5B-pts-steering-vectors",
 ]
 
 DEFAULT_DATASET = "codelion/Qwen3-0.6B-pts"
