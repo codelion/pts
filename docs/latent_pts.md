@@ -1,29 +1,25 @@
 # Latent PTS
 
-Latent PTS searches the model's hidden workspace for pivotal reasoning events —
-verbalizable concepts that are active in the residual stream but not (yet)
-emitted as tokens.
-
-This is the newest and least settled part of PTS. Read the caveats before you
-believe anything it tells you.
+Latent PTS looks inside the model for reasoning events: concepts that are active
+in the residual stream but have not been emitted as tokens yet. It is the newest
+part of PTS and the least settled, so read the notes at the bottom before you
+lean on the output.
 
 ## The idea
 
 Anthropic's [*Verbalizable Representations Form a Global Workspace in Language
 Models*](https://transformer-circuits.pub/2026/workspace/index.html) describes a
-**Jacobian lens** (J-lens): a linear readout that, given a mid-layer activation,
-recovers the vocabulary tokens that activation is causally pushing the model to
-say *later*. The set of concepts the lens surfaces is the **J-space**, and it
-occupies roughly the middle band of the network — about 38% to 92% of depth.
+Jacobian lens (J-lens): a linear readout that takes a mid-layer activation and
+recovers the vocabulary tokens that activation is pushing the model to say later.
+The set of concepts it surfaces is the J-space, which sits in the middle band of
+the network, roughly 38% to 92% of the way through.
 
-PTS uses that readout as a *search primitive*. If a pivotal token like `" Wait"`
-flips a generation from failure to success, the question Latent PTS asks is:
-
-> Was the model already "thinking" `verify` a few tokens earlier, in a form it
-> had not yet said out loud?
+PTS uses that readout as a search tool. If a pivotal token like `" Wait"` turns a
+failed answer into a correct one, Latent PTS asks: was the model already leaning
+toward `verify` a few tokens earlier, before it said anything?
 
 Each token the lens surfaces above a score floor becomes a `latent_metatoken`
-event, linked to the emitted event it precedes.
+event, linked to the emitted event it comes before.
 
 ## The math
 
@@ -31,53 +27,48 @@ For layer `l`, the J-lens is the expected Jacobian of the final residual stream
 with respect to the layer-`l` residual stream:
 
 ```
-J_l = E[ ∂h_final,t' / ∂h_l,t ]
+J_l = E[ d h_final,t' / d h_l,t ]
 ```
 
-averaged over source positions `t`, all later positions `t' ≥ t`, and a set of
-calibration prompts. Reading a vocabulary distribution out of an activation is
-then:
+averaged over source positions `t`, all later positions `t' >= t`, and a set of
+calibration prompts. To read a vocabulary distribution out of an activation:
 
 ```
-lens(h_l) = softmax( W_U · norm( J_l @ h_l ) )
+lens(h_l) = softmax( W_U . norm( J_l @ h_l ) )
 ```
 
-The rows of `W_U @ J_l` are the **J-lens vectors** — one direction per
-vocabulary token, each the average causal influence of that direction on
-eventually producing that token.
+The rows of `W_U @ J_l` are the J-lens vectors, one direction per vocabulary
+token, each the average causal pull of that direction on eventually producing
+that token.
 
-### Why fitting is affordable
+### Why fitting is cheap
 
 A naive Jacobian would need one backward pass per (source position, output
-component) pair. Two facts collapse that:
+component) pair. Two facts cut that down:
 
-1. **Attention is causal**, so `h_l,t` cannot influence `h_final,t'` for
-   `t' < t`. The gradient of the *total* `S_i = Σ_t' (h_final,t')_i` with respect
-   to `h_l,t` therefore already equals the sum over exactly the `t' ≥ t` terms —
-   the rest are structurally zero.
-2. **Autograd returns the gradient with respect to every source position at
-   once.**
+1. Attention is causal, so `h_l,t` cannot affect `h_final,t'` when `t' < t`. The
+   gradient of the summed final stream `S_i = sum_t' (h_final,t')_i` with respect
+   to `h_l,t` is therefore already the sum over exactly the `t' >= t` terms; the
+   rest are zero.
+2. Autograd returns the gradient with respect to every source position at once.
 
-So one backward pass per output component `i` yields row `i` of the summed
-Jacobian for *all* source positions simultaneously. That gives the paper's stated
-cost of `O(n × d_model)` backward passes. Dividing row `t` by the number of
-`t' ≥ t` converts the sum into the mean the definition asks for.
+So one backward pass per output component `i` gives row `i` of the summed
+Jacobian for all source positions at the same time. That is the paper's stated
+cost of `O(n x d_model)` backward passes. Dividing row `t` by the count of
+`t' >= t` turns the sum into the mean the definition asks for.
 
-This is verified against a brute-force `torch.autograd.functional.jacobian` in
-`tests/test_jlens.py` — the two agree to ~1e-8, and the causal-mask assumption is
-checked directly.
+`tests/test_jlens.py` checks this against a brute-force
+`torch.autograd.functional.jacobian`. The two agree to about 1e-8, and a separate
+test checks the causal-mask assumption directly.
 
 ### The logit lens is J = I
 
-Setting `J = I` recovers the **logit lens**: it asks what an activation would
-emit *right now* if unembedded directly, rather than what it is pushing the model
-to emit *later*. That makes it a principled zero-cost baseline rather than a
-hack, and it is exactly what `--readout-method logit_lens` computes. It needs no
-calibration, so it is the right way to try Latent PTS before committing to a fit.
-
-It is also **weaker evidence**. A workspace claim is a claim about future
-influence; the logit lens does not measure future influence. Events read this way
-are tagged `readout_method: "logit_lens"` so they can be filtered out.
+Set `J = I` and you get the logit lens: what an activation would emit right now if
+unembedded directly, rather than what it pushes the model to say later. It needs
+no calibration, so it is a good way to try Latent PTS before you commit to a fit.
+It is also a weaker signal. A workspace claim is a claim about future influence,
+and the logit lens does not measure future influence. Events read this way are
+tagged `readout_method: "logit_lens"` so you can filter them out.
 
 ## Usage
 
@@ -91,19 +82,16 @@ pts fit-jlens \
   --seq-len 128
 ```
 
-The paper averages over ~1000 prompts but shows n=10–25 is nearly as good, which
-is why 25 is the default. Calibration text just needs to be generic — the lens is
-a property of the model, not the task — so the source dataset works fine and no
-labels are needed. Pass `--calibration-file` for your own text, one sequence per
-line.
+The paper averages over about 1000 prompts but shows 10 to 25 is nearly as good,
+which is why 25 is the default. Calibration text only needs to be generic, since
+the lens is a property of the model rather than the task, so the source dataset
+works fine with no labels. Pass `--calibration-file` for your own text, one
+sequence per line. Lower `--basis-chunk` if you run out of memory.
 
-Lower `--basis-chunk` if you hit OOM; it controls how many output basis
-directions are differentiated per batched backward call.
+### 2. Enrich a dataset you already have
 
-### 2. Enrich an existing PTS dataset
-
-This is the path that matters: it reuses curated token/sentence datasets instead
-of re-running the full search.
+This is the main path. It reuses curated token and sentence datasets instead of
+searching from scratch, and older files are read directly.
 
 ```bash
 pts enrich \
@@ -117,8 +105,6 @@ pts enrich \
   --shuffle-control
 ```
 
-legacy files are migrated on read, so you can point this straight at an old dataset.
-
 ### 3. Or search all three scales at once
 
 ```bash
@@ -127,65 +113,52 @@ pts run --granularity all --model Qwen/Qwen3-0.6B \
         --output-path events.jsonl
 ```
 
-## Caveats
+## What to keep in mind
 
-These are not boilerplate. Each one is a way the output can mislead you.
+Each of these is a way the output can mislead you if you forget it.
 
-**Latent events are hypotheses, not measurements.** A latent event's `score` is a
-readout score — how strongly the lens surfaces that token — **not** a probability
-delta. It is not comparable to the `prob_delta` on token and sentence events.
-`prob_delta` and `is_positive` are deliberately `null` on every latent event, and
-should stay that way until an intervention actually measures one.
+**A latent score is a readout probability, not a Δ-probability.** It says how
+strongly the lens surfaces a token, not how much that token changed the answer.
+It is not comparable to the `prob_delta` on token and sentence events.
+`prob_delta` and `is_positive` stay `null` on latent events on purpose.
 
-**Latent events are observational.** Enrichment and probing report what the lens
-*sees*. Neither establishes that a meta-token *caused* the emitted event. Showing
-causation requires steering or ablating the direction and re-measuring success —
-that is Phase 7 and is not implemented.
+**Latent events are observational.** Enrichment reports what the lens sees. It
+does not show that a meta-token caused an emitted event. That would take an
+intervention: steer or ablate the direction and re-measure success.
 
-**Readouts are noisy.** Neither lens is guaranteed faithful to what the model
-actually represents. A high-scoring `verify` meta-token may be an artifact of the
-unembedding geometry rather than evidence of a "verification" concept.
+**Readouts are noisy.** Neither lens is guaranteed to be faithful to what the
+model actually represents. A high-scoring `verify` might be an artifact of the
+unembedding geometry rather than a real concept.
 
-**This is an independent reimplementation.** No reference code was released with
-the paper. The math here is written from the published equations and validated
-for internal correctness (it computes the Jacobian it claims to), but it has
-**not** been validated against the authors' results. Numbers from PTS should not
-be reported as reproducing theirs.
+**This is an independent reimplementation.** No code was released with the
+workspace paper. The math here comes from the published equations and is checked
+for internal correctness, but it has not been validated against the authors'
+results, so do not report PTS numbers as reproducing theirs.
 
-**"Meta-token" is our term, not the paper's.** The paper does not define it. We
-use it to mean "a top-k J-lens readout token". Do not cite it as Anthropic
-terminology.
+**Links are heuristics.** `linked_event_ids` come from a weighted score (query
+match, context overlap, category agreement, timing), not a verified causal path.
+Run `--shuffle-control`: if the observed link scores do not clearly beat the
+shuffled baseline, the structure is not above chance.
 
-**Links are scored guesses.** `linked_event_ids` come from a weighted heuristic
-(query match, context overlap, category agreement, temporal proximity), not from
-a verified causal path. Always run `--shuffle-control`: it scores links against
-mismatched queries, and if the observed mean is not clearly above the shuffled
-mean, the structure you are looking at is not distinguishable from chance.
+**Records are model-specific.** A pivotal token in one model tells you nothing
+about another model's workspace. Enriching with a different model is refused
+unless you pass `--allow-model-mismatch`, and even then both model ids are stored.
 
-**PTS records are model-specific.** A pivotal token found in one model's
-generation says nothing about another model's workspace. Enriching events with a
-different model is refused unless you pass `--allow-model-mismatch`, and even
-then both model ids are recorded on every latent event so the mismatch stays
-visible.
+## What would make it convincing
 
-## What would make this convincing
+The claim under test is that emitted pivotal tokens and thought-anchor sentences
+are often preceded by latent meta-tokens in the workspace. In rough order of
+strength, the evidence that would back it up:
 
-The framework exists to test one claim:
+1. **Intervention.** Steer or ablate a meta-token direction and show success
+   probability moves.
+2. **Lead time with a control.** Show a category-matching meta-token appears `k`
+   tokens before the emitted event more often than chance, using
+   `--shuffle-control` as the baseline.
+3. **Consistent chains.** Show `latent: verification -> token: " Wait" ->
+   sentence: "Let me check..."` holds across many queries, not just anecdotes.
+4. **J-lens beats logit-lens.** If the effect is just as strong with
+   `--readout-method logit_lens`, it is not about future influence, and so not
+   about a workspace.
 
-> Many emitted pivotal tokens and thought-anchor sentences are preceded by latent
-> verbalizable meta-tokens in the model's workspace.
-
-Evidence that would support it, in rough order of strength:
-
-1. **Intervention.** Steer or ablate the meta-token direction and show success
-   probability moves. Not implemented.
-2. **Lead time with a control.** Show that a category-matching meta-token appears
-   `k` tokens before the emitted event *more often than chance*, using
-   `--shuffle-control` as the null.
-3. **Chain consistency.** Show `latent: verification → token: " Wait" → sentence:
-   "Let me check..."` holds across many queries, not anecdotally.
-4. **J-lens beats logit-lens.** If the effect is equally strong with
-   `--readout-method logit_lens`, it is not about future influence and therefore
-   not about a workspace.
-
-Until at least (2) is done with a control, treat the output as exploratory.
+Until at least (2) holds with a control, treat the output as exploratory.

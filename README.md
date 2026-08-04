@@ -1,17 +1,17 @@
 <div align="center">
 
-<img src="assets/pts-logo.svg" alt="PTS — Pivotal Token Search" width="560">
+<img src="assets/pts-logo.svg" alt="PTS: Pivotal Token Search" width="560">
 
 **A causal-event search framework for model reasoning.**
 
-*Find the pivotal reasoning events that shift a model's chance of solving a task — at three scales at once.*
+Find the reasoning events that change whether a model solves a task, at three scales at once.
 
 <a href="https://github.com/codelion/pts/stargazers"><img src="https://img.shields.io/github/stars/codelion/pts?style=social" alt="GitHub stars"></a>
 <a href="https://github.com/codelion/pts/blob/main/LICENSE"><img src="https://img.shields.io/github/license/codelion/pts?color=A78BFA" alt="License"></a>
 <img src="https://img.shields.io/badge/python-3.9%2B-38BDF8" alt="Python 3.9+">
 <a href="https://huggingface.co/spaces/codelion/pts-visualizer"><img src="https://img.shields.io/badge/%F0%9F%A4%97%20visualizer-live-FBBF24" alt="HF Space"></a>
 
-[Quick start](#quick-start) • [The three scales](#the-three-scales) • [Results](#results) • [Related work](#related-work) • [Visualizer](https://huggingface.co/spaces/codelion/pts-visualizer)
+[Quick start](#quick-start) · [The three scales](#the-three-scales) · [Results](#results) · [Related work](#related-work) · [Visualizer](https://huggingface.co/spaces/codelion/pts-visualizer)
 
 </div>
 
@@ -19,46 +19,44 @@
 
 ## What PTS is
 
-A language model's path to an answer has **turning points** — places where one
-choice flips the outcome. Some are hidden in the residual stream as concepts the
-model has not yet said out loud; some are emitted as a single token; some expand
-into a whole reasoning sentence.
+When a model works through a problem, a few points along the way decide the
+answer. Some of those points are hidden in the residual stream as a concept the
+model has not said yet. Some are a single emitted token. Some are a whole
+sentence of reasoning.
 
-PTS is the claim, and the tooling, that these are **the same kind of object at
-different scales**. It searches for them, scores them by a single principle,
-labels them from one taxonomy, and links them into one causal graph:
+PTS treats all three as the same thing at different scales. It searches for them,
+scores each one by how much it changes the model's chance of getting the answer
+right, labels them with one shared vocabulary, and links them into a single graph.
 
 ```
-latent meta-token / workspace event        ← Latent PTS
-        │
-emitted pivotal token                       ← Token PTS
-        │
-sentence-level thought anchor               ← Sentence PTS
-        │
+latent meta-token / workspace event        Latent PTS
+        |
+emitted pivotal token                       Token PTS
+        |
+sentence-level thought anchor               Sentence PTS
+        |
 success / failure probability shift
 ```
 
-Every event is scored the same way:
+The score is the same at every scale:
 
 ```
-event_importance  =  outcome_with_event  −  outcome_without_or_altered_event
+event_importance = outcome_with_event - outcome_without_or_altered_event
 ```
 
 ## The three scales
 
-Each scale connects to an existing line of work — PTS is the frame that holds all
-three together, not a replacement for any of them.
+Each scale builds on existing work. PTS is the frame that holds the three
+together.
 
-| Scale | What it finds | How it's scored | Connects to |
+| Scale | What it finds | How it's scored | Builds on |
 |---|---|---|---|
-| **Latent PTS** | Verbalizable concepts active in the mid-layer workspace, not yet emitted | J-lens readout score | Anthropic's workspace / J-lens [[1]](#references) |
-| **Token PTS** | Emitted tokens that flip success probability | `P(success \| prefix+token) − P(success \| prefix)` | Phi-4 Pivotal Token Search [[2]](#references) |
-| **Sentence PTS** | Reasoning sentences that flip success probability | `P(success \| prefix+sentence) − P(success \| +alternative)` | Thought Anchors [[3]](#references) |
+| **Latent PTS** | Concepts active in the mid-layer workspace, not yet emitted | J-lens readout score | Anthropic's workspace / J-lens [[1]](#references) |
+| **Token PTS** | Emitted tokens that flip success probability | `P(success \| prefix+token) - P(success \| prefix)` | Phi-4 Pivotal Token Search [[2]](#references) |
+| **Sentence PTS** | Reasoning sentences that flip success probability | `P(success \| prefix+sentence) - P(success \| +alternative)` | Thought Anchors [[3]](#references) |
 
-The empirical claim PTS exists to test:
-
-> Many emitted pivotal tokens and thought-anchor sentences are preceded by latent
-> verbalizable meta-tokens in the model's workspace.
+The question PTS is built to test: do latent meta-tokens in the workspace tend to
+show up just before the emitted tokens and sentences that matter?
 
 ## Install
 
@@ -67,115 +65,106 @@ git clone https://github.com/codelion/pts.git && cd pts
 pip install -e .
 ```
 
-`import pts` pulls in no torch or transformers — the event schema, storage,
-classification, and linking layers are pure Python; anything that touches a model
-loads lazily.
+`import pts` does not load torch or transformers. The schema, storage,
+classification, and linking layers are plain Python. Model code loads only when
+you use it.
 
 ## Quick start
 
 ```bash
-# Token PTS — emitted pivotal tokens (the original idea)
+# Token PTS: emitted pivotal tokens (the original idea)
 pts run --granularity token --model Qwen/Qwen3-0.6B --output-path events.jsonl
 
-# Sentence PTS — thought anchors
+# Sentence PTS: thought anchors
 pts run --granularity sentence --model Qwen/Qwen3-0.6B --output-path events.jsonl
 
-# Latent PTS — enrich an existing dataset with workspace meta-tokens.
-# Reuses curated PTS data instead of re-searching; older files work directly.
+# Latent PTS: add workspace meta-tokens to a dataset you already have.
 pts fit-jlens --model Qwen/Qwen3-0.6B --output-path ./jlens         # calibrate once
 pts enrich --input-path events.jsonl --output-path events_latent.jsonl \
            --model Qwen/Qwen3-0.6B --jlens-path ./jlens \
            --readout-method jlens --with-latent --shuffle-control
 
-# All three scales, linked into one causal graph
+# All three scales, linked into one graph
 pts run --granularity all --model Qwen/Qwen3-0.6B \
         --readout-method jlens --jlens-path ./jlens --output-path events.jsonl
 ```
 
-No J-lens yet? `--readout-method logit_lens` needs no calibration and works
-immediately — it's the same construction with `J = I` (weaker evidence; see
-[docs/latent_pts.md](docs/latent_pts.md)).
+No J-lens yet? `--readout-method logit_lens` needs no calibration. It is the same
+readout with `J = I`, and it is a weaker signal. See
+[docs/latent_pts.md](docs/latent_pts.md).
 
-Explore any result in the [**hosted visualizer**](https://huggingface.co/spaces/codelion/pts-visualizer),
+Explore any result in the [hosted visualizer](https://huggingface.co/spaces/codelion/pts-visualizer),
 or run it locally with `cd visualizer && python app.py`.
 
 ## Results
 
-Enriching two reasoning models and testing whether the J-lens (what an activation
-pushes the model to say *later*) beats a logit-lens control (what it would say
-*now*) — the discriminating test for a real workspace:
+We enriched two reasoning models and checked whether the J-lens (what an
+activation is pushing the model to say later) beats a logit-lens control (what it
+would say now). That comparison is what tells a real workspace apart from plain
+next-token structure.
 
 | | Qwen3-0.6B | DeepSeek-R1-1.5B |
 |---|---|---|
-| Meta-token category-matches the event it precedes, vs chance | 2.6× | **3.6×** |
-| J-lens lift | 2.76× | **3.64×** |
-| logit-lens lift (control) | 2.41× | 3.29× |
-| **J-lens beats logit-lens?** | trends ahead, overlapping (n≈100) | **yes** (n=239) |
+| Meta-token category matches the event it precedes, vs chance | 2.6x | **3.6x** |
+| J-lens lift | 2.76x | **3.64x** |
+| logit-lens lift (control) | 2.41x | 3.29x |
+| J-lens beats the control? | trends ahead, overlapping (n≈100) | **yes** (n=239) |
 
-The separation is clearer on the larger model — the direction the workspace
-hypothesis predicts. **These are observational, not causal**: no intervention was
-run. See the dataset cards for the honest, per-model write-ups.
-[[Qwen]](https://huggingface.co/datasets/codelion/Qwen3-0.6B-pts)
-[[DeepSeek]](https://huggingface.co/datasets/codelion/DeepSeek-R1-Distill-Qwen-1.5B-pts)
+The gap is clearer on the bigger model, which is the direction the workspace idea
+predicts. These are observational results, not causal ones. The dataset cards
+have the full per-model write-ups:
+[Qwen](https://huggingface.co/datasets/codelion/Qwen3-0.6B-pts),
+[DeepSeek](https://huggingface.co/datasets/codelion/DeepSeek-R1-Distill-Qwen-1.5B-pts).
 
 ## Commands
 
 | Command | Does |
 |---|---|
 | `pts run --granularity token\|sentence\|latent\|all` | Search for pivotal events |
-| `pts enrich --with-latent` | Add latent meta-token events to an existing dataset |
+| `pts enrich --with-latent` | Add latent meta-token events to a dataset |
 | `pts fit-jlens` | Calibrate a Jacobian lens for a model |
-| `pts link` | Link latent → token → sentence into causal chains |
-| `pts migrate` | Read older pivotal-token / thought-anchor files into the event schema |
+| `pts link` | Link latent, token, and sentence events into chains |
+| `pts migrate` | Read older pivotal-token / thought-anchor files into the schema |
 | `pts export --format …` | `causal_events`, `metatokens`, `pivotal_tokens`, `thought_anchors`, `dpo`, `steering` |
 | `pts push` | Upload to Hugging Face |
 
-DPO pairs and steering vectors (the latter feed [OptiLLM](https://github.com/codelion/optillm)'s
-autothink) are `export` formats — see [docs/compatibility.md](docs/compatibility.md).
+DPO pairs and steering vectors are `export` formats. The steering vectors feed
+[OptiLLM](https://github.com/codelion/optillm)'s autothink. See
+[docs/compatibility.md](docs/compatibility.md).
 
 ## Related work
 
-PTS is a synthesis: the contribution is the **unified framework**, and
-each scale is anchored to prior work rather than invented in a vacuum.
+PTS pulls three lines of work into one framework. The framework is the
+contribution; each scale rests on prior work.
 
-- **Token PTS** is the Pivotal Token Search idea from the **Phi-4 technical
-  report** [[2]](#references), generalized from a standalone token method into one
-  scale of a larger object.
-- **Sentence PTS** corresponds to **Thought Anchors** [[3]](#references) —
-  sentence-level reasoning steps that matter — recast as the sentence scale of the
-  same event.
-- **Latent PTS** reads the model's hidden workspace using a Jacobian lens,
-  inspired by Anthropic's **workspace / J-space** work [[1]](#references). It is
-  an **independent reimplementation from the paper's published equations** (no
-  reference code was released), verified for internal correctness against a
-  brute-force autograd Jacobian but **not** validated against the authors'
-  results. "Meta-token" is our term, not theirs.
+- **Token PTS** is the Pivotal Token Search idea from the Phi-4 technical report
+  [[2]](#references), turned from a standalone token method into one scale of a
+  larger object.
+- **Sentence PTS** is Thought Anchors [[3]](#references), the reasoning steps that
+  matter, recast as the sentence scale of the same event.
+- **Latent PTS** reads the hidden workspace with a Jacobian lens, following
+  Anthropic's workspace work [[1]](#references). It is an independent
+  reimplementation from the paper's published equations (no code was released),
+  checked against a brute-force autograd Jacobian but not validated against the
+  authors' own results. "Meta-token" is our term, not the paper's.
 
-Read the [three-scales table](#the-three-scales) left-to-right and it is the
-thesis: what Phi-4 found in emitted tokens and Thought Anchors found in reasoning
-sentences is the same phenomenon at different scales, and the workspace literature
-describes where it lives before it is emitted at all. Inspired by, related to, and
-compatible with — **not** the same as.
-
-## Caveats
-
-Latent PTS is the newest, least-settled part. Do not oversell it.
-
-- **A latent event's `score` is a readout probability, not a Δ-probability.**
-  `prob_delta` and `is_positive` are `null` on latent events by construction —
-  never compare or threshold them against emitted scores.
-- **Latent events are observational.** Showing a meta-token *causes* an emitted
-  event needs an intervention (steer/ablate, re-measure). Not implemented.
-- **Links are scored heuristics.** Always run `--shuffle-control`; if the observed
-  link scores don't beat the shuffled baseline, the structure is not above chance.
-- **Records are model-specific.** A token pivotal for one model says nothing about
-  another.
+Put simply: what Phi-4 found in tokens and Thought Anchors found in sentences is
+the same thing at different scales, and the workspace work describes where it
+lives before it is emitted. PTS is the frame around all three. It is inspired by
+and compatible with that work, not the same as it.
 
 ## Documentation
 
-- [docs/latent_pts.md](docs/latent_pts.md) — the J-lens, the math, and what would make it convincing
-- [docs/dataset_schema.md](docs/dataset_schema.md) — the unified event schema
-- [docs/compatibility.md](docs/compatibility.md) — reading older datasets, and the bugs that changed results
+- [docs/latent_pts.md](docs/latent_pts.md): the J-lens and how latent search works
+- [docs/dataset_schema.md](docs/dataset_schema.md): the event schema
+- [docs/compatibility.md](docs/compatibility.md): reading older datasets
+
+## Datasets
+
+- [codelion/Qwen3-0.6B-pts](https://huggingface.co/datasets/codelion/Qwen3-0.6B-pts)
+- [codelion/Qwen3-0.6B-pts-thought-anchors](https://huggingface.co/datasets/codelion/Qwen3-0.6B-pts-thought-anchors)
+- [codelion/Qwen3-0.6B-pts-steering-vectors](https://huggingface.co/datasets/codelion/Qwen3-0.6B-pts-steering-vectors)
+- [codelion/DeepSeek-R1-Distill-Qwen-1.5B-pts](https://huggingface.co/datasets/codelion/DeepSeek-R1-Distill-Qwen-1.5B-pts)
 
 ## References
 
@@ -185,7 +174,6 @@ Latent PTS is the newest, least-settled part. Do not oversell it.
    Search. [arXiv:2412.08905](https://arxiv.org/abs/2412.08905)
 3. P. C. Bogdan, U. Macar, N. Nanda, A. Conmy, *Thought Anchors: Which LLM
    Reasoning Steps Matter?* (2025). [arXiv:2506.19143](https://arxiv.org/abs/2506.19143)
-   · [code](https://github.com/interp-reasoning/thought-anchors)
 
 ## Citation
 
@@ -198,7 +186,3 @@ Latent PTS is the newest, least-settled part. Do not oversell it.
   url = {https://github.com/codelion/pts}
 }
 ```
-
-## License
-
-[Apache 2.0](LICENSE)

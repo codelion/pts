@@ -34,7 +34,7 @@ latent → token → sentence chain.
 |---|---|---|
 | `context` | string | The prefix before the event |
 | `label` | string | The event itself: the token, the sentence, or the meta-token |
-| `position` | int? | **Frame depends on the event — see below** |
+| `position` | int? | **Frame depends on the event (see below)** |
 | `token_id` | int? | Vocabulary id, where one applies |
 | `layer` | int? | Latent events only |
 | `layer_name` | string? | Latent events only |
@@ -44,16 +44,16 @@ latent → token → sentence chain.
 | Event | `position` means |
 |---|---|
 | `pivotal_token` | Absolute token index in the full sequence, **prompt included** |
-| `latent_metatoken` from `pts run --granularity latent` (probe) | Absolute token index, prompt included — the *same frame* as token events |
+| `latent_metatoken` from `pts run --granularity latent` (probe) | Absolute token index, prompt included. Same frame as token events. |
 | `latent_metatoken` from `pts enrich` | A **negative offset from its source event**, e.g. `-3` = three tokens before it. Meaningful only against the event named in `metadata.source_event_id` |
-| `thought_anchor` | **Sentence** index — not comparable to either of the above |
+| `thought_anchor` | **Sentence** index. Not comparable to either of the above. |
 
 Comparing a sentence index against a token index is meaningless, and applying an
 enrichment offset to any event other than its own source is meaningless. The
 linker enforces both; if you compute temporal relationships yourself, you must
 too.
 
-### Scoring — read this carefully
+### Scoring (read this carefully)
 
 | Field | Type | Notes |
 |---|---|---|
@@ -68,7 +68,7 @@ too.
 
 - For `pivotal_token` and `thought_anchor` events, `score = abs(prob_delta)`. It
   is a measured causal effect on success probability.
-- For `latent_metatoken` events, `score` is a **readout score** — the lens's
+- For `latent_metatoken` events, `score` is a **readout score**: the lens's
   probability for that vocabulary token. It is **not** a probability delta, it is
   **not** on the same scale, and it does **not** mean the concept caused
   anything.
@@ -76,7 +76,7 @@ too.
 `prob_before`, `prob_after`, `prob_delta`, and `is_positive` are **`null` on
 every latent event**, because nothing measured them. That is deliberate. Do not
 fill them in, and do not sort or threshold latent and emitted events together on
-`score` as though the numbers were comparable — they are not.
+`score` as though the numbers were comparable. They are not.
 
 The API enforces this rather than trusting you to remember it:
 
@@ -88,7 +88,7 @@ The API enforces this rather than trusting you to remember it:
 
 A single 0.5 floor across both scales keeps the banal meta-token `" the"`
 (readout probability 0.92) and discards a pivotal token worth +0.45. That is not
-a hypothetical — it is what the first implementation did.
+a hypothetical. It is what the first implementation did.
 
 ### Method
 
@@ -96,7 +96,7 @@ a hypothetical — it is what the first implementation did.
 |---|---|---|
 | `search_method` | string | `token_pts` \| `sentence_pts` \| `latent_pts` \| `latent_pts_enrichment` |
 | `intervention_type` | string? | `append_token` \| `replace_sentence` \| `remove_sentence` |
-| `readout_method` | string? | Latent only: `jlens` \| `logit_lens`. **`logit_lens` is weaker evidence** — filter on this. |
+| `readout_method` | string? | Latent only: `jlens` \| `logit_lens`. **`logit_lens` is weaker evidence**, so filter on this. |
 
 ### Classification and links
 
