@@ -162,8 +162,6 @@ and compatible with that work, not the same as it.
 ## Datasets
 
 - [codelion/Qwen3-0.6B-pts](https://huggingface.co/datasets/codelion/Qwen3-0.6B-pts)
-- [codelion/Qwen3-0.6B-pts-thought-anchors](https://huggingface.co/datasets/codelion/Qwen3-0.6B-pts-thought-anchors)
-- [codelion/Qwen3-0.6B-pts-steering-vectors](https://huggingface.co/datasets/codelion/Qwen3-0.6B-pts-steering-vectors)
 - [codelion/DeepSeek-R1-Distill-Qwen-1.5B-pts](https://huggingface.co/datasets/codelion/DeepSeek-R1-Distill-Qwen-1.5B-pts)
 
 ## References

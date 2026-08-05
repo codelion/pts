@@ -113,52 +113,15 @@ pts run --granularity all --model Qwen/Qwen3-0.6B \
         --output-path events.jsonl
 ```
 
-## What to keep in mind
+## Notes
 
-Each of these is a way the output can mislead you if you forget it.
-
-**A latent score is a readout probability, not a Δ-probability.** It says how
-strongly the lens surfaces a token, not how much that token changed the answer.
-It is not comparable to the `prob_delta` on token and sentence events.
-`prob_delta` and `is_positive` stay `null` on latent events on purpose.
-
-**Latent events are observational.** Enrichment reports what the lens sees. It
-does not show that a meta-token caused an emitted event. That would take an
-intervention: steer or ablate the direction and re-measure success.
-
-**Readouts are noisy.** Neither lens is guaranteed to be faithful to what the
-model actually represents. A high-scoring `verify` might be an artifact of the
-unembedding geometry rather than a real concept.
-
-**This is an independent reimplementation.** No code was released with the
-workspace paper. The math here comes from the published equations and is checked
-for internal correctness, but it has not been validated against the authors'
-results, so do not report PTS numbers as reproducing theirs.
-
-**Links are heuristics.** `linked_event_ids` come from a weighted score (query
-match, context overlap, category agreement, timing), not a verified causal path.
-Run `--shuffle-control`: if the observed link scores do not clearly beat the
-shuffled baseline, the structure is not above chance.
-
-**Records are model-specific.** A pivotal token in one model tells you nothing
-about another model's workspace. Enriching with a different model is refused
-unless you pass `--allow-model-mismatch`, and even then both model ids are stored.
-
-## What would make it convincing
-
-The claim under test is that emitted pivotal tokens and thought-anchor sentences
-are often preceded by latent meta-tokens in the workspace. In rough order of
-strength, the evidence that would back it up:
-
-1. **Intervention.** Steer or ablate a meta-token direction and show success
-   probability moves.
-2. **Lead time with a control.** Show a category-matching meta-token appears `k`
-   tokens before the emitted event more often than chance, using
-   `--shuffle-control` as the baseline.
-3. **Consistent chains.** Show `latent: verification -> token: " Wait" ->
-   sentence: "Let me check..."` holds across many queries, not just anecdotes.
-4. **J-lens beats logit-lens.** If the effect is just as strong with
-   `--readout-method logit_lens`, it is not about future influence, and so not
-   about a workspace.
-
-Until at least (2) holds with a control, treat the output as exploratory.
+- A latent event's `score` is a readout probability, not a Δ-probability. It is
+  not comparable to the `prob_delta` on token and sentence events, which is why
+  `prob_delta` and `is_positive` are `null` on latent events.
+- Latent events are observational. The lens shows what a meta-token leans toward,
+  not that it caused anything downstream. A causal claim would need an
+  intervention (steer or ablate, then re-measure).
+- Run `--shuffle-control`. If the link scores do not beat the shuffled baseline,
+  the structure is not above chance.
+- Records are model-specific. Enriching with a different model needs
+  `--allow-model-mismatch`.
