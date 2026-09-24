@@ -132,20 +132,27 @@ class EventExporter:
         different scales, so applying one threshold to both silently deletes
         every latent event (readout scores are routinely well below a 0.1
         prob-delta floor) while looking like a principled filter.
+
+        ``min_score`` refuses latent events on mixed score scales (see
+        ``EventStorage.filter``), and 0 means no floor.
         """
+        if min_score:
+            self.storage._single_readout_scale("--min-score")
         events = []
         for e in self.storage:
             if e.event_type == EVENT_LATENT:
-                if e.score >= min_score:
+                if not min_score or e.score >= min_score:
                     events.append(e)
             elif e.prob_delta is None or abs(e.prob_delta) >= min_prob_delta:
                 events.append(e)
         self._write(output_path, [e.to_dict() for e in events])
 
     def export_metatokens(self, output_path: str, min_score: float = 0.0) -> None:
+        if min_score:
+            self.storage._single_readout_scale("--min-score")
         events = [
             e for e in self.storage
-            if e.event_type == EVENT_LATENT and e.score >= min_score
+            if e.event_type == EVENT_LATENT and (not min_score or e.score >= min_score)
         ]
         if not events:
             logger.warning(

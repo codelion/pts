@@ -133,6 +133,53 @@ def test_filter_has_no_cross_scale_min_score():
     )
 
 
+
+@pytest.fixture
+def two_readout_scales():
+    """The same meta-token read two ways: a softmax probability and a cosine."""
+    s = EventStorage()
+    s.add_event(make_latent_event(
+        query="q", context="c", metatoken=" the", token_id=2,
+        score=0.92, layer=8, model_id="m", position=-1, readout_method="jlens",
+    ))
+    s.add_event(make_latent_event(
+        query="q", context="c", metatoken=" Paris", token_id=3,
+        score=0.09, layer=8, model_id="m", position=-1, readout_method="jlens_cosine",
+    ))
+    return s
+
+
+def test_latent_scores_on_different_scales_are_never_ranked_together(two_readout_scales):
+    """A cosine of 0.09 can be the strongest readout there is; a probability of
+    0.92 can be filler. Sorting or thresholding them together is the prob-delta
+    vs readout bug again, one level down."""
+    with pytest.raises(ValueError, match="different scales"):
+        two_readout_scales.most_surfaced(5)
+    with pytest.raises(ValueError, match="different scales"):
+        two_readout_scales.filter(min_readout_score=0.5)
+
+    one_scale = two_readout_scales.filter(criteria={"readout_method": "jlens_cosine"})
+    assert [e.label for e in one_scale.most_surfaced(5)] == [" Paris"]
+
+
+def test_summary_reports_each_readout_scale_separately(two_readout_scales):
+    s = two_readout_scales.summary()
+    assert s["average_readout_score"] is None
+    assert s["max_readout_score"] is None
+    assert s["readout_score_by_scale"]["probability"]["max"] == pytest.approx(0.92)
+    assert s["readout_score_by_scale"]["cosine"]["max"] == pytest.approx(0.09)
+
+
+def test_export_min_score_refuses_mixed_readout_scales(two_readout_scales, tmp_path):
+    from pts.exporters import EventExporter
+
+    exporter = EventExporter(two_readout_scales)
+    with pytest.raises(ValueError, match="different scales"):
+        exporter.export_metatokens(str(tmp_path / "m.jsonl"), min_score=0.05)
+    # No floor, no comparison: exporting everything is fine.
+    exporter.export_metatokens(str(tmp_path / "m.jsonl"))
+    assert len((tmp_path / "m.jsonl").read_text().splitlines()) == 2
+
 # -- 4. shuffle_control key consistency ------------------------------------
 
 def test_shuffle_control_has_the_same_keys_on_every_path():

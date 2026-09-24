@@ -75,6 +75,7 @@ _LAZY = {
     "TokenExporter": ("pts.exporters", "TokenExporter"),
     "EventExporter": ("pts.exporters", "EventExporter"),
     "JLens": ("pts.latent.jlens", "JLens"),
+    "JLensCosine": ("pts.latent.jlens", "JLensCosine"),
     "Readout": ("pts.latent.jlens", "Readout"),
 }
 

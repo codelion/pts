@@ -538,13 +538,21 @@ def _add_latent_args(p) -> None:
     p.add_argument(
         "--readout-method",
         default="logit_lens",
-        choices=["jlens", "logit_lens"],
+        choices=["jlens", "jlens_cosine", "logit_lens"],
         help="How to read meta-tokens out of the workspace. 'jlens' needs "
-             "--jlens-path (fit one with `pts fit-jlens`). 'logit_lens' needs no "
+             "--jlens-path. 'jlens_cosine' ranks by cosine to each token's J-lens "
+             "vector, as WorkspaceBench does; its score is a cosine, not a "
+             "probability. 'logit_lens' needs no "
              "calibration but is weaker evidence: it reads what an activation "
              "would say now, not what it pushes the model to say later.",
     )
-    p.add_argument("--jlens-path", default=None, help="Directory holding fitted J-lens matrices")
+    p.add_argument(
+        "--jlens-path",
+        default=None,
+        help="A `pts fit-jlens` directory, a reference jacobian-lens .pt file, or "
+             "hf://<org>/<repo>/<file.pt> (e.g. a Neuronpedia lens from "
+             "hf://neuronpedia/jacobian-lens/...)",
+    )
     p.add_argument(
         "--workspace-layers",
         nargs="+",
@@ -565,7 +573,9 @@ def _add_latent_args(p) -> None:
     # Not --top-k: `pts run` already uses that for sampling.
     p.add_argument("--readout-top-k", type=int, default=25,
                    help="How many vocabulary tokens to read out per position")
-    p.add_argument("--min-score", type=float, default=0.01, help="Minimum readout score to keep")
+    p.add_argument("--min-score", type=float, default=0.01,
+                   help="Minimum readout score to keep (a probability, or a cosine "
+                        "for jlens_cosine)")
     p.add_argument("--keep-per-position", type=int, default=3,
                    help="Max meta-token events kept per position/layer")
     p.add_argument("--link-threshold", type=float, default=0.5, help="Minimum link score")

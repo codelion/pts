@@ -17,6 +17,7 @@ from .events import (
     EVENT_SENTENCE,
     EVENT_TOKEN,
     from_any_record,
+    readout_score_scale,
 )
 
 logger = logging.getLogger(__name__)
@@ -175,7 +176,13 @@ class EventStorage:
         So the two scales get their own thresholds: ``min_prob_delta`` for
         emitted events, ``min_readout_score`` for latent ones. Each applies only
         to the scale it belongs to and leaves the other untouched.
+
+        Latent scores are not all on one scale either: ``jlens_cosine`` scores a
+        cosine, the others a probability. ``min_readout_score`` raises if the
+        latent events here mix the two; filter by ``readout_method`` first.
         """
+        if min_readout_score is not None:
+            self._single_readout_scale("min_readout_score")
         result = EventStorage()
 
         for evt in self.events:
@@ -235,7 +242,24 @@ class EventStorage:
         the token matters causally.
         """
         latent = self.by_event_type(EVENT_LATENT)
+        self._single_readout_scale("most_surfaced()")
         return sorted(latent, key=lambda e: e.score, reverse=True)[:n]
+
+    def _latent_scales(self) -> Dict[str, List[CausalReasoningEvent]]:
+        scales: Dict[str, List[CausalReasoningEvent]] = {}
+        for e in self.by_event_type(EVENT_LATENT):
+            scales.setdefault(readout_score_scale(e.readout_method), []).append(e)
+        return scales
+
+    def _single_readout_scale(self, operation: str) -> None:
+        scales = self._latent_scales()
+        if len(scales) > 1:
+            raise ValueError(
+                f"{operation} would compare latent scores on different scales "
+                f"({', '.join(sorted(scales))}): a jlens_cosine score is a cosine, "
+                "not a probability. Filter to one readout_method first, e.g. "
+                "filter(criteria={'readout_method': 'jlens'})."
+            )
 
     def queries(self) -> List[str]:
         seen = []
@@ -262,6 +286,7 @@ class EventStorage:
 
         emitted = [e for e in self.events if e.prob_delta is not None]
         latent = self.by_event_type(EVENT_LATENT)
+        scales = self._latent_scales()
 
         summary = {
             "total_events": len(self.events),
@@ -281,11 +306,23 @@ class EventStorage:
             "max_abs_prob_delta": (
                 max(abs(e.prob_delta) for e in emitted) if emitted else None
             ),
-            # Latent only: these are readout probabilities, on a different scale.
+            # Latent only, and only when every readout is on one scale: these
+            # are readout scores, not probability deltas.
             "average_readout_score": (
-                sum(e.score for e in latent) / len(latent) if latent else None
+                sum(e.score for e in latent) / len(latent)
+                if latent and len(scales) == 1 else None
             ),
-            "max_readout_score": max((e.score for e in latent), default=None),
+            "max_readout_score": (
+                max(e.score for e in latent) if latent and len(scales) == 1 else None
+            ),
+            "readout_score_by_scale": {
+                scale: {
+                    "count": len(evts),
+                    "average": sum(e.score for e in evts) / len(evts),
+                    "max": max(e.score for e in evts),
+                }
+                for scale, evts in scales.items()
+            },
         }
         # the legacy format's get_anchor_summary reads these names; they mean emitted-only.
         summary["average_score"] = summary["average_abs_prob_delta"]

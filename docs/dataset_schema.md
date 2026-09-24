@@ -96,7 +96,7 @@ a hypothetical. It is what the first implementation did.
 |---|---|---|
 | `search_method` | string | `token_pts` \| `sentence_pts` \| `latent_pts` \| `latent_pts_enrichment` |
 | `intervention_type` | string? | `append_token` \| `replace_sentence` \| `remove_sentence` |
-| `readout_method` | string? | Latent only: `jlens` \| `logit_lens`. **`logit_lens` is weaker evidence**, so filter on this. |
+| `readout_method` | string? | Latent only: `jlens` \| `jlens_cosine` \| `logit_lens`. **`logit_lens` is weaker evidence**, so filter on this. `jlens_cosine` scores a cosine, not a probability, so never compare its `score` with the others. |
 
 ### Classification and links
 

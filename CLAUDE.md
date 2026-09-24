@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-Guidance for Claude Code (claude.ai/code) when working in this repository.
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 ## Project overview
 
@@ -23,8 +23,8 @@ Token Search"). Pivotal tokens are one of three scales it searches.
 
 ## The invariant that matters most
 
-**A latent event's `score` is a J-lens readout probability. It is NOT a
-probability delta.**
+**A latent event's `score` is a J-lens readout score (a probability, or a cosine
+for `jlens_cosine`). It is NOT a probability delta.**
 
 - Latent events have `prob_delta`, `prob_before`, `prob_after`, and
   `is_positive` set to `None`, deliberately. Do not fill them in.
@@ -41,6 +41,13 @@ probability delta.**
   A single 0.5 floor across both scales keeps the filler meta-token `" the"`
   (readout 0.92) and throws away a pivotal token worth +0.45. This has already
   been shipped once by accident; do not reintroduce it.
+  `tests/test_regressions.py` pins this and the other bugs listed under "Things
+  that will bite you".
+- The same rule holds one level down: `jlens_cosine` scores are cosines, while
+  `jlens`/`logit_lens` scores are probabilities. `min_readout_score`,
+  `most_surfaced()` and exporter `min_score` raise on a mix, and `summary()`
+  reports `readout_score_by_scale`. Scales are defined by `READOUT_SCORE_SCALE`
+  in `pts/events.py`; register any new readout method there.
 - Never count latent events as positive or negative — they have no valence.
 - `logit_lens` readouts are weaker evidence than `jlens` ones; keep
   `readout_method` visible so they can be filtered apart.
@@ -57,7 +64,8 @@ which is the main way this project can mislead people. Tests in
 pip install -e .           # core + model deps
 pip install -e '.[all]'    # + sentence-transformers, math-verify, pytest
 
-pytest tests/ -q           # 66 tests, ~15s, uses a tiny random model
+pytest tests/ -q           # 94 tests, ~20s, uses a tiny random model
+pytest tests/test_jlens.py::test_causal_mask_holds -q   # a single test
 
 pts run --granularity token|sentence|latent|all --model M --output-path events.jsonl
 pts fit-jlens --model M --output-path ./jlens/m          # calibrate the Jacobian lens
@@ -84,12 +92,16 @@ pts push --input-path X --hf-repo-id user/repo
 | `pts/searchers/base.py` | Model loading, prompt formatting, the probability cache. |
 | `pts/searchers/{token,sentence,latent,reasoning}.py` | The four searchers. |
 | `pts/oracle.py`, `pts/dataset.py` | Success evaluation and dataset loading (largely unchanged). |
+| `pts/verification.py` | Arithmetic CoT verification used by Sentence PTS. Imports torch at module level. |
+| `pts/cli.py` | Every `pts` subcommand and its flags. |
 | `pts/exporters.py` | All output formats + dataset cards. |
 | `pts/core.py`, `pts/storage.py`, `pts/thought_anchors.py` | legacy compatibility shims. |
 
 `import pts` must **not** require torch or transformers. The schema, storage,
 classification, and linking layers are pure Python; model-touching code is
 imported lazily via `__getattr__`. Keep it that way.
+
+`research/` and `visualizer/` are standalone and excluded from the package.
 
 ## The J-lens
 
@@ -108,9 +120,18 @@ row — the paper's `O(n × d_model)` cost.
 `torch.autograd.functional.jacobian`, and `test_causal_mask_holds` checks the
 assumption directly. Do not weaken those tests.
 
-No reference code was released with the workspace paper — this is written from
-the equations and has **not** been validated against the authors' results. Say so
-when writing docs. "Meta-token" is our term, not the paper's.
+`fit` was written from the equations before Anthropic released reference code
+(`anthropics/jacobian-lens`). Its estimator differs: the reference skips the first
+16 positions and the last one, and sums over `t' >= t` where we average. Our
+fitted lenses have **not** been validated against theirs. Say so when writing
+docs. "Meta-token" is our term, not the paper's.
+
+`JLens.load` also reads reference `.pt` lenses (`{"J": {layer: [d,d]}, ...}`),
+locally or as `hf://<org>/<repo>/<file.pt>`. Neuronpedia hosts ~40 at
+`neuronpedia/jacobian-lens`. They use our convention (`J @ h` on decoder-block
+outputs, target = final block), and `lm_head(final_norm(J h))` is the reference
+readout. Loading checks width and depth against the model. `jlens_cosine` is
+WorkspaceBench's readout, not the paper's.
 
 ## Things that will bite you
 

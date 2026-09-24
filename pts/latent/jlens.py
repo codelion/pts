@@ -17,14 +17,27 @@ The rows of ``W_U @ J_l`` are the J-lens vectors: one direction per vocabulary
 token, each the average causal influence of that direction on eventually
 producing that token.
 
-No reference implementation was released with the paper, so this is written
-from the equations. It has not been validated against the authors' results --
-treat the readouts as hypotheses. See ``docs/latent_pts.md``.
+``fit`` was written from the paper's equations before Anthropic released
+reference code (``anthropics/jacobian-lens``), and its estimator is not
+identical to theirs: the reference skips the first 16 positions and the last
+one, and sums over later targets ``t' >= t`` where we average over them. Our
+fitted matrices have not been validated against theirs -- treat readouts from
+them as hypotheses. ``JLens.load`` also reads the reference ``.pt`` format,
+including the fitted lenses Neuronpedia hosts on the Hugging Face Hub (see
+``load`` below), so you can skip fitting and use theirs. See
+``docs/latent_pts.md``.
 
 Note that the **logit lens is exactly this construction with J = I**: it asks
 what the activation would say if emitted right now, rather than what it is
 pushing the model to say later. That makes it a principled zero-cost baseline
 rather than a hack, and it is what ``--readout-method logit_lens`` uses.
+
+``--readout-method jlens_cosine`` ranks tokens the way WorkspaceBench's J-lens
+arm does: by the cosine between ``h`` and each token's J-lens vector
+``J_l^T w_t``, with no final norm. That removes the advantage tokens get from
+having large J-lens vectors. Its ``score`` is a cosine in [-1, 1], **not a
+probability**, so it must never be thresholded or ranked together with
+``jlens`` / ``logit_lens`` scores; ``EventStorage`` refuses to.
 
 Computing J efficiently
 -----------------------
@@ -45,11 +58,13 @@ Jacobian for *all* source positions simultaneously, giving the paper's stated
 import json
 import logging
 import os
+import re
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Sequence
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import torch
 
+from ..events import READOUT_JLENS, READOUT_JLENS_COSINE, READOUT_LOGIT_LENS
 from .activations import (
     ResidualCapture,
     get_final_norm,
@@ -60,9 +75,9 @@ from .activations import (
 
 logger = logging.getLogger(__name__)
 
-READOUT_JLENS = "jlens"
-READOUT_LOGIT_LENS = "logit_lens"
-READOUT_METHODS = (READOUT_JLENS, READOUT_LOGIT_LENS)
+READOUT_METHODS = (READOUT_JLENS, READOUT_JLENS_COSINE, READOUT_LOGIT_LENS)
+
+HUB_PREFIX = "hf://"
 
 
 @dataclass
@@ -110,6 +125,13 @@ class Readout:
         """Map a layer-l activation into the final-residual-stream basis."""
         raise NotImplementedError
 
+    def scores(self, h: torch.Tensor, layer: int) -> torch.Tensor:
+        """One score per vocabulary token. By default a probability distribution."""
+        projected = self.transform(h, layer)
+        if self.final_norm is not None:
+            projected = self.final_norm(projected)
+        return torch.softmax((self.W_U @ projected).float(), dim=-1)
+
     def read(
         self,
         activations: torch.Tensor,
@@ -125,16 +147,9 @@ class Readout:
 
         with torch.no_grad():
             h = activations.to(self.W_U.dtype).to(self.W_U.device)
-            projected = self.transform(h, layer)
-
-            if self.final_norm is not None:
-                projected = self.final_norm(projected)
-
-            logits = self.W_U @ projected
-            probs = torch.softmax(logits.float(), dim=-1)
-
-            k = min(top_k, probs.shape[-1])
-            top = torch.topk(probs, k=k)
+            scores = self.scores(h, layer)
+            k = min(top_k, scores.shape[-1])
+            top = torch.topk(scores, k=k)
 
         results = []
         for rank, (score, token_id) in enumerate(zip(top.values.tolist(), top.indices.tolist()), 1):
@@ -383,37 +398,181 @@ class JLens(Readout):
 
     @classmethod
     def load(cls, path: str, model: Any, tokenizer: Any) -> "JLens":
-        import numpy as np
+        """Load J-lens matrices from any of:
 
-        npz_path = os.path.join(path, "jlens.npz")
-        if not os.path.exists(npz_path):
-            raise FileNotFoundError(
-                f"No J-lens at {path} (expected {npz_path}). "
-                f"Fit one with: pts fit-jlens --model <model> --output-path {path}"
-            )
+        - a directory written by ``save`` (``jlens.npz`` + ``config.json``);
+        - a ``.pt`` file in the reference ``JacobianLens`` layout
+          (``{"J": {layer: [d, d]}, "n_prompts", "source_layers", "d_model"}``);
+        - ``hf://<org>/<repo>/<path/to/lens.pt>``, the same file on the Hub, e.g.
+          ``hf://neuronpedia/jacobian-lens/gpt2-small/jlens/Salesforce-wikitext/gpt2_jacobian_lens.pt``.
 
-        data = np.load(npz_path)
-        matrices = {
-            int(key.split("_")[1]): torch.from_numpy(data[key]) for key in data.files
-        }
+        Reference lenses map a decoder block's output at layer ``l`` into the
+        final block's output basis, as ``J_l @ h`` -- the same convention as
+        ``fit``, so they drop in unchanged.
+        """
+        if path.startswith(HUB_PREFIX):
+            path = _download_from_hub(path)
+        if os.path.isfile(path):
+            matrices, config = _load_reference_pt(path)
+        else:
+            matrices, config = _load_npz_dir(path)
 
-        config = {}
-        config_path = os.path.join(path, "config.json")
-        if os.path.exists(config_path):
-            with open(config_path) as f:
-                config = json.load(f)
-
-        fitted_for = config.get("model_id")
-        current = getattr(model.config, "_name_or_path", None)
-        if fitted_for and current and fitted_for != current:
-            logger.warning(
-                f"This J-lens was fitted on {fitted_for} but is being used with "
-                f"{current}. J-lens matrices are model-specific; readouts will be "
-                "meaningless across models."
-            )
-
+        _check_lens_fits_model(matrices, config, model, path)
         logger.info(f"Loaded J-lens for layers {sorted(matrices)} from {path}")
         return cls(model, tokenizer, matrices=matrices, config=config)
+
+
+class JLensCosine(JLens):
+    """J-lens ranked by cosine to each token's J-lens vector, as WorkspaceBench does.
+
+    ``score_t = <J_l^T w_t, h> / (||J_l^T w_t|| ||h||)``. There is no final norm
+    and no softmax, so ``score`` is a cosine in [-1, 1], not a probability; see
+    the module docstring for why that matters downstream. Dividing by ``||h||``
+    does not change the ranking WorkspaceBench uses; it only makes scores
+    comparable across positions.
+    """
+
+    method = READOUT_JLENS_COSINE
+
+    def __init__(self, *args: Any, **kwargs: Any):
+        super().__init__(*args, **kwargs)
+        self._vector_norms: Dict[int, torch.Tensor] = {}
+
+    def _jlens_vector_norms(self, layer: int, J: torch.Tensor) -> torch.Tensor:
+        """``||J_l^T w_t||`` for every token, cached per layer.
+
+        ``W_U @ J`` is ``[vocab, d_model]`` -- about 3 GB in fp32 for a
+        150k-token vocabulary at d_model 5120 -- so build it in chunks and keep
+        only the norms.
+        """
+        if layer not in self._vector_norms:
+            W_U = self.W_U
+            norms = torch.empty(W_U.shape[0], dtype=torch.float32, device=W_U.device)
+            for start in range(0, W_U.shape[0], 8192):
+                chunk = W_U[start:start + 8192].float() @ J
+                norms[start:start + 8192] = chunk.norm(dim=1)
+            self._vector_norms[layer] = norms.clamp_min(1e-9)
+        return self._vector_norms[layer]
+
+    def scores(self, h: torch.Tensor, layer: int) -> torch.Tensor:
+        if layer not in self.matrices:
+            self.transform(h, layer)  # raises the helpful KeyError
+        J = self.matrices[layer].to(torch.float32).to(h.device)
+        h = h.to(torch.float32)
+        raw = (self.W_U @ (J @ h).to(self.W_U.dtype)).float()
+        return raw / (self._jlens_vector_norms(layer, J) * h.norm().clamp_min(1e-9))
+
+
+# -- loading reference lenses -------------------------------------------------
+
+def parse_hub_path(path: str) -> Tuple[str, str]:
+    """Split ``hf://org/repo/sub/dir/file.pt`` into ``("org/repo", "sub/dir/file.pt")``."""
+    parts = path[len(HUB_PREFIX):].split("/", 2)
+    if len(parts) < 3 or not all(parts):
+        raise ValueError(
+            f"Bad Hub J-lens path {path!r}: expected hf://<org>/<repo>/<file.pt>"
+        )
+    return f"{parts[0]}/{parts[1]}", parts[2]
+
+
+def _download_from_hub(path: str) -> str:
+    from huggingface_hub import hf_hub_download
+
+    repo_id, filename = parse_hub_path(path)
+    local = hf_hub_download(repo_id, filename)
+    # Neuronpedia puts a config.yaml naming the model beside each lens. Fetch it
+    # too so the model-mismatch check has something to compare against.
+    try:
+        hf_hub_download(repo_id, f"{os.path.dirname(filename)}/config.yaml")
+    except Exception:
+        pass
+    return local
+
+
+def _load_reference_pt(path: str) -> Tuple[Dict[int, torch.Tensor], Dict[str, Any]]:
+    # weights_only: a lens file is tensors and ints, so refuse anything that
+    # would need arbitrary unpickling.
+    checkpoint = torch.load(path, map_location="cpu", weights_only=True)
+    if not isinstance(checkpoint, dict) or "J" not in checkpoint:
+        found = sorted(checkpoint) if isinstance(checkpoint, dict) else type(checkpoint).__name__
+        raise ValueError(
+            f"{path} is not a reference JacobianLens file (expected a 'J' key, found {found!r})"
+        )
+    matrices = {int(layer): J.to(torch.float32) for layer, J in checkpoint["J"].items()}
+    config: Dict[str, Any] = {
+        "format": "reference_pt",
+        "source": path,
+        "layers": sorted(matrices),
+        "d_model": checkpoint.get("d_model"),
+        "num_sequences": checkpoint.get("n_prompts"),
+        "method": "averaged_jacobian (reference estimator)",
+    }
+    model_id = _model_id_from_sidecar(os.path.join(os.path.dirname(path), "config.yaml"))
+    if model_id:
+        config["model_id"] = model_id
+    return matrices, config
+
+
+def _model_id_from_sidecar(yaml_path: str) -> Optional[str]:
+    """``hf_model_name`` from a Neuronpedia ``config.yaml``, without needing PyYAML."""
+    if not os.path.exists(yaml_path):
+        return None
+    with open(yaml_path) as f:
+        match = re.search(r'^hf_model_name:\s*"?([^"\n]+)"?\s*$', f.read(), re.MULTILINE)
+    return match.group(1).strip() if match else None
+
+
+def _load_npz_dir(path: str) -> Tuple[Dict[int, torch.Tensor], Dict[str, Any]]:
+    import numpy as np
+
+    npz_path = os.path.join(path, "jlens.npz")
+    if not os.path.exists(npz_path):
+        raise FileNotFoundError(
+            f"No J-lens at {path} (expected {npz_path}, a reference .pt file, or "
+            f"an hf://<org>/<repo>/<file.pt> path). "
+            f"Fit one with: pts fit-jlens --model <model> --output-path {path}"
+        )
+
+    data = np.load(npz_path)
+    matrices = {
+        int(key.split("_")[1]): torch.from_numpy(data[key]) for key in data.files
+    }
+
+    config: Dict[str, Any] = {}
+    config_path = os.path.join(path, "config.json")
+    if os.path.exists(config_path):
+        with open(config_path) as f:
+            config = json.load(f)
+    return matrices, config
+
+
+def _check_lens_fits_model(
+    matrices: Dict[int, torch.Tensor], config: Dict[str, Any], model: Any, path: str
+) -> None:
+    """Refuse a lens whose shape cannot belong to this model; warn on a name mismatch."""
+    d_model = getattr(model.config, "hidden_size", None)
+    for layer, J in matrices.items():
+        if d_model is not None and tuple(J.shape) != (d_model, d_model):
+            raise ValueError(
+                f"J-lens at {path} has layer-{layer} matrix {tuple(J.shape)}, but this "
+                f"model's d_model is {d_model}. It was fitted for a different model."
+            )
+    num_layers = len(get_layer_modules(model))
+    bad = [l for l in matrices if not 0 <= l < num_layers - 1]
+    if bad:
+        raise ValueError(
+            f"J-lens at {path} has layers {sorted(bad)}, outside 0..{num_layers - 2} "
+            f"for this {num_layers}-layer model. It was fitted for a different model."
+        )
+
+    fitted_for = config.get("model_id")
+    current = getattr(model.config, "_name_or_path", None)
+    if fitted_for and current and fitted_for != current:
+        logger.warning(
+            f"This J-lens was fitted on {fitted_for} but is being used with "
+            f"{current}. J-lens matrices are model-specific; readouts will be "
+            "meaningless across models."
+        )
 
 
 def load_readout(
@@ -431,16 +590,18 @@ def load_readout(
     if method == READOUT_LOGIT_LENS:
         return LogitLens(model, tokenizer)
 
-    if method == READOUT_JLENS:
+    if method in (READOUT_JLENS, READOUT_JLENS_COSINE):
         if not jlens_path:
             raise ValueError(
-                "--readout-method jlens requires --jlens-path pointing at fitted "
-                "matrices. Fit them with `pts fit-jlens`, or use "
+                f"--readout-method {method} requires --jlens-path pointing at fitted "
+                "matrices: a `pts fit-jlens` directory, a reference .pt file, or "
+                "hf://<org>/<repo>/<file.pt>. Or use "
                 "`--readout-method logit_lens` for the zero-cost baseline "
                 "(weaker evidence: it reads what the activation would say now, "
                 "not what it pushes the model to say later)."
             )
-        return JLens.load(jlens_path, model, tokenizer)
+        lens_cls = JLensCosine if method == READOUT_JLENS_COSINE else JLens
+        return lens_cls.load(jlens_path, model, tokenizer)
 
     raise ValueError(
         f"Unknown readout method {method!r}. Available: {', '.join(READOUT_METHODS)}."
