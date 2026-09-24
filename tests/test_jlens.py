@@ -20,7 +20,13 @@ from pts.latent.activations import (  # noqa: E402
     get_unembedding,
     resolve_workspace_layers,
 )
-from pts.latent.jlens import JLens, LogitLens, load_readout  # noqa: E402
+from pts.latent.jlens import (  # noqa: E402
+    JLens,
+    JLensCosine,
+    LogitLens,
+    load_readout,
+    parse_hub_path,
+)
 
 TINY = "hf-internal-testing/tiny-random-LlamaForCausalLM"
 
@@ -230,3 +236,109 @@ def test_reading_an_unfitted_layer_is_an_error(model_and_tokenizer):
     jl = JLens(model, tok, matrices={0: torch.eye(model.config.hidden_size)})
     with pytest.raises(KeyError, match="No J-lens matrix fitted for layer 1"):
         jl.read(torch.randn(model.config.hidden_size), 1)
+
+
+# -- reference (anthropics/jacobian-lens) lenses ---------------------------
+
+def _save_reference_lens(path, matrices, n_prompts=7):
+    """Write the layout ``jlens.JacobianLens.save`` produces: fp16, int layer keys."""
+    d_model = next(iter(matrices.values())).shape[0]
+    torch.save(
+        {
+            "J": {l: J.to(torch.float16) for l, J in matrices.items()},
+            "n_prompts": n_prompts,
+            "source_layers": sorted(matrices),
+            "d_model": d_model,
+        },
+        path,
+    )
+
+
+def test_loads_the_reference_pt_layout(model_and_tokenizer, tmp_path):
+    model, tok = model_and_tokenizer
+    d_model = model.config.hidden_size
+    J = torch.randn(d_model, d_model).to(torch.float16).float()  # exact in fp16
+    _save_reference_lens(tmp_path / "lens.pt", {0: J})
+
+    loaded = JLens.load(str(tmp_path / "lens.pt"), model, tok)
+    assert loaded.layers == [0]
+    assert loaded.matrices[0].dtype == torch.float32
+    assert torch.equal(loaded.matrices[0], J)
+    assert loaded.config["num_sequences"] == 7
+    assert loaded.config["format"] == "reference_pt"
+
+    # Same convention as our own fit: the loaded lens reads exactly like one
+    # built from the same matrix.
+    h = torch.randn(d_model)
+    direct = JLens(model, tok, matrices={0: J}).read(h, 0, top_k=5)
+    assert [r.token_id for r in loaded.read(h, 0, top_k=5)] == [r.token_id for r in direct]
+
+
+def test_reference_lens_picks_up_the_model_from_its_sidecar(model_and_tokenizer, tmp_path):
+    model, tok = model_and_tokenizer
+    d_model = model.config.hidden_size
+    _save_reference_lens(tmp_path / "lens.pt", {0: torch.eye(d_model)})
+    (tmp_path / "config.yaml").write_text(
+        '# Neuronpedia fit\nnp_model_id: "x"\nhf_model_name: "org/some-model"\n'
+    )
+    loaded = JLens.load(str(tmp_path / "lens.pt"), model, tok)
+    assert loaded.config["model_id"] == "org/some-model"
+
+
+def test_a_lens_for_another_model_is_refused(model_and_tokenizer, tmp_path):
+    """A wrong-width lens would fail deep inside a matmul, or worse, not at all
+    if the widths happened to line up with a transposed read."""
+    model, tok = model_and_tokenizer
+    d_model = model.config.hidden_size
+    _save_reference_lens(tmp_path / "wide.pt", {0: torch.eye(d_model + 1)})
+    with pytest.raises(ValueError, match="d_model"):
+        JLens.load(str(tmp_path / "wide.pt"), model, tok)
+
+    num_layers = len(get_layer_modules(model))
+    _save_reference_lens(tmp_path / "deep.pt", {num_layers + 3: torch.eye(d_model)})
+    with pytest.raises(ValueError, match="outside"):
+        JLens.load(str(tmp_path / "deep.pt"), model, tok)
+
+
+def test_a_non_lens_pt_file_is_refused(model_and_tokenizer, tmp_path):
+    model, tok = model_and_tokenizer
+    torch.save({"jacobian_sum": {}, "n_done": 0}, tmp_path / "ckpt.pt")
+    with pytest.raises(ValueError, match="not a reference JacobianLens file"):
+        JLens.load(str(tmp_path / "ckpt.pt"), model, tok)
+
+
+def test_hub_paths_split_into_repo_and_file():
+    assert parse_hub_path(
+        "hf://neuronpedia/jacobian-lens/gpt2-small/jlens/Salesforce-wikitext/gpt2_jacobian_lens.pt"
+    ) == (
+        "neuronpedia/jacobian-lens",
+        "gpt2-small/jlens/Salesforce-wikitext/gpt2_jacobian_lens.pt",
+    )
+    with pytest.raises(ValueError, match="hf://"):
+        parse_hub_path("hf://neuronpedia/jacobian-lens")
+
+
+# -- the cosine readout ----------------------------------------------------
+
+def test_cosine_readout_matches_the_workspacebench_formula(model_and_tokenizer):
+    """score_t = <J^T w_t, h> / (||J^T w_t|| ||h||): no final norm, no softmax."""
+    model, tok = model_and_tokenizer
+    d_model = model.config.hidden_size
+    J = torch.randn(d_model, d_model)
+    h = torch.randn(d_model)
+    W = get_unembedding(model).float()
+
+    expected = (W @ (J @ h)) / ((W @ J).norm(dim=1) * h.norm())
+    top = torch.topk(expected, 5)
+
+    results = JLensCosine(model, tok, matrices={0: J}).read(h, 0, top_k=5)
+    assert [r.token_id for r in results] == top.indices.tolist()
+    assert all(abs(r.score - e) < 1e-4 for r, e in zip(results, top.values.tolist()))
+    assert all(-1.0 <= r.score <= 1.0 for r in results)
+    assert all(r.readout_method == "jlens_cosine" for r in results)
+
+
+def test_cosine_readout_needs_a_lens_too(model_and_tokenizer):
+    model, tok = model_and_tokenizer
+    with pytest.raises(ValueError, match="requires --jlens-path"):
+        load_readout(model, tok, method="jlens_cosine", jlens_path=None)

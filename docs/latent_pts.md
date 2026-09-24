@@ -57,6 +57,14 @@ Jacobian for all source positions at the same time. That is the paper's stated
 cost of `O(n x d_model)` backward passes. Dividing row `t` by the count of
 `t' >= t` turns the sum into the mean the definition asks for.
 
+Anthropic's reference code, [`anthropics/jacobian-lens`](https://github.com/anthropics/jacobian-lens),
+came out after `fit` was written, and its estimator differs in two ways: it
+skips the first 16 positions (attention sinks) and the last one, and it keeps
+the sum over `t' >= t` instead of dividing it into a mean. So a lens from
+`pts fit-jlens` is not the same matrix as a reference lens, and ours has not
+been validated against theirs. If one exists for your model, prefer the
+reference lens (below).
+
 `tests/test_jlens.py` checks this against a brute-force
 `torch.autograd.functional.jacobian`. The two agree to about 1e-8, and a separate
 test checks the causal-mask assumption directly.
@@ -69,6 +77,17 @@ no calibration, so it is a good way to try Latent PTS before you commit to a fit
 It is also a weaker signal. A workspace claim is a claim about future influence,
 and the logit lens does not measure future influence. Events read this way are
 tagged `readout_method: "logit_lens"` so you can filter them out.
+
+### The cosine readout
+
+[WorkspaceBench](https://github.com/camilablank/workspace-bench) reads its J-lens
+arm differently: it ranks tokens by the cosine between `h_l` and each token's
+J-lens vector `J_l^T w_t`, with no final norm and no softmax. That stops tokens
+with large J-lens vectors from dominating every readout.
+`--readout-method jlens_cosine` does the same. Its `score` is a cosine in
+[-1, 1], not a probability, so `EventStorage` refuses to rank or threshold it
+together with `jlens` or `logit_lens` events. Filter to one `readout_method`
+first.
 
 ## Usage
 
@@ -87,6 +106,24 @@ which is why 25 is the default. Calibration text only needs to be generic, since
 the lens is a property of the model rather than the task, so the source dataset
 works fine with no labels. Pass `--calibration-file` for your own text, one
 sequence per line. Lower `--basis-chunk` if you run out of memory.
+
+### 1b. Or use a reference lens
+
+Neuronpedia hosts reference-code lenses for about 40 models (GPT-2, Gemma 2/3/4,
+Llama 3.1/3.3, Qwen3/3.5/3.6, OLMo 3 and others) at
+[`neuronpedia/jacobian-lens`](https://huggingface.co/neuronpedia/jacobian-lens).
+`--jlens-path` takes one directly as `hf://<org>/<repo>/<file.pt>`, or a local
+`.pt` file in the same format:
+
+```bash
+pts enrich --input-path events.jsonl --output-path events_latent.jsonl \
+  --model Qwen/Qwen3-1.7B --with-latent --readout-method jlens \
+  --jlens-path hf://neuronpedia/jacobian-lens/qwen3-1.7b/jlens/Salesforce-wikitext/Qwen3-1.7B_jacobian_lens.pt
+```
+
+These lenses cover every layer below the last, so any workspace layer works. A
+lens whose width or depth does not fit the model is refused. When the
+`config.yaml` next to it names a different model, you get a warning.
 
 ### 2. Enrich a dataset you already have
 
@@ -115,7 +152,8 @@ pts run --granularity all --model Qwen/Qwen3-0.6B \
 
 ## Notes
 
-- A latent event's `score` is a readout probability, not a Δ-probability. It is
+- A latent event's `score` is a readout score, not a Δ-probability: a
+  probability for `jlens` and `logit_lens`, a cosine for `jlens_cosine`. It is
   not comparable to the `prob_delta` on token and sentence events, which is why
   `prob_delta` and `is_positive` are `null` on latent events.
 - Latent events are observational. The lens shows what a meta-token leans toward,

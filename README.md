@@ -89,7 +89,9 @@ pts run --granularity all --model Qwen/Qwen3-0.6B \
         --readout-method jlens --jlens-path ./jlens --output-path events.jsonl
 ```
 
-No J-lens yet? `--readout-method logit_lens` needs no calibration. It is the same
+No J-lens yet? `--jlens-path` also takes a reference lens straight from the Hub,
+e.g. `hf://neuronpedia/jacobian-lens/qwen3-1.7b/jlens/Salesforce-wikitext/Qwen3-1.7B_jacobian_lens.pt`.
+Or use `--readout-method logit_lens`, which needs no calibration. It is the same
 readout with `J = I`, and it is a weaker signal. See
 [docs/latent_pts.md](docs/latent_pts.md).
 

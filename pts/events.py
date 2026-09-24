@@ -54,6 +54,29 @@ VISIBILITY_FOR_EVENT_TYPE = {
     EVENT_SENTENCE: VISIBILITY_EMITTED,
 }
 
+# Readout methods for latent events, and the scale each one's ``score`` is on.
+# ``jlens`` and ``logit_lens`` score a softmax probability; ``jlens_cosine``
+# scores a cosine in [-1, 1]. Scores on different scales must never be ranked
+# or thresholded together.
+READOUT_JLENS = "jlens"
+READOUT_LOGIT_LENS = "logit_lens"
+READOUT_JLENS_COSINE = "jlens_cosine"
+
+SCORE_SCALE_PROBABILITY = "probability"
+SCORE_SCALE_COSINE = "cosine"
+
+READOUT_SCORE_SCALE = {
+    READOUT_JLENS: SCORE_SCALE_PROBABILITY,
+    READOUT_LOGIT_LENS: SCORE_SCALE_PROBABILITY,
+    READOUT_JLENS_COSINE: SCORE_SCALE_COSINE,
+}
+
+
+def readout_score_scale(readout_method: Optional[str]) -> str:
+    """The scale a latent event's ``score`` is on. Records that predate the
+    field were all softmax readouts, so a missing method means probability."""
+    return READOUT_SCORE_SCALE.get(readout_method or READOUT_JLENS, SCORE_SCALE_PROBABILITY)
+
 
 def _now() -> str:
     return time.strftime("%Y-%m-%dT%H:%M:%S")

@@ -25,7 +25,7 @@ from .activations import (
     get_layer_modules,
     resolve_workspace_layers,
 )
-from .jlens import JLens, LogitLens, Readout, ReadoutResult, load_readout
+from .jlens import JLens, JLensCosine, LogitLens, Readout, ReadoutResult, load_readout
 from .metatokens import MetaTokenExtractor, enrich_events_with_latent
 
 __all__ = [
@@ -34,6 +34,7 @@ __all__ = [
     "get_layer_modules",
     "resolve_workspace_layers",
     "JLens",
+    "JLensCosine",
     "LogitLens",
     "Readout",
     "ReadoutResult",
