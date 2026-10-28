@@ -64,7 +64,7 @@ which is the main way this project can mislead people. Tests in
 pip install -e .           # core + model deps
 pip install -e '.[all]'    # + sentence-transformers, math-verify, pytest
 
-pytest tests/ -q           # 94 tests, ~20s, uses a tiny random model
+pytest tests/ -q           # ~136 tests, uses a tiny random model; MPS/CUDA cases skip without the device
 pytest tests/test_jlens.py::test_causal_mask_holds -q   # a single test
 
 pts run --granularity token|sentence|latent|all --model M --output-path events.jsonl
@@ -145,6 +145,11 @@ WorkspaceBench's readout, not the paper's.
   ever be found). It requires `--dataset` and refuses rather than fabricating
   pairs. This was a v1 bug that silently emptied every DPO dataset of positive
   tokens.
+- **Precision goes through `resolve_dtype` in `pts/searchers/base.py`.** Don't
+  add another `torch_dtype=` ternary at a load site; use `load_causal_lm`.
+  `--dtype auto` keeps the old defaults (bf16/fp16 on CUDA, fp32 on MPS/CPU).
+  `fit-jlens` is always fp32 and deliberately has no `--dtype` flag. Events
+  record the precision they were produced in as `metadata["dtype"]`.
 - **The probability cache key must include `category`**, which selects a
   different prompt.
 - **Token PTS's prefix *replaces* the prompt** (it is a fully-decoded string that

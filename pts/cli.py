@@ -100,6 +100,7 @@ def run_pts(args) -> None:
 
     searcher_kwargs = dict(
         device=args.device,
+        dtype=args.dtype,
         prob_threshold=args.prob_threshold,
         temperature=args.temperature,
         top_p=args.top_p,
@@ -215,24 +216,20 @@ def migrate(args) -> None:
 def fit_jlens(args) -> None:
     setup_logging(args.log_level)
 
-    import torch
-    from transformers import AutoModelForCausalLM, AutoTokenizer
+    from transformers import AutoTokenizer
 
     from .latent.activations import get_layer_modules, resolve_workspace_layers
     from .latent.jlens import JLens
-    from .searchers.base import select_device
+    from .searchers.base import load_causal_lm, select_device
 
     device = select_device(args.device)
     logger.info(f"Loading {args.model} on {device}")
 
     tokenizer = AutoTokenizer.from_pretrained(args.model, trust_remote_code=True)
-    dtype = torch.float32 if device in ("cpu", "mps") else torch.float32
     # Fitting differentiates through the network; fp16 Jacobians underflow badly,
-    # so calibration runs in fp32 regardless of what inference would use.
-    model = AutoModelForCausalLM.from_pretrained(
-        args.model, torch_dtype=dtype, trust_remote_code=True
-    ).to(device)
-    model.eval()
+    # so calibration runs in fp32 regardless of what inference would use. There
+    # is deliberately no --dtype flag here.
+    model = load_causal_lm(args.model, device, purpose="fit_jlens")
 
     num_layers = len(get_layer_modules(model))
     layers = resolve_workspace_layers(
@@ -295,14 +292,13 @@ def _calibration_texts(args) -> List[str]:
 def enrich(args) -> None:
     setup_logging(args.log_level)
 
-    import torch
-    from transformers import AutoModelForCausalLM, AutoTokenizer
+    from transformers import AutoTokenizer
 
     from .event_storage import EventStorage
     from .latent.jlens import load_readout
     from .latent.metatokens import enrich_events_with_latent
     from .linking import EventLinker
-    from .searchers.base import select_device
+    from .searchers.base import load_causal_lm, select_device
 
     storage = EventStorage(filepath=args.input_path)
     if not len(storage):
@@ -316,12 +312,7 @@ def enrich(args) -> None:
 
     device = select_device(args.device)
     tokenizer = AutoTokenizer.from_pretrained(args.model, trust_remote_code=True)
-    model = AutoModelForCausalLM.from_pretrained(
-        args.model,
-        torch_dtype=torch.float32 if device in ("cpu", "mps") else torch.bfloat16,
-        trust_remote_code=True,
-    ).to(device)
-    model.eval()
+    model = load_causal_lm(args.model, device, dtype=args.dtype)
 
     readout = load_readout(
         model, tokenizer, method=args.readout_method, jlens_path=args.jlens_path
@@ -446,6 +437,7 @@ def export(args) -> None:
             balance=args.balance,
             seed=args.seed,
             device=args.device,
+            dtype=args.dtype,
         )
     elif args.format == "steering":
         exporter.export_steering_vectors(
@@ -458,6 +450,7 @@ def export(args) -> None:
             batch_size=args.batch_size,
             min_prob_delta=args.min_prob_delta,
             device=args.device,
+            dtype=args.dtype,
         )
     else:
         logger.error(f"Unsupported export format: {args.format}")
@@ -588,6 +581,12 @@ def parse_args(argv=None):
     )
     sub = parser.add_subparsers(dest="command")
 
+    def add_dtype(p):
+        p.add_argument("--dtype", default="auto", choices=["auto", "fp32", "bf16", "fp16"],
+                       help="Model precision. 'auto' is bf16 on Ampere+ CUDA, fp16 on "
+                            "older CUDA, fp32 on MPS and CPU. Half precision off CUDA "
+                            "falls back to fp32 if the device lacks a kernel.")
+
     def add_common(p):
         p.add_argument("--log-level", default="INFO",
                        choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"])
@@ -603,6 +602,7 @@ def parse_args(argv=None):
     run_p.add_argument("--split", default="train")
     run_p.add_argument("--output-path", default="pts_events.jsonl")
     run_p.add_argument("--device", default=None)
+    add_dtype(run_p)
     run_p.add_argument("--task-type", default="generic")
     run_p.add_argument("--prob-threshold", type=float, default=0.2)
     run_p.add_argument("--temperature", type=float, default=0.6)
@@ -664,6 +664,7 @@ def parse_args(argv=None):
     enr_p.add_argument("--output-path", required=True)
     enr_p.add_argument("--model", required=True)
     enr_p.add_argument("--device", default=None)
+    add_dtype(enr_p)
     enr_p.add_argument("--with-latent", action="store_true",
                        help="Read the workspace around each existing event")
     enr_p.add_argument("--allow-model-mismatch", action="store_true",
@@ -701,6 +702,7 @@ def parse_args(argv=None):
                             "--find-rejected-tokens")
     exp_p.add_argument("--split", default="train")
     exp_p.add_argument("--device", default=None)
+    add_dtype(exp_p)
     exp_p.add_argument("--min-prob-delta", type=float, default=0.1)
     exp_p.add_argument("--min-score", type=float, default=0.0)
     exp_p.add_argument("--max-pairs", type=int, default=None)

@@ -40,8 +40,10 @@ class MetaTokenExtractor:
         keep_per_position: int = 3,
         watch_lexicon: Optional[Sequence[str]] = None,
         require_category: bool = False,
+        dtype_name: Optional[str] = None,
     ):
         self.readout = readout
+        self.dtype_name = dtype_name
         self.layers = list(layers)
         self.top_k = top_k
         self.min_score = min_score
@@ -187,6 +189,7 @@ class MetaTokenExtractor:
                             "source_event_type": source.event_type,
                             "source_model_id": source.model_id,
                             "latent_model_id": model_id,
+                            "dtype": self.dtype_name,
                         },
                     )
 
@@ -259,6 +262,7 @@ def enrich_events_with_latent(
         top_k=top_k,
         min_score=min_score,
         keep_per_position=keep_per_position,
+        dtype_name=str(model.dtype).replace("torch.", "") if hasattr(model, "dtype") else None,
     )
 
     latent_events: List[CausalReasoningEvent] = []
