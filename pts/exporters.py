@@ -195,6 +195,7 @@ class EventExporter:
         balance: bool = False,
         seed: int = 42,
         device: Optional[str] = None,
+        dtype: Optional[str] = None,
         oracle: Optional[Any] = None,
     ) -> None:
         """Build DPO preference pairs from token events.
@@ -262,6 +263,7 @@ class EventExporter:
                     model_name=model_name,
                     oracle=oracle,
                     device=device,
+                    dtype=dtype,
                     prob_threshold=min_prob_delta,
                 )
 
@@ -440,16 +442,17 @@ class EventExporter:
         batch_size: int = 4,
         min_prob_delta: float = 0.2,
         device: Optional[str] = None,
+        dtype: Optional[str] = None,
     ) -> None:
         """Extract each event's context activation and cluster into steering vectors."""
         import numpy as np
         import torch
         from sklearn.cluster import KMeans
         from sklearn.decomposition import PCA
-        from transformers import AutoModelForCausalLM, AutoTokenizer
+        from transformers import AutoTokenizer
 
         from .latent.activations import ResidualCapture, get_layer_modules
-        from .searchers.base import select_device
+        from .searchers.base import load_causal_lm, select_device
 
         if not model_name:
             logger.error(
@@ -472,12 +475,7 @@ class EventExporter:
         tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)
         if tokenizer.pad_token is None:
             tokenizer.pad_token = tokenizer.eos_token
-        model = AutoModelForCausalLM.from_pretrained(
-            model_name,
-            torch_dtype=torch.float32 if device in ("cpu", "mps") else torch.float16,
-            trust_remote_code=True,
-        ).to(device)
-        model.eval()
+        model = load_causal_lm(model_name, device, dtype=dtype)
 
         layer_modules = get_layer_modules(model)
         num_layers = len(layer_modules)

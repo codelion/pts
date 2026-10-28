@@ -192,6 +192,7 @@ class TokenPTSSearcher(BasePTSSearcher):
                                 "prob_threshold": self.prob_threshold,
                                 "baseline_prob": init_prob,
                                 "generation_index": i,
+                                "dtype": self.dtype_name,
                             },
                         )
 
