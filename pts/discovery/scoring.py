@@ -102,6 +102,7 @@ class ChoiceScorer:
         top_k: int = 0,
         min_p: float = 0.0,
         presence_penalty: float = 0.0,
+        batch_size: int = 32,
     ):
         self.model = model
         self.tok = tokenizer
@@ -117,6 +118,13 @@ class ChoiceScorer:
         self.top_k = top_k
         self.min_p = min_p
         self.presence_penalty = presence_penalty
+        # Sequences generated at once. One generator runs every prompt, admitting
+        # the next as soon as one finishes, so the batch never drains waiting
+        # for its longest sequence. A sequence is inserted only when a slot
+        # frees, so at most this many prompt-cache copies exist at a time.
+        # mlx-lm pads a batch's KV cache to its longest sequence, so memory is
+        # about batch_size x the longest context.
+        self.batch_size = batch_size
         self.cost = Cost()
         # Prepended to every question; used to compare steering with plain prompting.
         self.extra_instruction: Optional[str] = None
@@ -132,10 +140,6 @@ class ChoiceScorer:
         # The rendered template already contains its special tokens.
         return list(self.tok.encode(text, add_special_tokens=False))
 
-    # Prompts per generator. mlx-lm keeps every finished sequence's KV cache
-    # until the generator closes, so one generator over hundreds of prompts
-    # runs out of GPU memory.
-    chunk_size = 32
     share_prefill = True
 
     def _prefill(self, tokens: Sequence[int]):
@@ -166,48 +170,55 @@ class ChoiceScorer:
         counts: Dict[Tuple[int, ...], int] = {}
         for x in prompts:
             counts[tuple(x)] = counts.get(tuple(x), 0) + 1
+        left = dict(counts)
         shared: Dict[Tuple[int, ...], object] = {}
+        prefilled = 0
 
-        results: List[List[int]] = []
-        for start in range(0, len(prompts), self.chunk_size):
-            chunk = [list(x) for x in prompts[start:start + self.chunk_size]]
-            caches, tails = [], []
-            for x in chunk:
-                key = tuple(x)
-                if self.share_prefill and counts[key] > 1 and len(x) > 1:
-                    if key not in shared:
-                        shared[key] = self._prefill(x[:-1])
-                    caches.append(copy.deepcopy(shared[key]))
-                    tails.append(x[-1:])
-                else:
-                    caches.append(None)
-                    tails.append(x)
-            gen = BatchGenerator(
-                self.model,
-                stop_tokens=[[t] for t in self.tok.eos_token_ids],
-                sampler=make_sampler(temp=self.temperature, top_p=self.top_p, min_p=self.min_p,
-                                     top_k=self.top_k),
-                logits_processors=make_logits_processors(
-                    presence_penalty=self.presence_penalty or None),
-            )
-            try:
-                uids = gen.insert(
-                    tails, [max_tokens] * len(chunk), caches=caches,
-                    all_tokens=[x[:len(x) - len(t)] for x, t in zip(chunk, tails)],
-                )
-                out = {u: [] for u in uids}
-                while responses := gen.next_generated():
-                    for r in responses:
-                        if r.finish_reason != "stop":
-                            out[r.uid].append(r.token)
-            finally:
-                gen.close()
-            results.extend(out[u] for u in uids)
-            del caches
+        gen = BatchGenerator(
+            self.model,
+            stop_tokens=[[t] for t in self.tok.eos_token_ids],
+            sampler=make_sampler(temp=self.temperature, top_p=self.top_p, min_p=self.min_p,
+                                 top_k=self.top_k),
+            logits_processors=make_logits_processors(
+                presence_penalty=self.presence_penalty or None),
+            completion_batch_size=self.batch_size,
+        )
+        results: List[List[int]] = [[] for _ in prompts]
+        index: Dict[int, int] = {}
+        # Admit prompts shortest first, so sequences sharing the batch have
+        # similar lengths and the KV cache is not padded to a much longer one.
+        queue = sorted(range(len(prompts)), key=lambda i: len(prompts[i]), reverse=True)
+        try:
+            while queue or index:
+                while queue and len(index) < self.batch_size:
+                    i = queue.pop()
+                    x = list(prompts[i])
+                    key = tuple(x)
+                    if self.share_prefill and counts[key] > 1 and len(x) > 1:
+                        if key not in shared:
+                            shared[key] = self._prefill(x[:-1])
+                            prefilled += 1
+                        cache, tail = copy.deepcopy(shared[key]), x[-1:]
+                        left[key] -= 1
+                        if left[key] == 0:
+                            del shared[key]
+                    else:
+                        cache, tail = None, x
+                    (uid,) = gen.insert([tail], [max_tokens], caches=[cache],
+                                        all_tokens=[x[:len(x) - len(tail)]])
+                    index[uid] = i
+                for r in gen.next_generated():
+                    if r.finish_reason != "stop":
+                        results[index[r.uid]].append(r.token)
+                    if r.finish_reason is not None:
+                        del index[r.uid]
+        finally:
+            gen.close()
+            shared.clear()
             mx.clear_cache()
         self.cost.sampled_tokens += sum(len(v) for v in results)
         self.cost.completions += len(prompts)
-        self.cost.prefilled_once += len(shared)
+        self.cost.prefilled_once += prefilled
         return results
 
     def _opens_thinking(self, item: ChoiceItem) -> bool:
@@ -234,18 +245,19 @@ class ChoiceScorer:
     def estimate_many(
         self,
         requests: Sequence[Tuple[ChoiceItem, Sequence[int], Sequence[int]]],
-        num_samples: int,
+        num_samples,
         max_tokens: int,
     ) -> List[Estimate]:
-        """``estimate`` for several (item, prompt, prefix) at once, in one batch."""
-        prompts = [list(p) + list(x) for _, p, x in requests for _ in range(num_samples)]
-        conts = self.sample(prompts, max_tokens)
+        """``estimate`` for several (item, prompt, prefix) at once, in one batch.
+
+        ``num_samples`` is one count for every request or a count per request.
+        """
+        counts = [num_samples] * len(requests) if isinstance(num_samples, int) else list(num_samples)
+        prompts = [list(p) + list(x) for (_, p, x), k in zip(requests, counts) for _ in range(k)]
+        conts = iter(self.sample(prompts, max_tokens))
         out = []
-        for k, (item, _, prefix) in enumerate(requests):
-            judged = [
-                self.judge(item, list(prefix) + c)
-                for c in conts[k * num_samples:(k + 1) * num_samples]
-            ]
+        for (item, _, prefix), k in zip(requests, counts):
+            judged = [self.judge(item, list(prefix) + next(conts)) for _ in range(k)]
             out.append(Estimate(sum(j[0] for j in judged), sum(j[1] for j in judged), len(judged)))
         return out
 

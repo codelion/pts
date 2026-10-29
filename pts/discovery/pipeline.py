@@ -67,6 +67,7 @@ class DiscoveryConfig:
     reuse_search: bool = False                      # load events/traces already in output_dir
     chat_template_args: Dict = field(default_factory=dict)   # e.g. {"enable_thinking": False}
     memory_fraction: float = 0.5                    # MLX memory cap, as a fraction of device memory
+    batch_size: int = 32                            # sequences generated at once; speed only
     sampling: Dict = field(default_factory=dict)    # ChoiceScorer sampling, e.g. a model card's settings
     search: SearchConfig = field(default_factory=SearchConfig)
 
@@ -179,7 +180,8 @@ def discover(
     logger.info(f"{behavior}: {len(disc)} discovery / {len(sel)} selection / {len(test)} test questions")
 
     scorer = ChoiceScorer(model, tokenizer, ChoiceOracle(items),
-                          chat_template_args=config.chat_template_args, **config.sampling)
+                          chat_template_args=config.chat_template_args, batch_size=config.batch_size,
+                          **config.sampling)
     hidden, num_layers = mlx_backend.model_shape(model)
     layers = config.layers or default_layers(num_layers)
     capture = lambda ids, ls: mlx_backend.capture(model, ids, ls)
