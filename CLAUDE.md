@@ -77,6 +77,7 @@ pts export --format causal_events|metatokens|pivotal_tokens|thought_anchors|dpo|
 pts push --input-path X --hf-repo-id user/repo
 pts build-vector --model M --positive pos.txt --negative neg.txt --layers 16 --output-path vec/
 pts steer --model M --vector vec/:-8 --vector hf://org/repo:2 --prompt "..." --chat --compare
+pts steer --backend torch --model M --vector vec/:-8 --prompt "..."   # same vector, PyTorch
 ```
 
 `--generate-thought-anchors` still works as an alias for `--granularity sentence`.
@@ -99,7 +100,9 @@ pts steer --model M --vector vec/:-8 --vector hf://org/repo:2 --prompt "..." --c
 | `pts/cli.py` | Every `pts` subcommand and its flags. |
 | `pts/exporters.py` | All output formats + dataset cards. |
 | `pts/steering/vector.py` | Steering-vector format, Hub loading, stacking. numpy + safetensors only. |
-| `pts/steering/mlx_backend.py` | Steering hook, residual capture, mean-difference vectors on mlx-lm. |
+| `pts/steering/build.py` | Backend-neutral vector building (mean difference from captured activations). |
+| `pts/steering/mlx_backend.py` | Steering hook and residual capture on mlx-lm (swaps `model.layers` entries). |
+| `pts/steering/torch_backend.py` | Steering hook and residual capture on HF models (forward hooks). |
 | `pts/core.py`, `pts/storage.py`, `pts/thought_anchors.py` | legacy compatibility shims. |
 
 `import pts` must **not** require torch or transformers. The schema, storage,
@@ -186,10 +189,17 @@ One format for every backend: `steering_config.json` + `steering_vectors.safeten
 (tensors `layers.<L>.<op>`), or a single `.safetensors` with the config in its
 metadata. Loads from a directory, a file, or `hf://org/repo[/path]`.
 
-- **The hook point is the residual stream at the output of decoder block `L`**
-  (HF `hidden_states[L + 1]`). Every backend must hook exactly there or a vector
-  means different things on MLX and PyTorch. Don't change it; add a new `hook`
-  value instead.
+- **The hook point is the residual stream at the output of decoder block `L`.**
+  That is HF `hidden_states[L + 1]` for every block but the last, where HF
+  reports the activation after the final norm. Every backend must hook exactly
+  there or a vector means different things on MLX and PyTorch.
+  `tests/test_steering_parity.py` checks the two backends agree to 1e-5 on the
+  same weights. Don't change the hook point; add a new `hook` value instead.
+- `pts.steering.steer(model, ...)` picks the backend from the model's type.
+  Vector building lives in `build.py` so both backends share the arithmetic.
+- transformers 5 puts its own forward hooks on decoder blocks (e.g. for
+  `output_hidden_states`). Tests must compare hooks before and after steering,
+  not assert there are none.
 - `add` is `h + alpha * v`; `ablate` is full projection removal and ignores
   alpha. Stacked vectors sum; ablations are orthonormalised together and run
   before additions (`combine`).

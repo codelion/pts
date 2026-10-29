@@ -15,7 +15,8 @@ import mlx.core as mx
 import mlx.nn as nn
 import numpy as np
 
-from .vector import LayerPlan, LayerVector, SteeringVector, combine
+from . import build
+from .vector import LayerPlan, SteeringVector, combine
 
 
 def get_layers(model) -> list:
@@ -169,48 +170,9 @@ def mean_difference(
     base_model: Optional[str] = None,
     behavior: Optional[str] = None,
 ) -> SteeringVector:
-    """``mean(h | positive) - mean(h | negative)`` at one token position, per layer.
-
-    Each example is a list of token ids; the residual is read at ``position``
-    (the last token by default). Only running sums are kept, so memory does not
-    grow with the number of examples. This is the contrastive-activation-addition
-    baseline: it needs no events, only paired examples.
-    """
-    if not positive or not negative:
-        raise ValueError("mean_difference needs at least one positive and one negative example")
+    """Mean-difference vector from paired examples; see ``build.mean_difference``."""
     hidden, num_layers = model_shape(model)
-    sums = {s: {i: np.zeros(hidden, dtype=np.float64) for i in layers} for s in ("pos", "neg")}
-    norm_sum = {i: 0.0 for i in layers}
-
-    for side, examples in (("pos", positive), ("neg", negative)):
-        for ids in examples:
-            acts = capture(model, ids, layers)
-            for i in layers:
-                h = acts[i][position]
-                sums[side][i] += h
-                norm_sum[i] += float(np.linalg.norm(h))
-
-    n_pos, n_neg = len(positive), len(negative)
-    entries = [
-        LayerVector(
-            layer=i,
-            op="add",
-            vector=(sums["pos"][i] / n_pos - sums["neg"][i] / n_neg).astype(np.float32),
-            ref_norm=norm_sum[i] / (n_pos + n_neg),
-        )
-        for i in layers
-    ]
-    return SteeringVector(
-        entries=entries,
-        hidden_size=hidden,
-        num_layers=num_layers,
-        base_model=base_model,
-        behavior=behavior,
-        provenance={
-            "method": "mean_difference",
-            "position": position,
-            "num_positive": n_pos,
-            "num_negative": n_neg,
-            "backend": "mlx",
-        },
+    return build.mean_difference(
+        lambda ids, ls: capture(model, ids, ls), hidden, num_layers, positive, negative,
+        layers, position=position, base_model=base_model, behavior=behavior, backend="mlx",
     )
