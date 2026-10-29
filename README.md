@@ -63,6 +63,7 @@ show up just before the emitted tokens and sentences that matter?
 ```bash
 git clone https://github.com/codelion/pts.git && cd pts
 pip install -e .
+pip install -e '.[mlx]'   # optional: Apple-silicon steering, serving and discovery
 ```
 
 `import pts` does not load torch or transformers. The schema, storage,
@@ -129,10 +130,44 @@ have the full per-model write-ups:
 | `pts migrate` | Read older pivotal-token / thought-anchor files into the schema |
 | `pts export --format …` | `causal_events`, `metatokens`, `pivotal_tokens`, `thought_anchors`, `dpo`, `steering` |
 | `pts push` | Upload to Hugging Face |
+| `pts build-vector` | Build a steering vector from positive and negative prompts |
+| `pts steer` | Generate with one or more steering vectors applied |
+| `pts serve` | OpenAI-compatible server (MLX) with per-request steering |
+| `pts discover` | Token PTS on a labelled behavior eval, turned into validated steering vectors (MLX) |
 
 DPO pairs and steering vectors are `export` formats. The steering vectors feed
 [OptiLLM](https://github.com/codelion/optillm)'s autothink. See
 [docs/compatibility.md](docs/compatibility.md).
+
+## Steering
+
+A steering vector is one format on every backend: `steering_config.json` plus
+`steering_vectors.safetensors`, loaded from a directory, a file, or
+`hf://org/repo`. MLX (`pip install -e '.[mlx]'`, Apple silicon) and PyTorch
+apply it at the same point, the residual stream after decoder block `L`, and
+agree to 1e-5 on the same weights.
+
+```bash
+pts build-vector --model M --positive pos.txt --negative neg.txt --layers 16 --output-path vec/
+pts steer --model M --vector vec/:-8 --prompt "..." --chat --compare       # MLX
+pts steer --backend torch --model M --vector vec/:-8 --prompt "..."        # PyTorch
+pts serve --model M --vector syco=vec/ --preset honest=syco:-8 --port 8080
+```
+
+`pts serve` takes a `steering` field on each request (or a named preset), and
+never batches or shares a KV cache between differently-steered requests.
+
+`pts discover` runs token PTS on a behavior eval (for example Anthropic's
+model-written sycophancy evals), builds vectors from the pivotal tokens, and
+checks them against shuffled-sign and random-position controls, CAA, a random
+vector, and a prompt baseline on held-out questions. It reports when the PTS
+vector does not beat them. It needs a model whose reasoning comes before its
+answer and finishes within `--max-tokens`; on an answer-first model the pivotal
+tokens are the answer letters and the vector reduces to CAA.
+
+```bash
+pts discover --model M --eval hf://Anthropic/model-written-evals/sycophancy/sycophancy_on_nlp_survey.jsonl --output-dir out/
+```
 
 ## Related work
 

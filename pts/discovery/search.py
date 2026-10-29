@@ -1,22 +1,23 @@
 """
-Pivotal-token search for a behavior, localised by sampled estimates.
+Pivotal-token search for a behavior: token PTS with an oracle-judged behavior.
 
-For each question the model reasons before answering. A trace can only contain
-a pivotal token if its final answer differs from where the question started,
-and a trace's final answer is read for free from its own KV cache. So:
+The algorithm and estimator are token PTS's (``pts/searchers/token.py``):
 
-1. ``P(start)``: P(eventual answer matches | no reasoning yet), by sampling.
-2. Sample traces; read each one's final answer. Traces whose answer did not
-   move by ``prob_threshold`` are dropped without further sampling.
-3. In the rest, bisect: estimate P at the midpoint of any interval whose ends
+1. ``P(start)``: P(success | prompt), by sampling completions and asking the
+   oracle. Questions outside ``[min_start, max_start]`` are skipped: when the
+   outcome is already settled, no token can move it.
+2. Sample traces. A finished trace's outcome is known exactly (the oracle's
+   verdict on it), so a trace that ends where it started needs no bisection.
+3. Bisect the rest: estimate P at the midpoint of any interval whose ends
    differ by ``prob_threshold`` and recurse, down to single tokens. Every
-   estimate is cached, and each trace has an estimate budget.
+   estimate is cached.
 
-Each event's ``prob_before`` / ``prob_after`` are sampled estimates of the
-eventual answer at that prefix (``metadata["estimator"]``). A forced
-"answer now" screen was tried first and dropped: on Qwen2.5-1.5B sycophancy,
-positions it picked had the same confirmed effect as random positions
-(mean |dP| 0.054 vs 0.050, correlation 0.03).
+Bisection only ever asks whether two points differ by ``prob_threshold``. So
+estimates start with ``min_samples`` and a comparison draws more, in rounds,
+only while it is undecided: until the difference is ``confidence_z`` standard
+errors above or below the threshold, or both sides have ``samples``. Clear
+cases, the common ones once the answer is written, cost a fifth of a fixed
+50-sample estimate. ``min_samples = samples`` is token PTS exactly.
 
 Bisection can miss a rise and a fall that cancel inside one interval, as in
 the original token PTS.
@@ -26,25 +27,26 @@ import logging
 from dataclasses import asdict, dataclass
 from typing import Dict, Iterator, List, Optional, Sequence, Tuple
 
+import math
+
 from ..events import CausalReasoningEvent, make_token_event
-from .evals import ChoiceItem
-from .scoring import ChoiceScorer
+from .evals import ChoiceItem, reads_as_label
+from .scoring import ChoiceScorer, Estimate
 
 logger = logging.getLogger(__name__)
 
 
 @dataclass
 class SearchConfig:
-    traces_per_item: int = 4
-    max_tokens: int = 300
-    temperature: float = 0.7
-    # Questions whose direct P(behavior) is outside this band are skipped: when
-    # the answer is already certain, no single token can move it.
-    min_direct: float = 0.1
-    max_direct: float = 0.9
-    samples: int = 32               # per estimate; standard error ~0.45/sqrt(n) for split answers
+    traces_per_item: int = 10
+    max_tokens: int = 512
+    min_start: float = 0.2
+    max_start: float = 0.8
+    samples: int = 50               # most samples per estimate, as in token PTS
+    min_samples: int = 10           # first round; more only while a comparison is undecided
+    confidence_z: float = 2.0
     prob_threshold: float = 0.2
-    max_estimates_per_trace: int = 24
+    max_estimates_per_trace: int = 0    # 0: no limit, as in token PTS
 
 
 def search_item(
@@ -57,57 +59,68 @@ def search_item(
 ) -> Iterator[CausalReasoningEvent]:
     """Pivotal-token events for one question.
 
-    Every trace whose answer moved is appended to ``traces_out`` (when given),
-    so controls can be built from the same traces the events came from.
+    Every trace whose outcome moved is appended to ``traces_out`` (when
+    given), so controls can be built from the same traces the events came from.
     """
-    import mlx.core as mx
+    prompt = scorer.prompt_ids(item)
+    estimates: Dict[Tuple[int, ...], Estimate] = {}
 
-    direct = scorer.direct(item)
-    if not config.min_direct <= direct.p_match <= config.max_direct:
-        logger.debug(f"{item.item_id}: direct P={direct.p_match:.2f} outside band, skipped")
+    def ensure(prefixes: Sequence[Tuple[int, ...]], n: int) -> None:
+        """Bring each prefix's estimate up to ``n`` samples, in one batch."""
+        need: Dict[int, List[Tuple[int, ...]]] = {}
+        for x in dict.fromkeys(prefixes):
+            e = estimates.get(x, Estimate())
+            if not e.exact and e.n < n:
+                need.setdefault(n - e.n, []).append(x)
+        for k, group in need.items():
+            fresh = scorer.estimate_many([(item, prompt, list(x)) for x in group], k, config.max_tokens)
+            for x, e in zip(group, fresh):
+                estimates[x] = estimates.get(x, Estimate()) + e
+
+    def var(e: Estimate) -> float:
+        if e.exact:
+            return 0.0
+        q = (e.successes + 1) / (e.n + 2)   # keeps 0/n and n/n from claiming certainty
+        return q * (1 - q) / e.n
+
+    def differs(a: Tuple[int, ...], b: Tuple[int, ...]) -> bool:
+        """Whether P(success) at prefixes ``a`` and ``b`` differ by ``prob_threshold``."""
+        ensure([a, b], config.min_samples)
+        while True:
+            ea, eb = estimates[a], estimates[b]
+            gap = abs(eb.p - ea.p) - config.prob_threshold
+            margin = config.confidence_z * math.sqrt(var(ea) + var(eb))
+            if abs(gap) > margin:
+                return gap > 0
+            grow = [x for x in (a, b) if not estimates[x].exact and estimates[x].n < config.samples]
+            if not grow:
+                return gap >= 0
+            ensure(grow, min(config.samples, max(estimates[x].n for x in grow) + config.min_samples))
+
+    ensure([()], config.samples)
+    start = estimates[()]
+    if not config.min_start <= start.p <= config.max_start:
+        logger.debug(f"{item.item_id}: P(start)={start.p:.2f} outside band, skipped")
         return
+    traces = scorer.sample([prompt] * config.traces_per_item, config.max_tokens)
 
-    prompt = scorer.prompt_ids(item, cot=True)
-    estimates: Dict[Tuple[int, ...], Tuple[float, float, float]] = {}
-
-    def estimate(prefix: Sequence[int]) -> Tuple[float, float, float]:
-        key = tuple(prefix)
-        if key not in estimates:
-            estimates[key] = scorer.estimate(
-                item, prompt, prefix, config.samples, config.max_tokens, config.temperature,
-            )
-        return estimates[key]
-
-    import numpy as np
-
-    answer_tokens = set(np.array(scorer.label_ids(item.matching)).tolist()) | set(
-        np.array(scorer.label_ids(item.not_matching)).tolist()
-    )
-    start = estimate([])
-    traces, caches = scorer.sample(
-        [prompt] * config.traces_per_item, config.max_tokens, config.temperature, return_caches=True
-    )
-    cue = mx.array(scorer.cue_ids(item))[None]
-
-    for trace_index, (response, cache) in enumerate(zip(traces, caches)):
-        end = scorer._dist(scorer.model(cue, cache=cache)[0, -1], item)
-        scorer.cost.cue_passes += 1
-        if len(response) < 2 or abs(end.p_match - start[0]) < config.prob_threshold:
+    for trace_index, response in enumerate(traces):
+        success, answered = scorer.judge(item, response)
+        end = Estimate(int(success), int(answered), 1, exact=True)
+        estimates[tuple(response)] = end
+        if len(response) < 2 or not differs((), tuple(response)):
             continue
-        # The final answer of a finished trace is known exactly; it needs no sampling.
-        estimates[tuple(response)] = (end.p_match, 0.0, end.mass)
         if traces_out is not None:
             traces_out.append({
                 "item_id": item.item_id, "trace_index": trace_index,
                 "prompt_ids": list(prompt), "response_ids": list(response),
-                "p_start": start[0], "p_end": end.p_match,
+                "p_start": start.p, "p_end": end.p,
             })
-        budget = [config.max_estimates_per_trace]
+        budget = [config.max_estimates_per_trace or float("inf")]
         found: List[int] = []
 
         def bisect(lo: int, hi: int) -> None:
-            p_lo, p_hi = estimate(response[:lo])[0], estimate(response[:hi])[0]
-            if abs(p_hi - p_lo) < config.prob_threshold:
+            if not differs(tuple(response[:lo]), tuple(response[:hi])):
                 return
             if hi - lo == 1:
                 found.append(lo)
@@ -124,39 +137,38 @@ def search_item(
             logger.debug(f"{item.item_id} trace {trace_index}: estimate budget exhausted")
 
         for t in found:
-            before, se_before, mass_before = estimate(response[:t])
-            after, se_after, mass_after = estimate(response[: t + 1])
+            before, after = estimates[tuple(response[:t])], estimates[tuple(response[: t + 1])]
             token_id = response[t]
+            token = scorer.tok.decode([token_id])
             yield make_token_event(
                 query=item.question,
                 context=scorer.tok.decode(prompt + response[:t]),
-                token=scorer.tok.decode([token_id]),
+                token=token,
                 token_id=token_id,
-                prob_before=before,
-                prob_after=after,
+                prob_before=before.p,
+                prob_after=after.p,
                 model_id=model_id,
                 task_type=behavior,
                 dataset_id=item.source,
                 dataset_item_id=item.item_id,
                 position=len(prompt) + t,
-                search_method="token_pts_sampled_bisection",
+                search_method="token_pts_bisection",
                 metadata={
                     "behavior": behavior,
                     "matching_answer": item.matching,
-                    "estimator": "sampled_answer_distribution",
-                    "samples": config.samples,
-                    "se_before": se_before,
-                    "se_after": se_after,
-                    "mass_before": mass_before,
-                    "mass_after": mass_after,
-                    "p_start": start[0],
-                    "p_trace_end": end.p_match,
-                    "direct_p": direct.p_match,
+                    "samples_before": before.n,
+                    "samples_after": after.n,
+                    "se_before": before.se,
+                    "se_after": after.se,
+                    "answered_before": before.answered,
+                    "answered_after": after.answered,
+                    "p_start": start.p,
+                    "p_trace_end": end.p,
                     "trace_index": trace_index,
                     "response_position": t,
                     # Writing the answer down is pivotal by definition and says
                     # nothing about why; direction building skips these.
-                    "states_answer": token_id in answer_tokens,
+                    "states_answer": any(reads_as_label(token, c) for c in item.choices),
                 },
             )
 

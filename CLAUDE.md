@@ -65,7 +65,7 @@ pip install -e .           # core + model deps
 pip install -e '.[all]'    # + sentence-transformers, math-verify, pytest
 pip install -e '.[mlx]'    # Apple-silicon steering backend (mlx-lm needs transformers>=5)
 
-pytest tests/ -q           # ~167 tests, tiny random models; MPS/CUDA/MLX cases skip without them
+pytest tests/ -q           # ~230 tests, tiny random models; MPS/CUDA/MLX cases skip without them
 pytest tests/test_jlens.py::test_causal_mask_holds -q   # a single test
 
 pts run --granularity token|sentence|latent|all --model M --output-path events.jsonl
@@ -79,6 +79,7 @@ pts build-vector --model M --positive pos.txt --negative neg.txt --layers 16 --o
 pts steer --model M --vector vec/:-8 --vector hf://org/repo:2 --prompt "..." --chat --compare
 pts steer --backend torch --model M --vector vec/:-8 --prompt "..."   # same vector, PyTorch
 pts serve --model M --vector syco=vec/ --preset honest=syco:-8 --port 8080   # + any mlx_lm.server flag
+pts discover --model M --eval hf://Anthropic/model-written-evals/<dir>/<file>.jsonl --output-dir out/   # MLX
 ```
 
 `--generate-thought-anchors` still works as an alias for `--granularity sentence`.
@@ -105,6 +106,7 @@ pts serve --model M --vector syco=vec/ --preset honest=syco:-8 --port 8080   # +
 | `pts/steering/mlx_backend.py` | Steering hook and residual capture on mlx-lm (swaps `model.layers` entries). |
 | `pts/steering/torch_backend.py` | Steering hook and residual capture on HF models (forward hooks). |
 | `pts/steering/mlx_server.py` | `pts serve`: mlx_lm.server plus a `steering` request field and presets. |
+| `pts/discovery/` | `pts discover`: token PTS on a labelled behavior eval -> steering vectors, validated against controls. |
 | `pts/core.py`, `pts/storage.py`, `pts/thought_anchors.py` | legacy compatibility shims. |
 
 `import pts` must **not** require torch or transformers. The schema, storage,
@@ -224,6 +226,24 @@ metadata. Loads from a directory, a file, or `hf://org/repo[/path]`.
 - Strong steering drives A/B evals toward 0.5 by breaking the model, not by
   changing the behavior. Check a side effect (answer-format mass, KL on neutral
   text) before calling a vector effective.
+
+## Behavior discovery
+
+`pts discover` is token PTS with an oracle-judged behavior: success is "the
+model's final answer is the behavior-matching choice" (`ChoiceOracle`), and
+every probability, in the search and in validation, is token PTS's estimator
+(sample completions of the dataset's own prompt to the end, ask the oracle).
+
+- **Do not add shortcuts that read the answer early** (a forced "final
+  answer?" cue, logits on label tokens, answer pre-fills). They were tried and
+  each needed a per-model fix (Qwen3 opens with "Answer:", thinking models
+  need their block handled). Sampling to the end works for any model, chat
+  template and dataset an oracle can judge.
+- The prompt is the dataset's question in the chat template, nothing added.
+- The PTS vector only counts if it beats the controls built the same way
+  (shuffled signs, random positions in the same traces), CAA, a random-vector
+  null, and the prompt baseline, with paired intervals on held-out questions.
+  Report it when it doesn't.
 
 ## Testing
 

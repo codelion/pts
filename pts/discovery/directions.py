@@ -16,8 +16,8 @@ All directions are oriented so that adding them pushes toward the behavior
   and ``random_position_pairs`` (random positions in the same traces, signed
   by the trace's overall direction).
 - ``caa``: contrastive activation addition, the baseline. Residual after the
-  matching answer label minus after the other label, at the direct-answer
-  prompt, over both label orders.
+  matching answer label minus after the other label, at the start of the
+  reply, over both label orders.
 
 Only emitted token events carry a ``prob_delta``; latent events never do and
 are ignored here.
@@ -29,7 +29,7 @@ from typing import Callable, Dict, List, Optional, Sequence, Tuple
 import numpy as np
 
 from ..events import EVENT_TOKEN, CausalReasoningEvent
-from .evals import ChoiceItem
+from .evals import ChoiceItem, reads_as_label
 from .scoring import ChoiceScorer
 
 CaptureFn = Callable[[Sequence[int], Sequence[int]], Dict[int, np.ndarray]]
@@ -42,6 +42,11 @@ def _token_events(events: Sequence[CausalReasoningEvent]) -> List[CausalReasonin
         if e.event_type == EVENT_TOKEN and e.prob_delta is not None and e.token_id is not None
         and not e.metadata.get("states_answer", False)
     ]
+
+
+def _is_answer(scorer: ChoiceScorer, token_id: int) -> bool:
+    text = scorer.tok.decode([token_id])
+    return any(reads_as_label(text, label) for label in ("A", "B", "Yes", "No"))
 
 
 def _context_ids(scorer: ChoiceScorer, event: CausalReasoningEvent) -> List[int]:
@@ -160,16 +165,9 @@ def random_position_pairs(
         if trace is None:
             continue
         response = trace["response_ids"]
-        answer = set()
-        if hasattr(scorer, "label_ids"):
-            for label in ("A", "B", "Yes", "No"):
-                try:
-                    answer |= set(np.array(scorer.label_ids(label)).tolist())
-                except ValueError:
-                    pass
         options = [
             t for t in range(len(response))
-            if t not in used.get(key, set()) and response[t] not in answer
+            if t not in used.get(key, set()) and not _is_answer(scorer, response[t])
         ]
         if not options:
             continue
@@ -219,30 +217,28 @@ def signed_mean(
     return vecs, norms, len(rows)
 
 
+def _answer_ids(scorer: ChoiceScorer, item: ChoiceItem, label: str) -> List[int]:
+    text = f"({label}" if item.choices == ("A", "B") else label
+    return list(scorer.tok.encode(text, add_special_tokens=False))
+
+
 def caa(
     scorer: ChoiceScorer,
     capture: CaptureFn,
     items: Sequence[ChoiceItem],
     layers: Sequence[int],
 ) -> Tuple[Dict[int, np.ndarray], Dict[int, float], int]:
-    """Contrastive activation addition over both label orders of each item."""
-    import mlx.core as mx
-
+    """Contrastive activation addition over both label orders of each item:
+    the residual after the matching answer minus after the other one, written
+    as the start of the model's reply."""
     sums = {i: np.zeros(0) for i in layers}
     norms = {i: 0.0 for i in layers}
     n = 0
     for base in items:
         for item in filter(None, (base, base.swapped())):
-            prompt = scorer.prompt_ids(item, cot=False)
-            p = mx.softmax(scorer.model(mx.array(prompt)[None])[0, -1].astype(mx.float32))
-            p = np.array(p)
-
-            def best(label: str) -> int:
-                ids = np.array(scorer.label_ids(label))
-                return int(ids[np.argmax(p[ids])])
-
-            yes = _last(capture, prompt + [best(item.matching)], layers)
-            no = _last(capture, prompt + [best(item.not_matching)], layers)
+            prompt = scorer.prompt_ids(item)
+            yes = _last(capture, prompt + _answer_ids(scorer, item, item.matching), layers)
+            no = _last(capture, prompt + _answer_ids(scorer, item, item.not_matching), layers)
             for i in layers:
                 d = yes[i] - no[i]
                 sums[i] = d if sums[i].size == 0 else sums[i] + d
