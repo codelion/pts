@@ -11,6 +11,7 @@ Command-line interface for PTS.
     pts steer     generate with steering vectors applied
     pts build-vector  build a mean-difference steering vector from paired examples
     pts serve     OpenAI-compatible server with steering (wraps mlx_lm.server)
+    pts discover  find pivotal tokens for a behavior and turn them into validated steering vectors
 """
 
 import argparse
@@ -632,6 +633,41 @@ def build_vector(args) -> None:
     logger.info(f"Wrote steering vector to {args.output_path}")
 
 
+def discover(args) -> None:
+    setup_logging(args.log_level)
+
+    from .discovery.pipeline import DiscoveryConfig, discover as run
+    from .discovery.search import SearchConfig
+
+    model, tokenizer = _load_mlx(args.model)
+    config = DiscoveryConfig(
+        num_items=args.num_items,
+        seed=args.seed,
+        layers=args.layers,
+        fractions=args.fractions,
+        min_mass_ratio=args.min_mass_ratio,
+        max_kl=args.max_kl,
+        search=SearchConfig(
+            traces_per_item=args.traces_per_item,
+            max_tokens=args.max_tokens,
+            samples=args.samples,
+            prob_threshold=args.prob_threshold,
+            max_estimates_per_trace=args.max_estimates_per_trace,
+        ),
+    )
+    behavior = args.behavior or os.path.splitext(os.path.basename(args.eval))[0]
+    report = run(model, tokenizer, args.model, args.eval, behavior, args.output_dir, config)
+    print(json.dumps({k: report[k] for k in ("behavior", "events", "base")}, indent=2))
+    for name, m in report["methods"].items():
+        for label in ("increase", "decrease"):
+            r = m[label]
+            print(f"{name:18s} {label:8s} " + (
+                "no setting passed the damage checks" if r is None else
+                f"layer {r['layer']:2d} x{r['fraction']:+.2f}  test dP {r['test_delta']:+.3f}  "
+                f"random {r['random_delta']:+.3f}  mass {r['test']['mass']:.2f}  KL {r['test']['kl']:.3f}"
+            ))
+
+
 def serve(args) -> None:
     setup_logging(args.log_level)
 
@@ -895,6 +931,33 @@ def parse_args(argv=None):
     add_dtype(bv_p)
     add_common(bv_p)
 
+    # -- discover --
+    disc_p = sub.add_parser(
+        "discover",
+        help="Find pivotal tokens for a behavior and turn them into validated steering vectors",
+    )
+    disc_p.add_argument("--model", required=True)
+    disc_p.add_argument("--eval", required=True,
+                        help="Multiple-choice behavior eval (JSONL, or hf://<org>/<dataset>/<file>), "
+                             "e.g. hf://Anthropic/model-written-evals/sycophancy/"
+                             "sycophancy_on_political_typology_quiz.jsonl")
+    disc_p.add_argument("--behavior", default=None, help="Name for the behavior (default: file name)")
+    disc_p.add_argument("--output-dir", required=True)
+    disc_p.add_argument("--num-items", type=int, default=120)
+    disc_p.add_argument("--layers", type=int, nargs="+", default=None)
+    disc_p.add_argument("--fractions", type=float, nargs="+", default=[0.05, 0.1, 0.2, 0.4],
+                        help="Steering strengths to sweep, as fractions of the residual norm")
+    disc_p.add_argument("--min-mass-ratio", type=float, default=0.9)
+    disc_p.add_argument("--max-kl", type=float, default=0.5)
+    disc_p.add_argument("--traces-per-item", type=int, default=4)
+    disc_p.add_argument("--max-tokens", type=int, default=300)
+    disc_p.add_argument("--samples", type=int, default=32,
+                        help="Sampled continuations per probability estimate")
+    disc_p.add_argument("--prob-threshold", type=float, default=0.2)
+    disc_p.add_argument("--max-estimates-per-trace", type=int, default=24)
+    disc_p.add_argument("--seed", type=int, default=0)
+    add_common(disc_p)
+
     # -- serve --
     serve_p = sub.add_parser(
         "serve",
@@ -934,6 +997,7 @@ def main(argv=None) -> None:
         "steer": steer,
         "build-vector": build_vector,
         "serve": serve,
+        "discover": discover,
     }
 
     handler = handlers.get(args.command)
