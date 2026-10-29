@@ -19,7 +19,7 @@ is low, the normalised probability is noise; callers filter on it.
 """
 
 from dataclasses import dataclass
-from typing import Dict, List, Sequence, Tuple
+from typing import Dict, List, Optional, Sequence, Tuple
 
 import mlx.core as mx
 import numpy as np
@@ -65,6 +65,8 @@ class ChoiceScorer:
         self._cue_cache: Dict[Tuple[str, ...], List[int]] = {}
         self.vocab_size = len(tokenizer.vocab) if hasattr(tokenizer, "vocab") else tokenizer.vocab_size
         self.cost = Cost()
+        # Appended to every question; used to compare steering with plain prompting.
+        self.extra_instruction: Optional[str] = None
 
     # -- tokens ------------------------------------------------------------
 
@@ -96,6 +98,8 @@ class ChoiceScorer:
 
     def prompt_ids(self, item: ChoiceItem, cot: bool) -> List[int]:
         instruction = (COT_INSTRUCTION if cot else DIRECT_INSTRUCTION).format(options=_options(item.choices))
+        if self.extra_instruction:
+            instruction = self.extra_instruction.strip() + " " + instruction
         messages = [{"role": "user", "content": item.question.strip() + "\n\n" + instruction}]
         return self._encode(self._render(messages, add_generation_prompt=True))
 

@@ -107,14 +107,19 @@ def _capture(scorer):
     return lambda ids, ls: mlx_backend.capture(scorer.model, ids, ls)
 
 
-def _event(scorer, delta):
+def _event(scorer, delta, item_id="q0", trace_index=0, position=2, token_id=3532):
     from pts.events import make_token_event
 
     prompt = scorer.prompt_ids(ITEM, cot=True)
     return make_token_event(
-        query=ITEM.question, context=scorer.tok.decode(prompt + [450, 1234]), token=" x",
-        token_id=3532, prob_before=0.5, prob_after=0.5 + delta, model_id="tiny",
+        query=ITEM.question, context=scorer.tok.decode(prompt + TRACE[:position]), token=" x",
+        token_id=token_id, prob_before=0.5, prob_after=0.5 + delta, model_id="tiny",
+        dataset_item_id=item_id,
+        metadata={"trace_index": trace_index, "response_position": position},
     )
+
+
+TRACE = [450, 1234, 3532, 29871, 13, 4874, 263, 1243, 2304, 1576]
 
 
 def test_matched_pair_direction_follows_the_events_sign(scorer):
@@ -133,8 +138,19 @@ def test_signed_mean_needs_both_signs(scorer):
 
     with pytest.raises(ValueError, match="raise and events that lower"):
         signed_mean(scorer, _capture(scorer), [_event(scorer, 0.3)], [0])
-    vecs, _, n = signed_mean(scorer, _capture(scorer), [_event(scorer, 0.3), _event(scorer, -0.3)], [0])
-    assert n == 2 and np.allclose(vecs[0], 0, atol=1e-6)  # same activation on both sides
+
+
+def test_signed_mean_is_centered_per_question(scorer):
+    """One raising event in question A and one lowering event in question B:
+    without centering, the vector is just A's prompt minus B's prompt."""
+    from pts.discovery.directions import signed_mean
+
+    a, b = _event(scorer, 0.3, item_id="A", position=2), _event(scorer, -0.3, item_id="B", position=5)
+    with pytest.raises(ValueError, match="nothing left after centering"):
+        signed_mean(scorer, _capture(scorer), [a, b], [0])
+    events = [a, _event(scorer, -0.3, item_id="A", position=5), b, _event(scorer, 0.3, item_id="B", position=2)]
+    vecs, _, n = signed_mean(scorer, _capture(scorer), events, [0])
+    assert n == 4 and np.abs(vecs[0]).max() > 0
 
 
 def test_caa_uses_both_label_orders(scorer):
@@ -171,6 +187,7 @@ def test_pipeline_runs_end_to_end_and_writes_loadable_vectors(scorer, tmp_path, 
     path.write_text("\n".join(_json.dumps(r) for r in rows))
     config = pipeline.DiscoveryConfig(
         num_items=8, layers=[0, 1], fractions=[0.1], max_kl=10.0, min_mass_ratio=0.0,
+        random_null=2, cot_samples=2,
         search=SearchConfig(traces_per_item=1, max_tokens=4, samples=2,
                             min_direct=0.0, max_direct=1.0),
     )
@@ -180,9 +197,14 @@ def test_pipeline_runs_end_to_end_and_writes_loadable_vectors(scorer, tmp_path, 
     assert saved["split"] == {"discovery": 4, "selection": 2, "test": 2}
     assert "caa" in report["methods"]
     assert len(report["methods"]["caa"]["selection_sweep"]) == 2 * 1 * 2  # layers x fractions x signs
+    assert set(saved["prompt_baselines"]) == {"increase", "decrease"}
+    assert "test_cot_effect" in saved["prompt_baselines"]["decrease"]
+    assert (tmp_path / "out" / "traces.jsonl").exists()
     for label in ("increase", "decrease"):
         r = report["methods"]["caa"][label]
         if r is not None:
+            assert len(r["random_null"]["deltas"]) == 2
+            assert r["test_effect"]["ci_low"] <= r["test_effect"]["delta"] <= r["test_effect"]["ci_high"]
             vec = SteeringVector.load(str(tmp_path / "out" / f"caa_{label}"))
             assert vec.default_alpha == pytest.approx(r["alpha"])
             assert vec.validation["direction"] == label
@@ -276,3 +298,100 @@ def test_answer_stating_events_are_not_used_for_directions(scorer):
     e.metadata["states_answer"] = True
     with pytest.raises(ValueError, match="No token events"):
         matched_pairs(scorer, _capture(scorer), [e], [0])
+
+
+def test_sign_shuffle_keeps_tokens_and_sign_counts(scorer, monkeypatch):
+    from pts.discovery import directions
+
+    seen = []
+    monkeypatch.setattr(directions, "_pair_vectors", lambda sc, cap, specs, layers: seen.append(specs) or ({}, {}, len(specs)))
+    events = [_event(scorer, d, position=k) for k, d in enumerate([0.3, 0.3, 0.3, -0.3, -0.3], start=1)]
+    directions.matched_pairs(scorer, None, events, [0])
+    directions.sign_shuffled_pairs(scorer, None, events, [0], seed=1)
+    real, shuffled = seen
+    assert [s.context_ids for s in real] == [s.context_ids for s in shuffled]
+    assert sorted(s.sign for s in real) == sorted(s.sign for s in shuffled)
+    assert [s.sign for s in real] != [s.sign for s in shuffled]
+
+
+def test_random_positions_avoid_pivotal_and_answer_tokens(scorer, monkeypatch):
+    from pts.discovery import directions
+
+    seen = []
+    monkeypatch.setattr(directions, "_pair_vectors", lambda sc, cap, specs, layers: seen.append(specs) or ({}, {}, len(specs)))
+    prompt = scorer.prompt_ids(ITEM, cot=True)
+    answer_token = int(np.array(scorer.label_ids("A"))[0])
+    trace = TRACE[:6] + [answer_token] + TRACE[6:]
+    traces = [{"item_id": "q0", "trace_index": 0, "prompt_ids": prompt, "response_ids": trace,
+               "p_start": 0.5, "p_end": 0.1}]
+    events = [_event(scorer, 0.3, position=2)]
+    for seed in range(20):
+        directions.random_position_pairs(scorer, None, events, traces, [0], seed=seed)
+    for (spec,) in seen:
+        t = len(spec.context_ids) - len(prompt)
+        assert t != 2 and trace[t] != answer_token
+        assert spec.context_ids == prompt + trace[:t] and spec.token_id == trace[t]
+        assert spec.sign == -1.0  # the trace went down, whatever the event's own sign
+
+
+def test_bootstrap_interval_covers_the_mean_and_shrinks_with_n():
+    from pts.discovery.validate import bootstrap_ci
+
+    rng = np.random.default_rng(0)
+    small, large = rng.normal(0.1, 0.2, 10), rng.normal(0.1, 0.2, 400)
+    lo_s, hi_s = bootstrap_ci(small)
+    lo_l, hi_l = bootstrap_ci(large)
+    assert lo_s <= small.mean() <= hi_s and lo_l <= large.mean() <= hi_l
+    assert hi_l - lo_l < hi_s - lo_s
+
+
+def test_prompt_baseline_changes_the_prompt_only_while_scoring(scorer):
+    from pts.discovery.validate import Evaluator
+
+    ev = Evaluator(scorer)
+    plain = scorer.prompt_ids(ITEM, cot=False)
+    s = ev.score([ITEM], prompt="Avoid it.")
+    assert scorer.extra_instruction is None
+    assert scorer.prompt_ids(ITEM, cot=False) == plain
+    assert len(s.per_item) == 1
+
+
+def test_pipeline_reuses_a_saved_search_and_compares_pts_with_every_alternative(scorer, tmp_path):
+    import json as _json
+
+    from pts.discovery import pipeline
+    from pts.event_storage import EventStorage
+
+    rows = [{**AB_ROW, "question": f"Q{i}? (A) yes (B) no"} for i in range(8)]
+    path = tmp_path / "eval.jsonl"
+    path.write_text("\n".join(_json.dumps(r) for r in rows))
+    out = tmp_path / "out"
+    out.mkdir()
+    prompt = scorer.prompt_ids(ITEM, cot=True)
+    # Distinct contexts per question: event ids hash the context, as real
+    # questions' different text would.
+    events = [_event(scorer, d, item_id=q, position=k + off)
+              for q, off in (("q0", 0), ("q1", 1)) for k, d in ((2, 0.3), (5, -0.3))]
+    store = EventStorage(filepath=str(out / "events.jsonl"))
+    store.add_events(events)
+    store.save()
+    with open(out / "traces.jsonl", "w") as f:
+        for q in ("q0", "q1"):
+            f.write(_json.dumps({"item_id": q, "trace_index": 0, "prompt_ids": prompt,
+                                 "response_ids": TRACE, "p_start": 0.5, "p_end": 0.9}) + "\n")
+
+    config = pipeline.DiscoveryConfig(
+        num_items=8, layers=[0, 1], fractions=[0.1, 0.4], max_kl=10.0, min_mass_ratio=0.0,
+        random_null=2, cot_samples=0, reuse_search=True,
+    )
+    report = pipeline.discover(scorer.model, scorer.tok, "tiny", str(path), "toy", str(out), config)
+    assert report["events"]["total"] == 4 and report["search_cost"] is None
+    assert set(report["methods"]) == {
+        "pts_matched_pairs", "pts_signed_mean_centered", "control_sign_shuffle",
+        "control_random_positions", "caa",
+    }
+    keys = report["comparisons"].keys()
+    for label in ("increase", "decrease"):
+        if report["methods"]["pts_matched_pairs"][label] is not None:
+            others = {k.split(" vs ")[1] for k in keys if k.startswith(f"{label}: ")}
+            assert {"control_sign_shuffle", "control_random_positions", "caa", "prompt"} <= others

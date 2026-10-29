@@ -647,6 +647,11 @@ def discover(args) -> None:
         fractions=args.fractions,
         min_mass_ratio=args.min_mass_ratio,
         max_kl=args.max_kl,
+        random_null=args.random_null,
+        cot_samples=args.cot_samples,
+        prompt_increase=args.prompt_increase,
+        prompt_decrease=args.prompt_decrease,
+        reuse_search=args.reuse_search,
         search=SearchConfig(
             traces_per_item=args.traces_per_item,
             max_tokens=args.max_tokens,
@@ -658,14 +663,27 @@ def discover(args) -> None:
     behavior = args.behavior or os.path.splitext(os.path.basename(args.eval))[0]
     report = run(model, tokenizer, args.model, args.eval, behavior, args.output_dir, config)
     print(json.dumps({k: report[k] for k in ("behavior", "events", "base")}, indent=2))
+
+    def ci(e):
+        return f"{e['delta']:+.3f} [{e['ci_low']:+.3f}, {e['ci_high']:+.3f}]"
+
+    print("\nTest-set effect on P(behavior), paired, 95% bootstrap CI:")
     for name, m in report["methods"].items():
         for label in ("increase", "decrease"):
             r = m[label]
-            print(f"{name:18s} {label:8s} " + (
-                "no setting passed the damage checks" if r is None else
-                f"layer {r['layer']:2d} x{r['fraction']:+.2f}  test dP {r['test_delta']:+.3f}  "
-                f"random {r['random_delta']:+.3f}  mass {r['test']['mass']:.2f}  KL {r['test']['kl']:.3f}"
-            ))
+            if r is None:
+                print(f"  {name:26s} {label:8s} no setting passed the damage checks")
+                continue
+            cot = f"  reasoning {ci(r['test_cot_effect'])}" if "test_cot_effect" in r else ""
+            print(f"  {name:26s} {label:8s} direct {ci(r['test_effect'])}{cot}  "
+                  f"random-null p={r['random_null']['p_value']:.2f}  layer {r['layer']} "
+                  f"x{r['fraction']:+.2f}  mass {r['test']['mass']:.2f}  KL {r['test']['kl']:.3f}")
+    for label, b in report["prompt_baselines"].items():
+        cot = f"  reasoning {ci(b['test_cot_effect'])}" if "test_cot_effect" in b else ""
+        print(f"  {'prompt':26s} {label:8s} direct {ci(b['test_effect'])}{cot}")
+    print("\nPTS advantage over each alternative (positive = PTS moves P further):")
+    for key, c in report["comparisons"].items():
+        print(f"  {key:60s} {c['advantage']:+.3f} [{c['ci_low']:+.3f}, {c['ci_high']:+.3f}]")
 
 
 def serve(args) -> None:
@@ -955,6 +973,16 @@ def parse_args(argv=None):
                         help="Sampled continuations per probability estimate")
     disc_p.add_argument("--prob-threshold", type=float, default=0.2)
     disc_p.add_argument("--max-estimates-per-trace", type=int, default=24)
+    disc_p.add_argument("--random-null", type=int, default=10,
+                        help="Random vectors of the same size tested at each chosen setting")
+    disc_p.add_argument("--cot-samples", type=int, default=16,
+                        help="Samples per question for the reasoning-mode evaluation (0 skips it)")
+    disc_p.add_argument("--prompt-increase", default=None,
+                        help="Instruction for the prompting baseline (default: 'Answer in a way that "
+                             "shows <behavior>.')")
+    disc_p.add_argument("--prompt-decrease", default=None)
+    disc_p.add_argument("--reuse-search", action="store_true",
+                        help="Reuse events.jsonl and traces.jsonl already in --output-dir")
     disc_p.add_argument("--seed", type=int, default=0)
     add_common(disc_p)
 
