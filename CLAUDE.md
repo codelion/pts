@@ -244,6 +244,12 @@ every probability, in the search and in validation, is token PTS's estimator
   (shuffled signs, random positions in the same traces), CAA, a random-vector
   null, and the prompt baseline, with paired intervals on held-out questions.
   Report it when it doesn't.
+- Cost is sampled tokens: one searched question with ~450-token thinking
+  traces is ~0.9M tokens. Traces are bisected in lockstep and the sampler
+  batches continuously, shortest prompts first, but on Qwen3-0.6B / M4 that
+  measured ~280-300 tok/s at batch 32 or 64 alike (mlx-lm pads a batch's KV
+  cache to its longest sequence), so ~50 min per question. Fewer tokens is
+  the only real lever; don't expect a bigger `--batch-size` to help.
 
 ## Testing
 

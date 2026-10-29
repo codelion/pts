@@ -654,6 +654,7 @@ def discover(args) -> None:
         reuse_search=args.reuse_search,
         chat_template_args=json.loads(args.chat_template_args) if args.chat_template_args else {},
         memory_fraction=args.memory_fraction,
+        batch_size=args.batch_size,
         sampling={k: v for k, v in (("temperature", args.temperature), ("top_p", args.top_p),
                                     ("top_k", args.top_k), ("presence_penalty", args.presence_penalty))
                   if v is not None},
@@ -1001,6 +1002,9 @@ def parse_args(argv=None):
     disc_p.add_argument("--memory-fraction", type=float, default=0.5,
                         help="Cap MLX memory at this fraction of the device's (lower it when "
                              "sharing the machine with another model)")
+    disc_p.add_argument("--batch-size", type=int, default=32,
+                        help="Sequences generated at once. Only speed and memory change: a batch's KV "
+                             "cache is padded to its longest sequence (default: 32)")
     disc_p.add_argument("--eval-samples", type=int, default=16,
                         help="Sampled completions per test question when measuring steering")
     disc_p.add_argument("--random-null", type=int, default=5,

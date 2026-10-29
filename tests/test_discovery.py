@@ -221,9 +221,11 @@ class _StepScorer:
     def prompt_ids(self, item):
         return [1, 2, 3]
 
-    def estimate_many(self, requests, n, max_tokens):
+    def estimate_many(self, requests, counts, max_tokens):
+        counts = [counts] * len(requests) if isinstance(counts, int) else counts
+        self.batches = getattr(self, "batches", []) + [len(requests)]
         out = []
-        for _, _, prefix in requests:
+        for (_, _, prefix), n in zip(requests, counts):
             self.seen.add(tuple(prefix))
             k = round(self.p(list(prefix)) * n)
             out.append(self._Estimate(k, n, n))
@@ -271,6 +273,36 @@ def test_shared_prefill_generates_exactly_what_a_fresh_prompt_does(scorer):
     assert shared[:3] == alone * 3
     assert shared[3] == sc.sample([prompt[:-3]], max_tokens=8)[0]
     assert sc.cost.prefilled_once == 1
+
+
+def test_more_prompts_than_the_batch_refill_freed_slots(scorer):
+    """Prompts beyond ``batch_size`` wait for a slot; each still gets exactly
+    what it gets run alone, in its own position."""
+    from pts.discovery.scoring import ChoiceScorer
+
+    sc = ChoiceScorer(scorer.model, scorer.tok, scorer.oracle, temperature=0.0, batch_size=2)
+    prompt = sc.prompt_ids(ITEM)
+    prompts = [prompt, prompt[:-1], prompt, prompt[:-2], prompt]
+    together = sc.sample(prompts, max_tokens=6)
+    assert together == [sc.sample([p], max_tokens=6)[0] for p in prompts]
+
+
+def test_traces_are_bisected_in_lockstep():
+    """Several traces cost no more batches than one: each round of every
+    pending comparison goes out together. The events are the same per trace."""
+    from pts.discovery.search import SearchConfig, search_item
+
+    cfg = SearchConfig(min_start=0.0, max_start=1.0, samples=10, min_samples=10)
+    runs = {}
+    for n in (1, 4):
+        fake = _StepScorer()
+        fake.sample = lambda prompts, max_tokens, fake=fake: [list(fake.trace) for _ in prompts]
+        events = list(search_item(fake, ITEM, SearchConfig(**{**cfg.__dict__, "traces_per_item": n}),
+                                  "fake", "toy"))
+        runs[n] = (len(fake.batches), sorted((e.metadata["trace_index"], e.token_id) for e in events))
+    assert runs[4][0] == runs[1][0]
+    assert runs[4][1] == [(i, t) for i in range(4) for _, t in runs[1][1]]
+    assert [t for _, t in runs[1][1]] == [105, 120]
 
 
 def test_clear_comparisons_stop_at_min_samples():
