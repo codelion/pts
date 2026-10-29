@@ -10,6 +10,7 @@ Command-line interface for PTS.
     pts push      upload a dataset to Hugging Face
     pts steer     generate with steering vectors applied
     pts build-vector  build a mean-difference steering vector from paired examples
+    pts serve     OpenAI-compatible server with steering (wraps mlx_lm.server)
 """
 
 import argparse
@@ -631,6 +632,27 @@ def build_vector(args) -> None:
     logger.info(f"Wrote steering vector to {args.output_path}")
 
 
+def serve(args) -> None:
+    setup_logging(args.log_level)
+
+    try:
+        from .steering.mlx_server import SteeringRegistry, parse_named, parse_preset, serve as run
+    except ImportError:
+        logger.error("pts serve needs mlx-lm: pip install 'pts[mlx]'")
+        sys.exit(1)
+
+    try:
+        registry = SteeringRegistry(
+            named=dict(parse_named(v) for v in args.vector or []),
+            presets=dict(parse_preset(p) for p in args.preset or []),
+            allow_any=args.allow_any_vector,
+        )
+    except ValueError as e:
+        logger.error(str(e))
+        sys.exit(1)
+    run(registry, args.server_args)
+
+
 # ---------------------------------------------------------------------------
 # argument parsing
 # ---------------------------------------------------------------------------
@@ -873,7 +895,29 @@ def parse_args(argv=None):
     add_dtype(bv_p)
     add_common(bv_p)
 
-    return parser.parse_args(argv), parser
+    # -- serve --
+    serve_p = sub.add_parser(
+        "serve",
+        help="OpenAI-compatible server with steering (wraps mlx_lm.server)",
+        description="Every flag not listed here is passed to mlx_lm.server "
+                    "(--model, --host, --port, --max-tokens, ...).",
+    )
+    serve_p.add_argument("--vector", action="append", metavar="NAME=PATH",
+                         help="Register a steering vector requests can name. Repeatable.")
+    serve_p.add_argument("--preset", action="append", metavar="NAME=VEC[:ALPHA][,...][@MODEL]",
+                         help="A steering configuration clients select as the model name. "
+                              "Repeatable; listed by /v1/models.")
+    serve_p.add_argument("--allow-any-vector", action="store_true",
+                         help="Let requests pass vector paths and hf:// ids, not just "
+                              "registered names. The server will read and download them.")
+    add_common(serve_p)
+
+    args, extra = parser.parse_known_args(argv)
+    if args.command == "serve":
+        args.server_args = extra
+    elif extra:
+        parser.error(f"unrecognized arguments: {' '.join(extra)}")
+    return args, parser
 
 
 def main(argv=None) -> None:
@@ -889,6 +933,7 @@ def main(argv=None) -> None:
         "push": push_to_hf,
         "steer": steer,
         "build-vector": build_vector,
+        "serve": serve,
     }
 
     handler = handlers.get(args.command)
