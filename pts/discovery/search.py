@@ -24,7 +24,7 @@ the original token PTS.
 
 import logging
 from dataclasses import asdict, dataclass
-from typing import Dict, Iterator, List, Sequence, Tuple
+from typing import Dict, Iterator, List, Optional, Sequence, Tuple
 
 from ..events import CausalReasoningEvent, make_token_event
 from .evals import ChoiceItem
@@ -53,8 +53,13 @@ def search_item(
     config: SearchConfig,
     model_id: str,
     behavior: str,
+    traces_out: Optional[List[dict]] = None,
 ) -> Iterator[CausalReasoningEvent]:
-    """Pivotal-token events for one question."""
+    """Pivotal-token events for one question.
+
+    Every trace whose answer moved is appended to ``traces_out`` (when given),
+    so controls can be built from the same traces the events came from.
+    """
     import mlx.core as mx
 
     direct = scorer.direct(item)
@@ -91,6 +96,12 @@ def search_item(
             continue
         # The final answer of a finished trace is known exactly; it needs no sampling.
         estimates[tuple(response)] = (end.p_match, 0.0, end.mass)
+        if traces_out is not None:
+            traces_out.append({
+                "item_id": item.item_id, "trace_index": trace_index,
+                "prompt_ids": list(prompt), "response_ids": list(response),
+                "p_start": start[0], "p_end": end.p_match,
+            })
         budget = [config.max_estimates_per_trace]
         found: List[int] = []
 
@@ -158,12 +169,13 @@ def search(
     behavior: str,
     storage=None,
     show_progress: bool = True,
+    traces_out: Optional[List[dict]] = None,
 ) -> List[CausalReasoningEvent]:
     from tqdm import tqdm
 
     events: List[CausalReasoningEvent] = []
     for item in tqdm(items, desc=f"Searching {behavior}", disable=not show_progress):
-        for event in search_item(scorer, item, config, model_id, behavior):
+        for event in search_item(scorer, item, config, model_id, behavior, traces_out):
             events.append(event)
             if storage is not None:
                 storage.add_event(event)

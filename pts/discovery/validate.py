@@ -11,10 +11,12 @@ Every steered measurement reports three numbers:
   text, the cost of the vector to everything else.
 
 Layer and strength are chosen on the selection split; only the test split is
-reported, alongside the same measurements for baselines.
+reported, alongside the same measurements for baselines and controls. Effects
+are paired per question and carry bootstrap intervals, because test splits
+are small.
 """
 
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Sequence
 
 import numpy as np
@@ -39,9 +41,28 @@ class Score:
     p_match: float
     mass: float
     kl: float = 0.0
+    per_item: List[float] = field(default_factory=list)
 
     def as_dict(self) -> Dict[str, float]:
-        return asdict(self)
+        return {"p_match": self.p_match, "mass": self.mass, "kl": self.kl}
+
+
+def bootstrap_ci(values: Sequence[float], n: int = 2000, seed: int = 0, level: float = 0.95):
+    """Percentile bootstrap interval for the mean of ``values``."""
+    values = np.asarray(values, dtype=float)
+    if len(values) < 2:
+        return (float("nan"), float("nan"))
+    rng = np.random.default_rng(seed)
+    means = rng.choice(values, size=(n, len(values)), replace=True).mean(axis=1)
+    lo, hi = np.percentile(means, [(1 - level) / 2 * 100, (1 + level) / 2 * 100])
+    return (float(lo), float(hi))
+
+
+def paired_effect(steered: Score, base: Score, seed: int = 0) -> Dict[str, float]:
+    """Mean per-question change in P(behavior), with a bootstrap interval."""
+    diffs = np.array(steered.per_item) - np.array(base.per_item)
+    lo, hi = bootstrap_ci(diffs, seed=seed)
+    return {"delta": float(diffs.mean()), "ci_low": lo, "ci_high": hi}
 
 
 def _neutral_logprobs(scorer: ChoiceScorer) -> List[np.ndarray]:
@@ -56,18 +77,33 @@ def _neutral_logprobs(scorer: ChoiceScorer) -> List[np.ndarray]:
 
 
 class Evaluator:
-    """Scores items with and without steering, caching the unsteered references."""
+    """Scores items with and without steering, caching the unsteered references.
 
-    def __init__(self, scorer: ChoiceScorer, model_id: Optional[str] = None):
+    ``cot_samples > 0`` measures the eventual answer after reasoning (sampled,
+    in the question's original label order) instead of the immediate answer
+    (averaged over both orders). Pivotal tokens are found in reasoning, so
+    a vector built from them should also be judged there.
+    """
+
+    def __init__(self, scorer: ChoiceScorer, model_id: Optional[str] = None, cot_max_tokens: int = 200):
         self.scorer = scorer
         self.model_id = model_id
+        self.cot_max_tokens = cot_max_tokens
         self._neutral = _neutral_logprobs(scorer)
 
-    def _measure(self, items: Sequence[ChoiceItem], kl: bool) -> Score:
-        ds = [self.scorer.direct(it) for it in items]
+    def _measure(self, items: Sequence[ChoiceItem], kl: bool, cot_samples: int) -> Score:
+        if cot_samples:
+            rows = []
+            for it in items:
+                prompt = self.scorer.prompt_ids(it, cot=True)
+                mean, _, mass = self.scorer.estimate(it, prompt, [], cot_samples, self.cot_max_tokens)
+                rows.append((mean, mass))
+        else:
+            rows = [(d.p_match, d.mass) for d in (self.scorer.direct(it) for it in items)]
         score = Score(
-            p_match=float(np.mean([d.p_match for d in ds])),
-            mass=float(np.mean([d.mass for d in ds])),
+            p_match=float(np.mean([r[0] for r in rows])),
+            mass=float(np.mean([r[1] for r in rows])),
+            per_item=[r[0] for r in rows],
         )
         if kl:
             steered = _neutral_logprobs(self.scorer)
@@ -76,13 +112,26 @@ class Evaluator:
             ]))
         return score
 
-    def score(self, items: Sequence[ChoiceItem], steering=()) -> Score:
+    def score(
+        self,
+        items: Sequence[ChoiceItem],
+        steering=(),
+        prompt: Optional[str] = None,
+        cot_samples: int = 0,
+    ) -> Score:
+        """P(behavior) on ``items``, optionally steered and/or with an added instruction."""
+        from contextlib import nullcontext
+
         from ..steering import steer
 
-        if not steering:
-            return self._measure(items, kl=False)
-        with steer(self.scorer.model, steering, model_id=self.model_id):
-            return self._measure(items, kl=True)
+        previous = self.scorer.extra_instruction
+        self.scorer.extra_instruction = prompt
+        try:
+            ctx = steer(self.scorer.model, steering, model_id=self.model_id) if steering else nullcontext()
+            with ctx:
+                return self._measure(items, kl=bool(steering), cot_samples=cot_samples)
+        finally:
+            self.scorer.extra_instruction = previous
 
 
 def single_layer(vec, layer: int, scale: float = 1.0):
