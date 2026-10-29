@@ -14,10 +14,11 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - run: pip install --no-deps -e . && pip install tqdm pytest
+      - run: pip install --no-deps -e . && pip install tqdm pytest numpy safetensors
       - run: python -c "import pts; print('import pts ok without torch')"
-      # The pure-Python layers: schema, storage, linking, exporters.
-      - run: pytest tests/test_events.py tests/test_exporters.py tests/test_storage_and_linking.py -q
+      # The layers that must work without torch: schema, storage, linking,
+      # exporters, and the steering-vector format.
+      - run: pytest tests/test_events.py tests/test_exporters.py tests/test_storage_and_linking.py tests/test_steering.py -q
 
   tests:
     runs-on: ubuntu-latest

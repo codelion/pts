@@ -63,8 +63,9 @@ which is the main way this project can mislead people. Tests in
 ```bash
 pip install -e .           # core + model deps
 pip install -e '.[all]'    # + sentence-transformers, math-verify, pytest
+pip install -e '.[mlx]'    # Apple-silicon steering backend (mlx-lm needs transformers>=5)
 
-pytest tests/ -q           # ~136 tests, uses a tiny random model; MPS/CUDA cases skip without the device
+pytest tests/ -q           # ~167 tests, tiny random models; MPS/CUDA/MLX cases skip without them
 pytest tests/test_jlens.py::test_causal_mask_holds -q   # a single test
 
 pts run --granularity token|sentence|latent|all --model M --output-path events.jsonl
@@ -74,6 +75,8 @@ pts link --input-path events.jsonl --output-path linked.jsonl --shuffle-control
 pts migrate --input-path old.jsonl --output-path events.jsonl
 pts export --format causal_events|metatokens|pivotal_tokens|thought_anchors|dpo|steering
 pts push --input-path X --hf-repo-id user/repo
+pts build-vector --model M --positive pos.txt --negative neg.txt --layers 16 --output-path vec/
+pts steer --model M --vector vec/:-8 --vector hf://org/repo:2 --prompt "..." --chat --compare
 ```
 
 `--generate-thought-anchors` still works as an alias for `--granularity sentence`.
@@ -95,6 +98,8 @@ pts push --input-path X --hf-repo-id user/repo
 | `pts/verification.py` | Arithmetic CoT verification used by Sentence PTS. Imports torch at module level. |
 | `pts/cli.py` | Every `pts` subcommand and its flags. |
 | `pts/exporters.py` | All output formats + dataset cards. |
+| `pts/steering/vector.py` | Steering-vector format, Hub loading, stacking. numpy + safetensors only. |
+| `pts/steering/mlx_backend.py` | Steering hook, residual capture, mean-difference vectors on mlx-lm. |
 | `pts/core.py`, `pts/storage.py`, `pts/thought_anchors.py` | legacy compatibility shims. |
 
 `import pts` must **not** require torch or transformers. The schema, storage,
@@ -174,6 +179,27 @@ WorkspaceBench's readout, not the paper's.
 - `event.context` already contains its special tokens (it was decoded with
   `skip_special_tokens=False`), so re-encode it with `add_special_tokens=False` or
   you get a double BOS and score candidates on a prefix the model never saw.
+
+## Steering vectors
+
+One format for every backend: `steering_config.json` + `steering_vectors.safetensors`
+(tensors `layers.<L>.<op>`), or a single `.safetensors` with the config in its
+metadata. Loads from a directory, a file, or `hf://org/repo[/path]`.
+
+- **The hook point is the residual stream at the output of decoder block `L`**
+  (HF `hidden_states[L + 1]`). Every backend must hook exactly there or a vector
+  means different things on MLX and PyTorch. Don't change it; add a new `hook`
+  value instead.
+- `add` is `h + alpha * v`; `ablate` is full projection removal and ignores
+  alpha. Stacked vectors sum; ablations are orthonormalised together and run
+  before additions (`combine`).
+- mlx-lm has no hooks. Steering swaps entries of `model.layers` for wrappers that
+  forward unknown attributes to the block (model code reads e.g.
+  `layer.use_sliding`) and keep arrays off the module tree so they never become
+  parameters. Blocks are restored on exit, including on exceptions.
+- Strong steering drives A/B evals toward 0.5 by breaking the model, not by
+  changing the behavior. Check a side effect (answer-format mass, KL on neutral
+  text) before calling a vector effective.
 
 ## Testing
 

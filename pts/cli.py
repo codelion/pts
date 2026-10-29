@@ -8,6 +8,8 @@ Command-line interface for PTS.
     pts migrate   convert legacy pivotal-token / thought-anchor files to PTS events
     pts export    render events into a downstream format
     pts push      upload a dataset to Hugging Face
+    pts steer     generate with steering vectors applied
+    pts build-vector  build a mean-difference steering vector from paired examples
 """
 
 import argparse
@@ -524,6 +526,78 @@ def _push(
 
 
 # ---------------------------------------------------------------------------
+# steering
+# ---------------------------------------------------------------------------
+
+def _load_mlx(model_name: str):
+    try:
+        from mlx_lm import load
+    except ImportError:
+        logger.error("The MLX backend needs mlx-lm: pip install 'pts[mlx]'")
+        sys.exit(1)
+    return load(model_name)
+
+
+def steer(args) -> None:
+    setup_logging(args.log_level)
+
+    from mlx_lm import generate
+    from mlx_lm.sample_utils import make_sampler
+
+    from .steering.mlx_backend import steer as apply_steering
+    from .steering.vector import load_vectors
+
+    model, tokenizer = _load_mlx(args.model)
+    vectors = load_vectors(args.vector)
+
+    prompt = args.prompt
+    if args.chat:
+        prompt = tokenizer.apply_chat_template(
+            [{"role": "user", "content": prompt}], tokenize=False, add_generation_prompt=True
+        )
+
+    def run() -> str:
+        return generate(
+            model, tokenizer, prompt, max_tokens=args.max_tokens,
+            sampler=make_sampler(temp=args.temperature),
+        )
+
+    if args.compare:
+        print("=== unsteered ===")
+        print(run())
+        print("=== steered ===")
+    with apply_steering(model, vectors, model_id=args.model):
+        print(run())
+
+
+def build_vector(args) -> None:
+    setup_logging(args.log_level)
+
+    from .steering.mlx_backend import mean_difference
+
+    model, tokenizer = _load_mlx(args.model)
+
+    def read(path: str) -> List[List[int]]:
+        with open(path) as f:
+            lines = [line.rstrip("\n") for line in f if line.strip()]
+        return [tokenizer.encode(line) for line in lines]
+
+    positive, negative = read(args.positive), read(args.negative)
+    logger.info(f"{len(positive)} positive and {len(negative)} negative examples")
+    vec = mean_difference(
+        model, positive, negative, layers=args.layers,
+        base_model=args.model, behavior=args.behavior,
+    )
+    vec.save(args.output_path)
+    for e in vec.entries:
+        logger.info(
+            f"  layer {e.layer}: |v| = {float((e.vector ** 2).sum()) ** 0.5:.2f}, "
+            f"typical residual norm {e.ref_norm:.2f}"
+        )
+    logger.info(f"Wrote steering vector to {args.output_path}")
+
+
+# ---------------------------------------------------------------------------
 # argument parsing
 # ---------------------------------------------------------------------------
 
@@ -729,6 +803,38 @@ def parse_args(argv=None):
     push_p.add_argument("--model", default=None)
     add_common(push_p)
 
+    # -- steer --
+    steer_p = sub.add_parser("steer", help="Generate with steering vectors applied")
+    steer_p.add_argument("--model", required=True)
+    steer_p.add_argument("--vector", action="append", required=True,
+                         help="A steering vector directory, .safetensors file, or "
+                              "hf://<org>/<repo>[/<path>], optionally with ':<alpha>'. "
+                              "Repeat to stack vectors; their additions sum.")
+    steer_p.add_argument("--prompt", required=True)
+    steer_p.add_argument("--chat", action="store_true",
+                         help="Wrap the prompt in the model's chat template")
+    steer_p.add_argument("--max-tokens", type=int, default=128)
+    steer_p.add_argument("--temperature", type=float, default=0.0)
+    steer_p.add_argument("--compare", action="store_true",
+                         help="Also print the unsteered generation")
+    steer_p.add_argument("--backend", default="mlx", choices=["mlx"])
+    add_common(steer_p)
+
+    # -- build-vector --
+    bv_p = sub.add_parser("build-vector",
+                          help="Build a mean-difference steering vector from paired examples")
+    bv_p.add_argument("--model", required=True)
+    bv_p.add_argument("--positive", required=True,
+                      help="Text file, one example per line, showing the behavior")
+    bv_p.add_argument("--negative", required=True,
+                      help="Text file, one example per line, not showing it")
+    bv_p.add_argument("--layers", type=int, nargs="+", required=True)
+    bv_p.add_argument("--behavior", default=None)
+    bv_p.add_argument("--output-path", required=True,
+                      help="A directory, or a .safetensors file for a single-file vector")
+    bv_p.add_argument("--backend", default="mlx", choices=["mlx"])
+    add_common(bv_p)
+
     return parser.parse_args(argv), parser
 
 
@@ -743,6 +849,8 @@ def main(argv=None) -> None:
         "link": link,
         "export": export,
         "push": push_to_hf,
+        "steer": steer,
+        "build-vector": build_vector,
     }
 
     handler = handlers.get(args.command)
