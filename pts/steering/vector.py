@@ -8,7 +8,9 @@ one direction per layer::
     steering_vectors.safetensors  tensors named "layers.<L>.<op>"
 
 The hook point is fixed: the residual stream at the output of decoder block
-``L``, which is what Hugging Face calls ``hidden_states[L + 1]``. Every backend
+``L``. In Hugging Face terms that is ``hidden_states[L + 1]`` for every block
+but the last; for the last block HF reports the activation *after* the final
+norm, and the hook point is before it. Every backend
 hooks exactly there, so a vector extracted on MLX means the same thing on
 PyTorch. Changing that definition silently invalidates every published vector;
 add a new ``hook`` value instead.
@@ -108,6 +110,12 @@ class SteeringVector:
     @property
     def layers(self) -> List[int]:
         return sorted({e.layer for e in self.entries})
+
+    def apply(self, model, alpha: Optional[float] = None, model_id: Optional[str] = None):
+        """Context manager steering an MLX or PyTorch model with this vector alone."""
+        from . import steer
+
+        return steer(model, [(self, alpha)], model_id=model_id)
 
     # -- compatibility ------------------------------------------------------
 

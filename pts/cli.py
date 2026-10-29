@@ -538,16 +538,56 @@ def _load_mlx(model_name: str):
     return load(model_name)
 
 
+def _load_torch(args):
+    from transformers import AutoTokenizer
+
+    from .searchers.base import load_causal_lm, select_device
+
+    device = select_device(args.device)
+    tokenizer = AutoTokenizer.from_pretrained(args.model, trust_remote_code=True)
+    return load_causal_lm(args.model, device, dtype=args.dtype), tokenizer
+
+
+def _load_for_steering(args):
+    if args.backend == "mlx":
+        return _load_mlx(args.model)
+    return _load_torch(args)
+
+
+def _generate(args, model, tokenizer, prompt: str) -> str:
+    if args.backend == "mlx":
+        from mlx_lm import generate
+        from mlx_lm.sample_utils import make_sampler
+
+        return generate(
+            model, tokenizer, prompt, max_tokens=args.max_tokens,
+            sampler=make_sampler(temp=args.temperature),
+        )
+
+    import torch
+
+    # A chat-templated prompt already carries its special tokens.
+    inputs = tokenizer(prompt, return_tensors="pt", add_special_tokens=not args.chat)
+    inputs = inputs.to(next(model.parameters()).device)
+    sampling = (
+        dict(do_sample=True, temperature=args.temperature) if args.temperature > 0
+        else dict(do_sample=False)
+    )
+    with torch.no_grad():
+        out = model.generate(
+            **inputs, max_new_tokens=args.max_tokens,
+            pad_token_id=tokenizer.pad_token_id or tokenizer.eos_token_id, **sampling,
+        )
+    return tokenizer.decode(out[0, inputs["input_ids"].shape[1]:], skip_special_tokens=True)
+
+
 def steer(args) -> None:
     setup_logging(args.log_level)
 
-    from mlx_lm import generate
-    from mlx_lm.sample_utils import make_sampler
-
-    from .steering.mlx_backend import steer as apply_steering
+    from .steering import steer as apply_steering
     from .steering.vector import load_vectors
 
-    model, tokenizer = _load_mlx(args.model)
+    model, tokenizer = _load_for_steering(args)
     vectors = load_vectors(args.vector)
 
     prompt = args.prompt
@@ -556,26 +596,20 @@ def steer(args) -> None:
             [{"role": "user", "content": prompt}], tokenize=False, add_generation_prompt=True
         )
 
-    def run() -> str:
-        return generate(
-            model, tokenizer, prompt, max_tokens=args.max_tokens,
-            sampler=make_sampler(temp=args.temperature),
-        )
-
     if args.compare:
         print("=== unsteered ===")
-        print(run())
+        print(_generate(args, model, tokenizer, prompt))
         print("=== steered ===")
     with apply_steering(model, vectors, model_id=args.model):
-        print(run())
+        print(_generate(args, model, tokenizer, prompt))
 
 
 def build_vector(args) -> None:
     setup_logging(args.log_level)
 
-    from .steering.mlx_backend import mean_difference
+    from .steering import backend_for
 
-    model, tokenizer = _load_mlx(args.model)
+    model, tokenizer = _load_for_steering(args)
 
     def read(path: str) -> List[List[int]]:
         with open(path) as f:
@@ -584,7 +618,7 @@ def build_vector(args) -> None:
 
     positive, negative = read(args.positive), read(args.negative)
     logger.info(f"{len(positive)} positive and {len(negative)} negative examples")
-    vec = mean_difference(
+    vec = backend_for(model).mean_difference(
         model, positive, negative, layers=args.layers,
         base_model=args.model, behavior=args.behavior,
     )
@@ -817,7 +851,9 @@ def parse_args(argv=None):
     steer_p.add_argument("--temperature", type=float, default=0.0)
     steer_p.add_argument("--compare", action="store_true",
                          help="Also print the unsteered generation")
-    steer_p.add_argument("--backend", default="mlx", choices=["mlx"])
+    steer_p.add_argument("--backend", default="mlx", choices=["mlx", "torch"])
+    steer_p.add_argument("--device", default=None, help="torch backend only")
+    add_dtype(steer_p)
     add_common(steer_p)
 
     # -- build-vector --
@@ -832,7 +868,9 @@ def parse_args(argv=None):
     bv_p.add_argument("--behavior", default=None)
     bv_p.add_argument("--output-path", required=True,
                       help="A directory, or a .safetensors file for a single-file vector")
-    bv_p.add_argument("--backend", default="mlx", choices=["mlx"])
+    bv_p.add_argument("--backend", default="mlx", choices=["mlx", "torch"])
+    bv_p.add_argument("--device", default=None, help="torch backend only")
+    add_dtype(bv_p)
     add_common(bv_p)
 
     return parser.parse_args(argv), parser
