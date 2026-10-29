@@ -18,7 +18,7 @@ jobs:
       - run: python -c "import pts; print('import pts ok without torch')"
       # The layers that must work without torch: schema, storage, linking,
       # exporters, and the steering-vector format.
-      - run: pytest tests/test_events.py tests/test_exporters.py tests/test_storage_and_linking.py tests/test_steering.py -q
+      - run: pytest tests/test_events.py tests/test_exporters.py tests/test_storage_and_linking.py tests/test_steering.py tests/test_discovery_evals.py -q
 
   tests:
     runs-on: ubuntu-latest
