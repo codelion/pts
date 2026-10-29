@@ -78,6 +78,7 @@ pts push --input-path X --hf-repo-id user/repo
 pts build-vector --model M --positive pos.txt --negative neg.txt --layers 16 --output-path vec/
 pts steer --model M --vector vec/:-8 --vector hf://org/repo:2 --prompt "..." --chat --compare
 pts steer --backend torch --model M --vector vec/:-8 --prompt "..."   # same vector, PyTorch
+pts serve --model M --vector syco=vec/ --preset honest=syco:-8 --port 8080   # + any mlx_lm.server flag
 ```
 
 `--generate-thought-anchors` still works as an alias for `--granularity sentence`.
@@ -103,6 +104,7 @@ pts steer --backend torch --model M --vector vec/:-8 --prompt "..."   # same vec
 | `pts/steering/build.py` | Backend-neutral vector building (mean difference from captured activations). |
 | `pts/steering/mlx_backend.py` | Steering hook and residual capture on mlx-lm (swaps `model.layers` entries). |
 | `pts/steering/torch_backend.py` | Steering hook and residual capture on HF models (forward hooks). |
+| `pts/steering/mlx_server.py` | `pts serve`: mlx_lm.server plus a `steering` request field and presets. |
 | `pts/core.py`, `pts/storage.py`, `pts/thought_anchors.py` | legacy compatibility shims. |
 
 `import pts` must **not** require torch or transformers. The schema, storage,
@@ -207,6 +209,18 @@ metadata. Loads from a directory, a file, or `hf://org/repo[/path]`.
   forward unknown attributes to the block (model code reads e.g.
   `layer.use_sliding`) and keep arrays off the module tree so they never become
   parameters. Blocks are restored on exit, including on exceptions.
+- **Serving:** steering is encoded into the request's adapter slot, because
+  mlx-lm keys batch membership and the prompt KV cache on (model, adapter,
+  draft). Steering anywhere else lets differently-steered requests share a
+  batch or reuse each other's KV cache. Weights load once; only wrappers swap,
+  and only between batches. `tests/test_serve_mlx.py` checks every steered
+  response against direct generation, including concurrent mixed requests.
+- Requests may only name vectors registered with `--vector name=path` unless
+  `--allow-any-vector` is set (otherwise a client could make the server read
+  local paths or download arbitrary Hub repos).
+- `mlx_lm.server.run` ignores its `handler_class` argument and `do_POST` lets
+  validation `ValueError`s drop the connection; `make_server` and the handler
+  work around both.
 - Strong steering drives A/B evals toward 0.5 by breaking the model, not by
   changing the behavior. Check a side effect (answer-format mass, KL on neutral
   text) before calling a vector effective.

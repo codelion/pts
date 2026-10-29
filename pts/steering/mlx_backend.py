@@ -9,7 +9,7 @@ the hook point the format defines: the residual stream after block ``L``.
 """
 
 from contextlib import contextmanager
-from typing import Dict, Iterator, List, Optional, Sequence, Tuple
+from typing import Callable, Dict, Iterator, List, Optional, Sequence, Tuple
 
 import mlx.core as mx
 import mlx.nn as nn
@@ -126,6 +126,32 @@ def _swapped(model, wrappers: Dict[int, nn.Module]) -> Iterator[None]:
             layers[i] = block
 
 
+def install(
+    model,
+    vectors: Sequence[Tuple[SteeringVector, Optional[float]]],
+    model_id: Optional[str] = None,
+) -> Callable[[], None]:
+    """Install steering until the returned ``remove()`` is called.
+
+    For long-lived use such as a server, which keeps one steering
+    configuration in place across a whole batch. Prefer ``steer`` otherwise.
+    """
+    hidden, num_layers = model_shape(model)
+    for vec, _ in vectors:
+        vec.check_compatible(hidden, num_layers, model_id)
+    layers = get_layers(model)
+    wrappers = {i: SteeredBlock(layers[i], p) for i, p in combine(vectors).items()}
+    for i, w in wrappers.items():
+        layers[i] = w
+
+    def remove() -> None:
+        for i, w in wrappers.items():
+            if layers[i] is w:
+                layers[i] = w.block
+
+    return remove
+
+
 @contextmanager
 def steer(
     model,
@@ -138,13 +164,11 @@ def steer(
     vector's ``default_alpha``. The original blocks are restored on exit, even
     if generation raises.
     """
-    hidden, num_layers = model_shape(model)
-    for vec, _ in vectors:
-        vec.check_compatible(hidden, num_layers, model_id)
-    plans = combine(vectors)
-    layers = get_layers(model)
-    with _swapped(model, {i: SteeredBlock(layers[i], p) for i, p in plans.items()}):
+    remove = install(model, vectors, model_id)
+    try:
         yield
+    finally:
+        remove()
 
 
 def capture(model, token_ids: Sequence[int], layers: Sequence[int]) -> Dict[int, np.ndarray]:
