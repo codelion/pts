@@ -77,6 +77,7 @@ _LAZY = {
     "JLens": ("pts.latent.jlens", "JLens"),
     "JLensCosine": ("pts.latent.jlens", "JLensCosine"),
     "Readout": ("pts.latent.jlens", "Readout"),
+    "SteeringVector": ("pts.steering.vector", "SteeringVector"),
 }
 
 

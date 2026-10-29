@@ -10,9 +10,11 @@ CORE = [
 MODEL = [
     "torch>=2.0.0",
     "transformers>=4.40.0",
-    # transformers pins huggingface_hub<1.0; leaving this unbounded lets pip
-    # install a 1.x that transformers then refuses to import.
-    "huggingface_hub>=0.30.0,<1.0",
+    # No upper bound: transformers 4.x needs huggingface_hub<1.0 and transformers
+    # 5.x needs >=1.0, and each declares that itself. Capping it here made
+    # transformers 5 (and so mlx-lm) uninstallable alongside PTS. The suite
+    # passes on both transformers 4.51 and 5.12.
+    "huggingface_hub>=0.30.0",
     "datasets>=2.12.0",
     "accelerate",
     "numpy>=1.20.0",
@@ -24,6 +26,14 @@ MODEL = [
 SENTENCE = [
     "sentence-transformers>=2.2.0",
     "math-verify[antlr4_13_2]>=0.1.0",
+]
+
+# Apple-silicon backend for steering (and, later, search). mlx-lm needs
+# transformers>=5.
+MLX = [
+    "mlx>=0.31",
+    "mlx-lm>=0.31",
+    "safetensors>=0.4",
 ]
 
 DEV = [
@@ -48,6 +58,7 @@ setup(
         "core": CORE,
         "model": MODEL,
         "sentence": SENTENCE,
+        "mlx": MLX,
         "dev": DEV,
         "all": MODEL + SENTENCE + DEV,
     },
