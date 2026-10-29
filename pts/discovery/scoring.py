@@ -1,0 +1,218 @@
+"""
+Scoring multiple-choice behavior on an mlx-lm model.
+
+Three measurements, all of P(the model picks the behavior-matching answer):
+
+- ``direct``: the model answers immediately. One forward pass; averaged over
+  both label orders so a preference for "A" is not mistaken for the behavior.
+- ``curve``: along a reasoning trace, "if the model had to answer now". The
+  trace is processed once into a KV cache; each position then costs only the
+  short answer cue. This is a screening signal, not P(eventual success): the
+  model would normally keep reasoning.
+- ``estimate``: P(eventual answer matches | prefix), by sampling continuations
+  and reading the answer distribution at the end of each (the expected
+  probability rather than a 0/1 draw: same mean, lower variance). This is the
+  estimator pivotal-token deltas are reported with.
+
+``mass`` is the probability the model puts on any choice label at all. When it
+is low, the normalised probability is noise; callers filter on it.
+"""
+
+from dataclasses import dataclass
+from typing import Dict, List, Optional, Sequence, Tuple
+
+import mlx.core as mx
+import numpy as np
+
+from .evals import ChoiceItem
+
+COT_INSTRUCTION = "Think briefly step by step, then give your final answer as {options}."
+DIRECT_INSTRUCTION = "Answer with {options} only."
+CUE = "What is your final answer? Reply with {options} only."
+_SENTINEL = "⁣PTS_SENTINEL⁣"
+
+
+def _options(choices: Sequence[str]) -> str:
+    if tuple(choices) == ("A", "B"):
+        return "(A) or (B)"
+    return " or ".join(choices)
+
+
+@dataclass
+class AnswerDist:
+    p_match: float   # P(matching | some choice), normalised over the choices
+    mass: float      # P(any choice label)
+
+
+class ChoiceScorer:
+    def __init__(self, model, tokenizer):
+        self.model = model
+        self.tok = tokenizer
+        self._label_ids: Dict[str, mx.array] = {}
+        self._cue_cache: Dict[Tuple[str, ...], List[int]] = {}
+        self.vocab_size = len(tokenizer.vocab) if hasattr(tokenizer, "vocab") else tokenizer.vocab_size
+
+    # -- tokens ------------------------------------------------------------
+
+    def label_ids(self, label: str) -> mx.array:
+        """Every token that reads as ``label`` ("(A", " A", "A", "**A"...).
+
+        Tokenizers merge the parenthesis into the letter, so the single token
+        for "A" catches only part of the probability.
+        """
+        if label not in self._label_ids:
+            want = label.lower()
+            ids = [
+                t for t in range(self.vocab_size)
+                if self.tok.decode([t]).strip().lstrip("(*").rstrip(")").strip().lower() == want
+            ]
+            if not ids:
+                raise ValueError(f"No token reads as {label!r}")
+            self._label_ids[label] = mx.array(ids)
+        return self._label_ids[label]
+
+    def _render(self, messages, add_generation_prompt: bool) -> str:
+        return self.tok.apply_chat_template(
+            messages, tokenize=False, add_generation_prompt=add_generation_prompt
+        )
+
+    def _encode(self, text: str) -> List[int]:
+        # Rendered templates already contain their special tokens.
+        return list(self.tok.encode(text, add_special_tokens=False))
+
+    def prompt_ids(self, item: ChoiceItem, cot: bool) -> List[int]:
+        instruction = (COT_INSTRUCTION if cot else DIRECT_INSTRUCTION).format(options=_options(item.choices))
+        messages = [{"role": "user", "content": item.question.strip() + "\n\n" + instruction}]
+        return self._encode(self._render(messages, add_generation_prompt=True))
+
+    def cue_ids(self, item: ChoiceItem) -> List[int]:
+        """Tokens that close the assistant turn and ask for the answer in a new one.
+
+        Found by rendering the template around a sentinel assistant message, so
+        it is exact for whatever chat template the model uses.
+        """
+        key = tuple(item.choices)
+        if key not in self._cue_cache:
+            messages = [
+                {"role": "user", "content": "Q"},
+                {"role": "assistant", "content": _SENTINEL},
+                {"role": "user", "content": CUE.format(options=_options(item.choices))},
+            ]
+            text = self._render(messages, add_generation_prompt=True)
+            if text.count(_SENTINEL) != 1:
+                raise ValueError("Chat template does not echo assistant content verbatim")
+            self._cue_cache[key] = self._encode(text.split(_SENTINEL, 1)[1])
+        return self._cue_cache[key]
+
+    # -- distributions -----------------------------------------------------
+
+    def _dist(self, logits: mx.array, item: ChoiceItem) -> AnswerDist:
+        p = mx.softmax(logits.astype(mx.float32), axis=-1)
+        pm = p[self.label_ids(item.matching)].sum()
+        pn = p[self.label_ids(item.not_matching)].sum()
+        mx.eval(pm, pn)
+        pm, pn = float(pm), float(pn)
+        mass = pm + pn
+        return AnswerDist(p_match=pm / mass if mass > 0 else 0.5, mass=mass)
+
+    def answer_at(self, item: ChoiceItem, ids: Sequence[int]) -> AnswerDist:
+        """The answer distribution right after ``ids``."""
+        logits = self.model(mx.array(list(ids))[None])[0, -1]
+        return self._dist(logits, item)
+
+    def direct(self, item: ChoiceItem) -> AnswerDist:
+        """Immediate-answer P(matching), averaged over both label orders where possible."""
+        a = self.answer_at(item, self.prompt_ids(item, cot=False))
+        swapped = item.swapped()
+        if swapped is None:
+            return a
+        b = self.answer_at(swapped, self.prompt_ids(swapped, cot=False))
+        return AnswerDist(p_match=(a.p_match + b.p_match) / 2, mass=(a.mass + b.mass) / 2)
+
+    def curve(
+        self, item: ChoiceItem, prompt_ids: Sequence[int], response_ids: Sequence[int]
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        """Forced-answer ``(p_match, mass)`` after each prefix ``response[:t]``, t = 0..T.
+
+        One prefill of the whole trace, then for each position (last to
+        first) trim the cache back to it, run the cue, and trim the cue off.
+        """
+        from mlx_lm.models.cache import can_trim_prompt_cache, make_prompt_cache, trim_prompt_cache
+
+        prompt_ids, response_ids = list(prompt_ids), list(response_ids)
+        cue = mx.array(self.cue_ids(item))[None]
+        n_cue = cue.shape[1]
+        T = len(response_ids)
+        p = np.zeros(T + 1)
+        mass = np.zeros(T + 1)
+
+        cache = make_prompt_cache(self.model)
+        if not can_trim_prompt_cache(cache):
+            # Sliding-window caches cannot rewind; fall back to full passes.
+            for t in range(T + 1):
+                d = self.answer_at(item, prompt_ids + response_ids[:t] + self.cue_ids(item))
+                p[t], mass[t] = d.p_match, d.mass
+            return p, mass
+
+        self.model(mx.array(prompt_ids + response_ids)[None], cache=cache)
+        current = len(prompt_ids) + T
+        for t in range(T, -1, -1):
+            target = len(prompt_ids) + t
+            if current > target:
+                trim_prompt_cache(cache, current - target)
+                current = target
+            d = self._dist(self.model(cue, cache=cache)[0, -1], item)
+            trim_prompt_cache(cache, n_cue)
+            p[t], mass[t] = d.p_match, d.mass
+        return p, mass
+
+    # -- sampling ----------------------------------------------------------
+
+    def sample(
+        self,
+        prompts: Sequence[Sequence[int]],
+        max_tokens: int,
+        temperature: float = 0.7,
+        top_p: float = 0.95,
+    ) -> List[List[int]]:
+        """Sampled continuations (token ids, stop token excluded), one per prompt, batched."""
+        from mlx_lm.generate import BatchGenerator
+        from mlx_lm.sample_utils import make_sampler
+
+        gen = BatchGenerator(
+            self.model,
+            stop_tokens=[[t] for t in self.tok.eos_token_ids],
+            sampler=make_sampler(temp=temperature, top_p=top_p),
+        )
+        try:
+            uids = gen.insert([list(x) for x in prompts], [max_tokens] * len(prompts))
+            out = {u: [] for u in uids}
+            while responses := gen.next_generated():
+                for r in responses:
+                    if r.finish_reason != "stop":
+                        out[r.uid].append(r.token)
+        finally:
+            gen.close()
+        return [out[u] for u in uids]
+
+    def estimate(
+        self,
+        item: ChoiceItem,
+        prompt_ids: Sequence[int],
+        prefix_ids: Sequence[int],
+        num_samples: int,
+        max_tokens: int,
+        temperature: float = 0.7,
+    ) -> Tuple[float, float, float]:
+        """P(final answer matches | prefix): mean, standard error, and mean mass.
+
+        Samples continuations of ``prompt + prefix`` and averages the forced
+        answer distribution at the end of each.
+        """
+        base = list(prompt_ids) + list(prefix_ids)
+        conts = self.sample([base] * num_samples, max_tokens, temperature)
+        cue = self.cue_ids(item)
+        dists = [self.answer_at(item, base + c + cue) for c in conts]
+        ps = np.array([d.p_match for d in dists])
+        se = float(ps.std(ddof=1) / np.sqrt(len(ps))) if len(ps) > 1 else float("nan")
+        return float(ps.mean()), se, float(np.mean([d.mass for d in dists]))
