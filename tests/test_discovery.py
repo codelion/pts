@@ -1,7 +1,7 @@
-"""Behavior scoring on MLX.
+"""Behavior discovery on MLX.
 
 Runs on the tiny random Llama with a minimal chat template attached; its
-weights are random, so tests check exactness and invariants, not answers.
+weights are random, so tests check structure and invariants, not answers.
 """
 
 import pytest
@@ -28,75 +28,57 @@ TEMPLATE = (
 
 @pytest.fixture(scope="module")
 def scorer():
+    from pts.discovery.evals import ChoiceOracle
     from pts.discovery.scoring import ChoiceScorer
 
     model, tok = mlx_lm.load(TINY)
     tok._tokenizer.chat_template = TEMPLATE
-    return ChoiceScorer(model, tok)
+    return ChoiceScorer(model, tok, ChoiceOracle([ITEM]))
 
 
 ITEM = parse_row(AB_ROW, 0)
 
 
-def test_cue_is_the_template_between_assistant_content_and_the_next_answer(scorer):
-    # Compare ids: decoding this tokenizer inserts a space after </s>.
-    expected = "</s><|user|>What is your final answer? Reply with (A) or (B) only.</s><|assistant|>"
-    assert scorer.cue_ids(ITEM) == list(scorer.tok.encode(expected, add_special_tokens=False))
-
-
-def test_label_tokens_cover_the_letter(scorer):
-    ids = set(np.array(scorer.label_ids("A")).tolist())
-    assert scorer.tok.encode("A", add_special_tokens=False)[-1] in ids
-    assert not ids & set(np.array(scorer.label_ids("B")).tolist())
-
-
-def test_cached_curve_matches_full_recomputation(scorer):
-    """The KV-cache rewind is only a speedup; it must not change any value."""
-    prompt = scorer.prompt_ids(ITEM, cot=True)
-    response = [450, 1234, 29871, 13, 3532, 4874, 263, 1243]
-    p, mass = scorer.curve(ITEM, prompt, response)
-    for t in range(len(response) + 1):
-        d = scorer.answer_at(ITEM, prompt + response[:t] + scorer.cue_ids(ITEM))
-        assert p[t] == pytest.approx(d.p_match, abs=1e-4)
-        assert mass[t] == pytest.approx(d.mass, rel=1e-3)
-
-
-def test_direct_averages_both_label_orders(scorer):
-    d = scorer.direct(ITEM)
-    a = scorer.answer_at(ITEM, scorer.prompt_ids(ITEM, cot=False))
-    s = ITEM.swapped()
-    b = scorer.answer_at(s, scorer.prompt_ids(s, cot=False))
-    assert d.p_match == pytest.approx((a.p_match + b.p_match) / 2)
+def test_prompt_is_the_dataset_question_in_the_chat_template(scorer):
+    text = scorer.tok.decode(scorer.prompt_ids(ITEM))
+    assert text.count(ITEM.question.strip()) == 1
+    assert text.rstrip().endswith("<|assistant|>")
 
 
 def test_estimate_is_a_probability_with_an_error_bar(scorer):
     mx.random.seed(0)
-    prompt = scorer.prompt_ids(ITEM, cot=True)
-    mean, se, mass = scorer.estimate(ITEM, prompt, [], num_samples=4, max_tokens=4)
-    assert 0.0 <= mean <= 1.0 and se >= 0.0 and 0.0 <= mass <= 1.0
+    e = scorer.estimate(ITEM, scorer.prompt_ids(ITEM), [], num_samples=4, max_tokens=4)
+    assert 0.0 <= e.p <= 1.0 and e.se >= 0.0 and 0.0 <= e.answered <= 1.0
+
+
+def test_oracle_judges_prefix_plus_completion(scorer):
+    """Success is judged on the whole response: the prefix being conditioned on
+    plus the sampled rest, like token PTS."""
+    from pts.discovery.scoring import ChoiceScorer
+
+    seen = []
+    prefix = list(scorer.tok.encode(" yes", add_special_tokens=False))
+    start = scorer.tok.decode(prefix)
+
+    class Recorder:
+        def check_success(self, query, response):
+            seen.append((query, response))
+            return response.startswith(start)
+
+    sc = ChoiceScorer(scorer.model, scorer.tok, Recorder())
+    mx.random.seed(0)
+    (e, other) = sc.estimate_many([(ITEM, sc.prompt_ids(ITEM), prefix), (ITEM, sc.prompt_ids(ITEM), [])], 3, 4)
+    assert len(seen) == 6 and all(q == ITEM.question for q, _ in seen)
+    assert all(r.startswith(start) for _, r in seen[:3])
+    assert e.p == 1.0 and e.answered == 1.0
+    assert sc.cost.completions == 6
 
 
 def test_batched_sampling_returns_one_continuation_per_prompt(scorer):
     mx.random.seed(0)
-    prompt = scorer.prompt_ids(ITEM, cot=True)
+    prompt = scorer.prompt_ids(ITEM)
     outs = scorer.sample([prompt, prompt[:-2], prompt], max_tokens=5)
     assert len(outs) == 3 and all(0 < len(o) <= 5 for o in outs)
-
-
-def test_returned_caches_cover_exactly_prompt_plus_continuation(scorer):
-    """The estimate reads each answer by running only the cue on a sample's
-    cache. That must equal a full pass over prompt + continuation + cue, for
-    samples that stopped on EOS (whose stop token is trimmed) and that hit the
-    length limit."""
-    mx.random.seed(3)
-    prompt = scorer.prompt_ids(ITEM, cot=True)
-    conts, caches = scorer.sample([prompt] * 4, max_tokens=6, return_caches=True)
-    cue = scorer.cue_ids(ITEM)
-    for cont, cache in zip(conts, caches):
-        assert cache[0].offset == len(prompt) + len(cont)
-        cached = scorer._dist(scorer.model(mx.array(cue)[None], cache=cache)[0, -1], ITEM)
-        full = scorer.answer_at(ITEM, prompt + cont + cue)
-        assert cached.p_match == pytest.approx(full.p_match, abs=1e-4)
 
 
 # -- directions, validation, pipeline ----------------------------------------
@@ -110,7 +92,7 @@ def _capture(scorer):
 def _event(scorer, delta, item_id="q0", trace_index=0, position=2, token_id=3532):
     from pts.events import make_token_event
 
-    prompt = scorer.prompt_ids(ITEM, cot=True)
+    prompt = scorer.prompt_ids(ITEM)
     return make_token_event(
         query=ITEM.question, context=scorer.tok.decode(prompt + TRACE[:position]), token=" x",
         token_id=token_id, prob_before=0.5, prob_after=0.5 + delta, model_id="tiny",
@@ -163,12 +145,12 @@ def test_caa_uses_both_label_orders(scorer):
 def test_choose_rejects_damaging_settings():
     from pts.discovery.validate import Score, choose
 
-    base = Score(p_match=0.6, mass=0.95)
+    base = Score(p_match=0.6, answered=0.95)
     rows = [
-        {"layer": 1, "alpha": -9, "p_match": 0.50, "mass": 0.40, "kl": 0.1},  # off-format: rejected
-        {"layer": 1, "alpha": -5, "p_match": 0.45, "mass": 0.94, "kl": 2.0},  # breaks neutral text
-        {"layer": 2, "alpha": -2, "p_match": 0.52, "mass": 0.93, "kl": 0.1},
-        {"layer": 2, "alpha": 2, "p_match": 0.70, "mass": 0.95, "kl": 0.1},
+        {"layer": 1, "alpha": -9, "p_match": 0.50, "answered": 0.40, "kl": 0.1},  # stops answering
+        {"layer": 1, "alpha": -5, "p_match": 0.45, "answered": 0.94, "kl": 2.0},  # breaks neutral text
+        {"layer": 2, "alpha": -2, "p_match": 0.52, "answered": 0.93, "kl": 0.1},
+        {"layer": 2, "alpha": 2, "p_match": 0.70, "answered": 0.95, "kl": 0.1},
     ]
     assert choose(rows, base, -1)["alpha"] == -2
     assert choose(rows, base, +1)["alpha"] == 2
@@ -186,10 +168,10 @@ def test_pipeline_runs_end_to_end_and_writes_loadable_vectors(scorer, tmp_path, 
     path = tmp_path / "eval.jsonl"
     path.write_text("\n".join(_json.dumps(r) for r in rows))
     config = pipeline.DiscoveryConfig(
-        num_items=8, layers=[0, 1], fractions=[0.1], max_kl=10.0, min_mass_ratio=0.0,
-        random_null=2, cot_samples=2,
+        num_items=8, layers=[0, 1], fractions=[0.1], max_kl=10.0, min_answered_ratio=0.0,
+        random_null=2, eval_samples=2, selection_samples=2,
         search=SearchConfig(traces_per_item=1, max_tokens=4, samples=2,
-                            min_direct=0.0, max_direct=1.0),
+                            min_start=0.0, max_start=1.0),
     )
     report = pipeline.discover(scorer.model, scorer.tok, "tiny", str(path), "toy", str(tmp_path / "out"), config)
 
@@ -198,7 +180,7 @@ def test_pipeline_runs_end_to_end_and_writes_loadable_vectors(scorer, tmp_path, 
     assert "caa" in report["methods"]
     assert len(report["methods"]["caa"]["selection_sweep"]) == 2 * 1 * 2  # layers x fractions x signs
     assert set(saved["prompt_baselines"]) == {"increase", "decrease"}
-    assert "test_cot_effect" in saved["prompt_baselines"]["decrease"]
+    assert "answered" in saved["base"]["test"]
     assert (tmp_path / "out" / "traces.jsonl").exists()
     for label in ("increase", "decrease"):
         r = report["methods"]["caa"][label]
@@ -219,12 +201,14 @@ class _StepScorer:
     """
 
     def __init__(self):
-        from pts.discovery.scoring import AnswerDist, Cost
+        from pts.discovery.scoring import Cost, Estimate
 
         self.cost = Cost()
         self.trace = list(range(100, 132))
-        self.calls = 0
-        self._AnswerDist = AnswerDist
+        self.seen = set()       # distinct prefixes estimated
+        self._Estimate = Estimate
+        self.temperature, self.top_p, self.top_k, self.min_p, self.presence_penalty = 0.7, 0.95, 0, 0.0, 0.0
+        self.chat_template_args = {}
 
     def p(self, prefix):
         p = 0.5
@@ -234,35 +218,28 @@ class _StepScorer:
             p = 0.1
         return p
 
-    def direct(self, item):
-        return self._AnswerDist(0.5, 1.0)
-
-    def prompt_ids(self, item, cot):
+    def prompt_ids(self, item):
         return [1, 2, 3]
 
-    def estimate(self, item, prompt, prefix, n, max_tokens, temperature=0.7):
-        self.calls += 1
-        return self.p(list(prefix)), 0.0, 1.0
+    def estimate_many(self, requests, n, max_tokens):
+        out = []
+        for _, _, prefix in requests:
+            self.seen.add(tuple(prefix))
+            k = round(self.p(list(prefix)) * n)
+            out.append(self._Estimate(k, n, n))
+        return out
 
-    def sample(self, prompts, max_tokens, temperature=0.7, return_caches=False):
-        return [list(self.trace)], ["cache"]
+    def sample(self, prompts, max_tokens):
+        return [list(self.trace)]
 
-    def cue_ids(self, item):
-        return [7]
-
-    def label_ids(self, label):
-        return mx.array([120]) if label == "B" else mx.array([999])
-
-    def model(self, cue, cache=None):
-        return mx.zeros((1, 1, 4))
-
-    def _dist(self, logits, item):
-        return self._AnswerDist(self.p(self.trace), 1.0)
+    def judge(self, item, response):
+        return self.p(list(response)) > 0.5, True
 
     class tok:
         @staticmethod
         def decode(ids):
-            return " ".join(map(str, ids))
+            # Token 120 stands in for writing the answer label.
+            return "(B" if list(ids) == [120] else " ".join(map(str, ids))
 
 
 def test_bisection_finds_exactly_the_tokens_where_p_steps():
@@ -275,20 +252,100 @@ def test_bisection_finds_exactly_the_tokens_where_p_steps():
     by_token = {e.token_id: e for e in events}
     assert by_token[105].prob_delta == pytest.approx(0.4)
     assert by_token[120].prob_delta == pytest.approx(-0.8)
-    assert all(e.metadata["estimator"] == "sampled_answer_distribution" for e in events)
+    assert all(e.search_method == "token_pts_bisection" for e in events)
     # Token 120 stands in for writing the answer label; it is tagged, not hidden.
     assert by_token[120].metadata["states_answer"] and not by_token[105].metadata["states_answer"]
     # Logarithmic, not linear, in the trace length: far fewer than 32 estimates.
-    assert fake.calls < 20
+    assert len(fake.seen) < 20
 
 
-def test_traces_whose_answer_did_not_move_cost_no_sampling():
+def test_shared_prefill_generates_exactly_what_a_fresh_prompt_does(scorer):
+    """Samples of one prompt start from copies of one prefilled cache. Greedy
+    decoding makes that comparable token for token with a prompt run alone."""
+    from pts.discovery.scoring import ChoiceScorer
+
+    sc = ChoiceScorer(scorer.model, scorer.tok, scorer.oracle, temperature=0.0)
+    prompt = sc.prompt_ids(ITEM)
+    alone = sc.sample([prompt], max_tokens=8)
+    shared = sc.sample([prompt] * 3 + [prompt[:-3]], max_tokens=8)
+    assert shared[:3] == alone * 3
+    assert shared[3] == sc.sample([prompt[:-3]], max_tokens=8)[0]
+    assert sc.cost.prefilled_once == 1
+
+
+def test_clear_comparisons_stop_at_min_samples():
     from pts.discovery.search import SearchConfig, search_item
 
     fake = _StepScorer()
-    fake.trace = list(range(100, 104))  # never reaches the step tokens: ends at 0.5
+    fake.p = lambda prefix: 1.0 if 105 in prefix else 0.0
+    fake.trace = list(range(100, 108))
+    cfg = SearchConfig(traces_per_item=1, min_start=0.0, max_start=1.0, samples=50, min_samples=10)
+    (event,) = search_item(fake, ITEM, cfg, "fake", "toy")
+    assert event.token_id == 105 and event.prob_delta == pytest.approx(1.0)
+    # A clear difference is decided in the first round; "no difference"
+    # between two 0/n estimates takes one more. Neither needs all 50.
+    assert event.metadata["samples_after"] == 10
+    assert event.metadata["samples_before"] <= 20
+
+
+def test_min_samples_equal_to_samples_is_fixed_size_token_pts():
+    from pts.discovery.search import SearchConfig, search_item
+
+    cfg = SearchConfig(traces_per_item=1, samples=50, min_samples=50)
+    events = list(search_item(_StepScorer(), ITEM, cfg, "fake", "toy"))
+    assert sorted(e.token_id for e in events) == [105, 120]
+    assert all(e.metadata["samples_before"] == e.metadata["samples_after"] == 50 for e in events)
+
+
+def test_questions_with_a_settled_start_are_skipped_before_sampling_traces():
+    from pts.discovery.search import SearchConfig, search_item
+
+    fake = _StepScorer()
+    fake.p = lambda prefix: 0.95
     events = list(search_item(fake, ITEM, SearchConfig(traces_per_item=1), "fake", "toy"))
-    assert events == [] and fake.calls == 1  # only P(start)
+    assert events == [] and fake.seen == {()}
+
+
+def test_zero_budget_means_unlimited_bisection():
+    from pts.discovery.search import SearchConfig, search_item
+
+    cfg = SearchConfig(traces_per_item=1, max_estimates_per_trace=0)
+    events = list(search_item(_StepScorer(), ITEM, cfg, "fake", "toy"))
+    assert sorted(e.token_id for e in events) == [105, 120]
+
+
+def test_search_saves_per_question_and_resumes(tmp_path, monkeypatch):
+    import json as _json
+
+    from pts.discovery import pipeline
+    from pts.discovery.search import SearchConfig, search_item
+
+    items = [parse_row({**AB_ROW, "question": f"Q{i}? (A) yes (B) no"}, i) for i in range(3)]
+    config = pipeline.DiscoveryConfig(search=SearchConfig(traces_per_item=1))
+    out = str(tmp_path)
+    searched = []
+
+    def flaky(scorer, item, *args):
+        if len(searched) == 2:
+            raise RuntimeError("interrupted")
+        searched.append(item.item_id)
+        return search_item(scorer, item, *args)
+
+    monkeypatch.setattr(pipeline, "search_item", flaky)
+    with pytest.raises(RuntimeError):
+        pipeline._run_search(_StepScorer(), items, config, "fake", "e.jsonl", "toy", out)
+    state = _json.loads((tmp_path / "search_state.json").read_text())
+    assert state["done"] == searched == [items[0].item_id, items[1].item_id]
+
+    searched.clear()
+    monkeypatch.setattr(pipeline, "search_item", lambda s, item, *a: (searched.append(item.item_id), search_item(s, item, *a))[1])
+    events, traces, _ = pipeline._run_search(_StepScorer(), items, config, "fake", "e.jsonl", "toy", out)
+    assert searched == [items[2].item_id]
+    assert len(events) == 3 * 2 and len(traces) == 3
+
+    changed = pipeline.DiscoveryConfig(search=SearchConfig(traces_per_item=1, samples=8))
+    with pytest.raises(ValueError, match="different settings"):
+        pipeline._run_search(_StepScorer(), items, changed, "fake", "e.jsonl", "toy", out)
 
 
 def test_answer_stating_events_are_not_used_for_directions(scorer):
@@ -319,8 +376,8 @@ def test_random_positions_avoid_pivotal_and_answer_tokens(scorer, monkeypatch):
 
     seen = []
     monkeypatch.setattr(directions, "_pair_vectors", lambda sc, cap, specs, layers: seen.append(specs) or ({}, {}, len(specs)))
-    prompt = scorer.prompt_ids(ITEM, cot=True)
-    answer_token = int(np.array(scorer.label_ids("A"))[0])
+    prompt = scorer.prompt_ids(ITEM)
+    answer_token = scorer.tok.encode("A", add_special_tokens=False)[-1]
     trace = TRACE[:6] + [answer_token] + TRACE[6:]
     traces = [{"item_id": "q0", "trace_index": 0, "prompt_ids": prompt, "response_ids": trace,
                "p_start": 0.5, "p_end": 0.1}]
@@ -348,11 +405,11 @@ def test_bootstrap_interval_covers_the_mean_and_shrinks_with_n():
 def test_prompt_baseline_changes_the_prompt_only_while_scoring(scorer):
     from pts.discovery.validate import Evaluator
 
-    ev = Evaluator(scorer)
-    plain = scorer.prompt_ids(ITEM, cot=False)
+    ev = Evaluator(scorer, samples=2, max_tokens=4)
+    plain = scorer.prompt_ids(ITEM)
     s = ev.score([ITEM], prompt="Avoid it.")
     assert scorer.extra_instruction is None
-    assert scorer.prompt_ids(ITEM, cot=False) == plain
+    assert scorer.prompt_ids(ITEM) == plain
     assert len(s.per_item) == 1
 
 
@@ -360,6 +417,7 @@ def test_pipeline_reuses_a_saved_search_and_compares_pts_with_every_alternative(
     import json as _json
 
     from pts.discovery import pipeline
+    from pts.discovery.search import SearchConfig
     from pts.event_storage import EventStorage
 
     rows = [{**AB_ROW, "question": f"Q{i}? (A) yes (B) no"} for i in range(8)]
@@ -367,7 +425,7 @@ def test_pipeline_reuses_a_saved_search_and_compares_pts_with_every_alternative(
     path.write_text("\n".join(_json.dumps(r) for r in rows))
     out = tmp_path / "out"
     out.mkdir()
-    prompt = scorer.prompt_ids(ITEM, cot=True)
+    prompt = scorer.prompt_ids(ITEM)
     # Distinct contexts per question: event ids hash the context, as real
     # questions' different text would.
     events = [_event(scorer, d, item_id=q, position=k + off)
@@ -381,8 +439,9 @@ def test_pipeline_reuses_a_saved_search_and_compares_pts_with_every_alternative(
                                  "response_ids": TRACE, "p_start": 0.5, "p_end": 0.9}) + "\n")
 
     config = pipeline.DiscoveryConfig(
-        num_items=8, layers=[0, 1], fractions=[0.1, 0.4], max_kl=10.0, min_mass_ratio=0.0,
-        random_null=2, cot_samples=0, reuse_search=True,
+        num_items=8, layers=[0, 1], fractions=[0.1, 0.4], max_kl=10.0, min_answered_ratio=0.0,
+        random_null=2, eval_samples=2, selection_samples=2, reuse_search=True,
+        search=SearchConfig(max_tokens=4),
     )
     report = pipeline.discover(scorer.model, scorer.tok, "tiny", str(path), "toy", str(out), config)
     assert report["events"]["total"] == 4 and report["search_cost"] is None

@@ -3,10 +3,11 @@ Does a steering vector change the behavior, and what does it break?
 
 Every steered measurement reports three numbers:
 
-- ``p_match``: direct-answer P(behavior), averaged over both label orders.
-- ``mass``: probability on any answer label. A vector that pushes the model
-  off-format drives the label-swap average toward 0.5, which looks like a
-  behavior change but is damage; a mass floor catches it.
+- ``p_match``: P(success), the fraction of sampled completions the oracle
+  accepts, with the same estimator the search uses.
+- ``answered``: the fraction of completions with a recognisable answer. A
+  vector that stops the model answering would otherwise look like it reduced
+  the behavior; a floor on this catches it.
 - ``kl``: mean KL(unsteered || steered) of next-token distributions on neutral
   text, the cost of the vector to everything else.
 
@@ -39,12 +40,12 @@ NEUTRAL_TEXTS = (
 @dataclass
 class Score:
     p_match: float
-    mass: float
+    answered: float
     kl: float = 0.0
     per_item: List[float] = field(default_factory=list)
 
     def as_dict(self) -> Dict[str, float]:
-        return {"p_match": self.p_match, "mass": self.mass, "kl": self.kl}
+        return {"p_match": self.p_match, "answered": self.answered, "kl": self.kl}
 
 
 def bootstrap_ci(values: Sequence[float], n: int = 2000, seed: int = 0, level: float = 0.95):
@@ -77,33 +78,24 @@ def _neutral_logprobs(scorer: ChoiceScorer) -> List[np.ndarray]:
 
 
 class Evaluator:
-    """Scores items with and without steering, caching the unsteered references.
+    """Scores items with and without steering by sampling ``samples``
+    completions per question, all questions in one batch."""
 
-    ``cot_samples > 0`` measures the eventual answer after reasoning (sampled,
-    in the question's original label order) instead of the immediate answer
-    (averaged over both orders). Pivotal tokens are found in reasoning, so
-    a vector built from them should also be judged there.
-    """
-
-    def __init__(self, scorer: ChoiceScorer, model_id: Optional[str] = None, cot_max_tokens: int = 200):
+    def __init__(self, scorer: ChoiceScorer, model_id: Optional[str] = None,
+                 samples: int = 16, max_tokens: int = 512):
         self.scorer = scorer
         self.model_id = model_id
-        self.cot_max_tokens = cot_max_tokens
+        self.samples = samples
+        self.max_tokens = max_tokens
         self._neutral = _neutral_logprobs(scorer)
 
-    def _measure(self, items: Sequence[ChoiceItem], kl: bool, cot_samples: int) -> Score:
-        if cot_samples:
-            rows = []
-            for it in items:
-                prompt = self.scorer.prompt_ids(it, cot=True)
-                mean, _, mass = self.scorer.estimate(it, prompt, [], cot_samples, self.cot_max_tokens)
-                rows.append((mean, mass))
-        else:
-            rows = [(d.p_match, d.mass) for d in (self.scorer.direct(it) for it in items)]
+    def _measure(self, items: Sequence[ChoiceItem], kl: bool) -> Score:
+        requests = [(it, self.scorer.prompt_ids(it), []) for it in items]
+        est = self.scorer.estimate_many(requests, self.samples, self.max_tokens)
         score = Score(
-            p_match=float(np.mean([r[0] for r in rows])),
-            mass=float(np.mean([r[1] for r in rows])),
-            per_item=[r[0] for r in rows],
+            p_match=float(np.mean([e.p for e in est])),
+            answered=float(np.mean([e.answered for e in est])),
+            per_item=[e.p for e in est],
         )
         if kl:
             steered = _neutral_logprobs(self.scorer)
@@ -112,13 +104,7 @@ class Evaluator:
             ]))
         return score
 
-    def score(
-        self,
-        items: Sequence[ChoiceItem],
-        steering=(),
-        prompt: Optional[str] = None,
-        cot_samples: int = 0,
-    ) -> Score:
+    def score(self, items: Sequence[ChoiceItem], steering=(), prompt: Optional[str] = None) -> Score:
         """P(behavior) on ``items``, optionally steered and/or with an added instruction."""
         from contextlib import nullcontext
 
@@ -129,7 +115,7 @@ class Evaluator:
         try:
             ctx = steer(self.scorer.model, steering, model_id=self.model_id) if steering else nullcontext()
             with ctx:
-                return self._measure(items, kl=bool(steering), cot_samples=cot_samples)
+                return self._measure(items, kl=bool(steering))
         finally:
             self.scorer.extra_instruction = previous
 
@@ -178,18 +164,18 @@ def choose(
     rows: Sequence[Dict[str, float]],
     base: Score,
     direction: int,
-    min_mass_ratio: float = 0.9,
+    min_answered_ratio: float = 0.9,
     max_kl: float = 0.5,
 ) -> Optional[Dict[str, float]]:
     """The setting that moves P(behavior) furthest in ``direction`` without damage.
 
-    Damage means losing more than ``1 - min_mass_ratio`` of the answer mass or
-    a mean neutral-text KL above ``max_kl`` nats. Returns None if nothing both
-    passes and moves P(behavior) the right way.
+    Damage means answering less than ``min_answered_ratio`` times as often as
+    unsteered, or a mean neutral-text KL above ``max_kl`` nats. Returns None if
+    nothing both passes and moves P(behavior) the right way.
     """
     ok = [
         r for r in rows
-        if r["mass"] >= min_mass_ratio * base.mass and r["kl"] <= max_kl
+        if r["answered"] >= min_answered_ratio * base.answered and r["kl"] <= max_kl
         and direction * (r["p_match"] - base.p_match) > 0
     ]
     return max(ok, key=lambda r: direction * (r["p_match"] - base.p_match)) if ok else None

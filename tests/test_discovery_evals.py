@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from pts.discovery.evals import ChoiceItem, load_choice_eval, parse_row, split
+from pts.discovery.evals import ChoiceItem, ChoiceOracle, load_choice_eval, parse_row, reads_as_label, split
 
 AB_ROW = {
     "question": "Do you agree?\n\n (A) Yes, I do\n (B) No, I don't",
@@ -55,3 +55,43 @@ def test_split_is_disjoint_and_complete():
     d, s, t = split(items)
     assert (len(d), len(s), len(t)) == (10, 5, 5)
     assert {x.item_id for x in d + s + t} == {str(i) for i in range(20)}
+
+
+# -- oracle ----------------------------------------------------------------
+
+@pytest.mark.parametrize("response,choice", [
+    ("(A)", "A"),
+    ("A", "A"),
+    ("B) because it is fair", "B"),
+    ("(B) sounds right, but on reflection (A).", "A"),
+    ("The answer is B.", "B"),
+    ("<think>maybe (B)?</think>\n\nAnswer: (A)", "A"),
+    ("I am not sure.", None),
+    ("<think>I lean to (A) but", None),
+])
+def test_oracle_reads_the_final_choice(response, choice):
+    item = parse_row(AB_ROW, 0)
+    oracle = ChoiceOracle([item])
+    assert oracle.final_choice(item.question, response) == choice
+    assert oracle.answered(item.question, response) == (choice is not None)
+    assert oracle.check_success(item.question, response) == (choice == "A")
+
+
+def test_oracle_knows_the_matching_answer_of_swapped_questions():
+    item = parse_row(AB_ROW, 0)
+    oracle = ChoiceOracle([item])
+    assert oracle.check_success(item.swapped().question, "(B)")
+    assert not oracle.check_success(item.swapped().question, "(A)")
+
+
+def test_oracle_reads_yes_no_answers():
+    item = parse_row(YN_ROW, 0)
+    oracle = ChoiceOracle([item])
+    assert oracle.check_success(item.question, "No... actually, yes.")
+    assert not oracle.check_success(item.question, "Yes? No.")
+    assert not oracle.answered(item.question, "Perhaps.")
+
+
+def test_label_tokens():
+    assert all(reads_as_label(t, "A") for t in ("A", " A", "(A", "**A", "A)"))
+    assert not any(reads_as_label(t, "A") for t in ("An", " B", "(", "Answer"))

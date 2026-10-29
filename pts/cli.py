@@ -645,19 +645,27 @@ def discover(args) -> None:
         seed=args.seed,
         layers=args.layers,
         fractions=args.fractions,
-        min_mass_ratio=args.min_mass_ratio,
+        min_answered_ratio=args.min_answered_ratio,
         max_kl=args.max_kl,
+        eval_samples=args.eval_samples,
         random_null=args.random_null,
-        cot_samples=args.cot_samples,
         prompt_increase=args.prompt_increase,
         prompt_decrease=args.prompt_decrease,
         reuse_search=args.reuse_search,
+        chat_template_args=json.loads(args.chat_template_args) if args.chat_template_args else {},
+        memory_fraction=args.memory_fraction,
+        sampling={k: v for k, v in (("temperature", args.temperature), ("top_p", args.top_p),
+                                    ("top_k", args.top_k), ("presence_penalty", args.presence_penalty))
+                  if v is not None},
         search=SearchConfig(
             traces_per_item=args.traces_per_item,
             max_tokens=args.max_tokens,
             samples=args.samples,
+            min_samples=args.min_samples or args.samples,
             prob_threshold=args.prob_threshold,
             max_estimates_per_trace=args.max_estimates_per_trace,
+            min_start=args.min_prob,
+            max_start=args.max_prob,
         ),
     )
     behavior = args.behavior or os.path.splitext(os.path.basename(args.eval))[0]
@@ -674,16 +682,14 @@ def discover(args) -> None:
             if r is None:
                 print(f"  {name:26s} {label:8s} no setting passed the damage checks")
                 continue
-            cot = f"  reasoning {ci(r['test_cot_effect'])}" if "test_cot_effect" in r else ""
-            print(f"  {name:26s} {label:8s} direct {ci(r['test_effect'])}{cot}  "
+            print(f"  {name:26s} {label:8s} {ci(r['test_effect'])}  "
                   f"random-null p={r['random_null']['p_value']:.2f}  layer {r['layer']} "
-                  f"x{r['fraction']:+.2f}  mass {r['test']['mass']:.2f}  KL {r['test']['kl']:.3f}")
+                  f"x{r['fraction']:+.2f}  answered {r['test']['answered']:.2f}  KL {r['test']['kl']:.3f}")
     for label, b in report["prompt_baselines"].items():
-        cot = f"  reasoning {ci(b['test_cot_effect'])}" if "test_cot_effect" in b else ""
-        print(f"  {'prompt':26s} {label:8s} direct {ci(b['test_effect'])}{cot}")
+        print(f"  {'prompt':26s} {label:8s} {ci(b['test_effect'])}  answered {b['test']['answered']:.2f}")
     print("\nPTS advantage over each alternative (positive = PTS moves P further):")
     for key, c in report["comparisons"].items():
-        print(f"  {key:60s} {c['advantage']:+.3f} [{c['ci_low']:+.3f}, {c['ci_high']:+.3f}]")
+        print(f"  {key:56s} {c['advantage']:+.3f} [{c['ci_low']:+.3f}, {c['ci_high']:+.3f}]")
 
 
 def serve(args) -> None:
@@ -965,24 +971,48 @@ def parse_args(argv=None):
     disc_p.add_argument("--layers", type=int, nargs="+", default=None)
     disc_p.add_argument("--fractions", type=float, nargs="+", default=[0.05, 0.1, 0.2, 0.4],
                         help="Steering strengths to sweep, as fractions of the residual norm")
-    disc_p.add_argument("--min-mass-ratio", type=float, default=0.9)
+    disc_p.add_argument("--min-answered-ratio", type=float, default=0.9,
+                        help="Reject steering that makes the model give a recognisable answer less "
+                             "than this fraction as often as unsteered")
     disc_p.add_argument("--max-kl", type=float, default=0.5)
-    disc_p.add_argument("--traces-per-item", type=int, default=4)
-    disc_p.add_argument("--max-tokens", type=int, default=300)
-    disc_p.add_argument("--samples", type=int, default=32,
-                        help="Sampled continuations per probability estimate")
+    disc_p.add_argument("--traces-per-item", type=int, default=10)
+    disc_p.add_argument("--max-tokens", type=int, default=512)
+    disc_p.add_argument("--samples", type=int, default=50,
+                        help="Most sampled completions per probability estimate in the search")
+    disc_p.add_argument("--min-samples", type=int, default=10,
+                        help="Completions an estimate starts with; more are drawn only while a "
+                             "bisection comparison is undecided (0 or = --samples: fixed size)")
     disc_p.add_argument("--prob-threshold", type=float, default=0.2)
-    disc_p.add_argument("--max-estimates-per-trace", type=int, default=24)
-    disc_p.add_argument("--random-null", type=int, default=10,
+    disc_p.add_argument("--max-estimates-per-trace", type=int, default=0,
+                        help="Bisection budget per trace (0: no limit, as in token PTS)")
+    disc_p.add_argument("--min-prob", type=float, default=0.2,
+                        help="Search only questions whose sampled P(behavior) is in "
+                             "[--min-prob, --max-prob]")
+    disc_p.add_argument("--max-prob", type=float, default=0.8)
+    disc_p.add_argument("--chat-template-args", default=None,
+                        help='JSON passed to the chat template, as in mlx_lm, e.g. '
+                             '\'{"enable_thinking": false}\'')
+    disc_p.add_argument("--temperature", type=float, default=None,
+                        help="Sampling temperature (default 0.7); use the model card's settings")
+    disc_p.add_argument("--top-p", type=float, default=None)
+    disc_p.add_argument("--top-k", type=int, default=None)
+    disc_p.add_argument("--presence-penalty", type=float, default=None,
+                        help="e.g. 1.5 for Qwen3.5 thinking mode, which otherwise can loop")
+    disc_p.add_argument("--memory-fraction", type=float, default=0.5,
+                        help="Cap MLX memory at this fraction of the device's (lower it when "
+                             "sharing the machine with another model)")
+    disc_p.add_argument("--eval-samples", type=int, default=16,
+                        help="Sampled completions per test question when measuring steering")
+    disc_p.add_argument("--random-null", type=int, default=5,
                         help="Random vectors of the same size tested at each chosen setting")
-    disc_p.add_argument("--cot-samples", type=int, default=16,
-                        help="Samples per question for the reasoning-mode evaluation (0 skips it)")
     disc_p.add_argument("--prompt-increase", default=None,
                         help="Instruction for the prompting baseline (default: 'Answer in a way that "
                              "shows <behavior>.')")
     disc_p.add_argument("--prompt-decrease", default=None)
     disc_p.add_argument("--reuse-search", action="store_true",
-                        help="Reuse events.jsonl and traces.jsonl already in --output-dir")
+                        help="Use events.jsonl and traces.jsonl in --output-dir as they are, even if "
+                             "the search settings differ (a rerun with the same settings resumes "
+                             "automatically)")
     disc_p.add_argument("--seed", type=int, default=0)
     add_common(disc_p)
 
