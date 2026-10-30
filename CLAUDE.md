@@ -65,7 +65,7 @@ pip install -e .           # core + model deps
 pip install -e '.[all]'    # + sentence-transformers, math-verify, pytest
 pip install -e '.[mlx]'    # Apple-silicon steering backend (mlx-lm needs transformers>=5)
 
-pytest tests/ -q           # ~268 tests, tiny random models; MPS/CUDA/MLX cases skip without them
+pytest tests/ -q           # ~272 tests, tiny random models; MPS/CUDA/MLX cases skip without them
 pytest tests/test_jlens.py::test_causal_mask_holds -q   # a single test
 
 pts run --granularity token|sentence|latent|all --model M --output-path events.jsonl
@@ -262,6 +262,11 @@ every probability, in the search and in validation, is token PTS's estimator
   (shuffled signs, random positions in the same traces), CAA, a random-vector
   null, and the prompt baseline, with paired intervals on held-out questions.
   Report it when it doesn't.
+- `--held-out-pool` screens extra questions and keeps borderline ones for
+  selection and test (fresh base rates are measured after the screen, so the
+  filter cannot inflate an effect). Discovery questions stay the first half of
+  `--num-items` either way, so `--reuse-search` events still match. A control
+  skipped with `--methods` counts as not beaten in the card's verdict.
 - Cost is sampled tokens: one searched question with ~450-token thinking
   traces is ~0.9M tokens. Traces are bisected in lockstep and the sampler
   batches continuously, shortest prompts first, but on Qwen3-0.6B / M4 that

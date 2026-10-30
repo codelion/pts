@@ -193,6 +193,47 @@ def test_pipeline_runs_end_to_end_and_writes_loadable_vectors(scorer, tmp_path, 
 
 
 
+def test_pipeline_validates_chosen_methods_on_a_screened_held_out_pool(scorer, tmp_path):
+    """--methods caa --held-out-pool: discovery questions stay the ones a
+    pool-less run searches; selection and test come from screened questions."""
+    import json as _json
+
+    from pts.discovery import pipeline
+    from pts.discovery.evals import load_choice_eval, split
+    from pts.discovery.search import SearchConfig
+
+    rows = [{**AB_ROW, "question": f"Q{i}? (A) yes (B) no"} for i in range(12)]
+    path = tmp_path / "eval.jsonl"
+    path.write_text("\n".join(_json.dumps(r) for r in rows))
+    config = pipeline.DiscoveryConfig(
+        num_items=8, held_out_pool=4, methods=["caa"], layers=[0], fractions=[0.1], max_kl=10.0,
+        min_answered_ratio=0.0, random_null=1, eval_samples=2, selection_samples=2, screen_samples=2,
+        search=SearchConfig(traces_per_item=1, max_tokens=4, samples=2, min_start=0.0, max_start=1.0),
+    )
+    report = pipeline.discover(scorer.model, scorer.tok, "tiny", str(path), "toy", str(tmp_path / "out"), config)
+
+    # The tiny model finds no pivotal tokens, so only CAA has a vector here.
+    assert "caa" in report["methods"] and set(report["methods"]) <= {pipeline.MAIN, "caa"}
+    assert report["held_out_screen"] == {"pool": 8, "kept": 8, "band": [0.0, 1.0], "samples": 2}
+    assert report["split"] == {"discovery": 4, "selection": 4, "test": 4}
+    searched = _json.loads((tmp_path / "out" / "search_state.json").read_text())["settings"]["items"]
+    assert searched == [it.item_id for it in split(load_choice_eval(str(path), limit=8))[0]]
+
+
+def test_unknown_methods_are_refused(scorer, tmp_path):
+    import json as _json
+
+    from pts.discovery import pipeline
+    from pts.discovery.search import SearchConfig
+
+    path = tmp_path / "eval.jsonl"
+    path.write_text("\n".join(_json.dumps({**AB_ROW, "question": f"Q{i}? (A) yes (B) no"}) for i in range(8)))
+    config = pipeline.DiscoveryConfig(num_items=8, methods=["cca"], layers=[0],
+                                      search=SearchConfig(traces_per_item=1, max_tokens=4, samples=2))
+    with pytest.raises(ValueError, match="unknown methods"):
+        pipeline.discover(scorer.model, scorer.tok, "tiny", str(path), "toy", str(tmp_path / "out"), config)
+
+
 def test_pipeline_runs_on_a_topic_eval_without_caa(scorer, tmp_path):
     """Open-ended prompts judged by a pattern: the same pipeline, minus CAA,
     which needs labelled answers."""

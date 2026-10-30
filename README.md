@@ -183,6 +183,15 @@ pts discover --model M --eval hf://Anthropic/model-written-evals/sycophancy/syco
 pts push --input-path out/ --hf-repo-id you/M-sycophancy   # vectors + report + a model card
 ```
 
+Held-out questions the model always (or never) answers with the behavior leave
+a vector no room to move them. `--held-out-pool N` screens `N` extra questions
+and keeps, for selection and test, only those in the same `[--min-prob,
+--max-prob]` band the search uses; the discovery questions do not change.
+`--methods caa` validates only the PTS vector and CAA, a quicker check of
+whether the behavior is steerable at all (with `--reuse-search`, no new
+search); a card made from such a run never calls a vector passing, because the
+skipped controls were not beaten.
+
 `pts push` on a discover directory publishes the PTS vectors (`increase/`,
 `decrease/`), the full `report.json`, and a model card generated from it. The
 card's verdict is computed: it says a vector beats its controls only when every

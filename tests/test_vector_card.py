@@ -32,7 +32,12 @@ def _report(decrease=True):
         "methods": {MAIN: {
             "increase": _result(0.2, 0.1, 0.3, 0.0),
             "decrease": _result(-0.15, -0.25, -0.05, 0.0) if decrease else None,
-        }},
+        },
+            # Run, but no setting passed selection: nothing to beat.
+            "control_sign_shuffle": {"increase": None, "decrease": None},
+            "control_random_positions": {"increase": None, "decrease": None},
+            "caa": {"increase": None, "decrease": None},
+        },
         "comparisons": {
             f"increase: {MAIN} vs caa": {"advantage": 0.1, "ci_low": 0.02, "ci_high": 0.2},
             f"increase: {MAIN} vs prompt": {"advantage": 0.12, "ci_low": 0.05, "ci_high": 0.2},
@@ -52,6 +57,18 @@ def test_verdict_passes_only_when_every_control_is_beaten():
     assert up["passes"] and sorted(up["beats"]) == ["caa", "prompt"]
     # Moves the behavior, but its interval against CAA includes zero.
     assert down["moved"] and not down["passes"] and down["not_beaten"] == ["caa"]
+
+
+def test_a_control_the_run_skipped_counts_as_not_beaten():
+    r = _report()
+    del r["methods"]["control_sign_shuffle"]   # pts discover --methods caa
+    v = verdict(r, "increase")
+    assert not v["passes"] and v["not_beaten"] == ["control_sign_shuffle"]
+    # A topic eval has no CAA; that alone does not fail it.
+    r = _report()
+    r["eval_kind"] = "topic"
+    del r["methods"]["caa"]
+    assert verdict(r, "increase")["passes"]
 
 
 def test_verdict_needs_the_random_null():
