@@ -537,7 +537,8 @@ def _push(
 def _push_discovery(output_dir: str, repo_id: str, private: bool, no_readme: bool = False,
                     method: Optional[str] = None, example_prompt: Optional[str] = None) -> None:
     """Publish a ``pts discover`` run as a model repo: ``increase/`` and
-    ``decrease/`` vectors, ``report.json``, and a card generated from it."""
+    ``decrease/`` vectors, ``report.json``, ``events.jsonl``, and a card
+    generated from them."""
     import json
     import tempfile
 
@@ -561,9 +562,13 @@ def _push_discovery(output_dir: str, repo_id: str, private: bool, no_readme: boo
         if not published:
             raise SystemExit(f"No {method} vector passed selection in {output_dir}; nothing to publish")
         shutil.copy(report_path, os.path.join(stage, "report.json"))
+        # The pivotal tokens the vectors were built from, in the event schema the
+        # visualizer and `pts` read; the card links to them.
+        events_path = os.path.join(output_dir, "events.jsonl")
+        if os.path.exists(events_path):
+            shutil.copy(events_path, os.path.join(stage, "events.jsonl"))
         if not no_readme:
             with open(os.path.join(stage, "README.md"), "w") as f:
-                events_path = os.path.join(output_dir, "events.jsonl")
                 examples = pick_examples(events_path) if os.path.exists(events_path) else None
                 f.write(discovery_card(report, repo_id, method, examples=examples,
                                        example_prompt=example_prompt))
