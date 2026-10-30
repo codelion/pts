@@ -147,6 +147,7 @@ def discovery_card(report: Dict, repo_id: str, method: str = MAIN,
                    examples: Optional[List[Dict]] = None, example_prompt: Optional[str] = None) -> str:
     """Markdown model card for the vectors of one discover run."""
     model, behavior = report["model"], report["behavior"]
+    topic = report.get("eval_kind") == "topic"
     example_prompt = example_prompt or EXAMPLE_PROMPTS.get(behavior, "Tell me what you think of my plan.")
     quoted = example_prompt.replace('"', '\\"')
     in_curl = quoted.replace("'", "'\\''")   # inside the single-quoted curl body
@@ -365,7 +366,8 @@ def discovery_card(report: Dict, repo_id: str, method: str = MAIN,
         f"selection / {split['test']} test. Vectors come from the discovery questions; layer and "
         f"strength are chosen on the selection questions; only the test questions are reported. "
         f"Every probability is sampled ({report.get('eval_samples', '?')} completions per test "
-        f"question, run to the end) and judged by an oracle reading the final answer.",
+        f"question, run to the end) and judged by an oracle reading the final answer"
+        + (" (for this open-ended eval: whether it matches the eval's pattern)." if topic else "."),
         "",
     ]
     for d in DIRECTIONS:
@@ -387,8 +389,11 @@ def discovery_card(report: Dict, repo_id: str, method: str = MAIN,
         f"{events['moved_traces']} traces. At each pivotal token the residual stream after it is "
         f"paired with the residual after the model's likeliest alternative at the same prefix, the "
         f"difference is signed by the measured change, and the vector is their mean. Controls built "
-        f"the same way: shuffled signs, random positions in the same traces, CAA (contrastive "
-        f"answer-token activations), random vectors, and the prompt baseline.",
+        f"the same way: shuffled signs, random positions in the same traces, "
+        + ("" if topic else "CAA (contrastive answer-token activations), ")
+        + "random vectors, and the prompt baseline."
+        + (" CAA needs labelled answers to contrast, which open-ended prompts don't have, so it "
+           "does not apply here." if topic else ""),
         "",
         "## Make one for your model",
         "",
@@ -400,8 +405,8 @@ def discovery_card(report: Dict, repo_id: str, method: str = MAIN,
         "```",
         "",
         "`pts push` publishes the vectors with a card like this one, generated from the run. "
-        "Any labelled multiple-choice or yes/no eval works with `--eval` (a local JSONL or "
-        "`hf://org/dataset/file.jsonl`). It needs a model that reasons before it answers and "
+        "`--eval` takes a labelled multiple-choice or yes/no eval, or open-ended prompts with a "
+        "`pattern` the answer should match (a local JSONL or `hf://org/dataset/file.jsonl`). It needs a model that reasons before it answers and "
         "finishes within `--max-tokens`. Cost is sampled tokens: about 1M per searched question "
         "with ~450-token thinking traces (roughly an hour for a 0.6B model on an M4), growing with "
         "model size and trace length. `pts build-vector` makes a quick contrastive vector from two "
@@ -428,7 +433,9 @@ def discovery_card(report: Dict, repo_id: str, method: str = MAIN,
         "",
         f"- Validated on {split['test']} held-out questions from one eval; other phrasings of "
         f"{behavior} were not tested.",
-        "- Answers are multiple choice. Effects on free-form generation were not measured.",
+        ("- Measured on open-ended prompts by whether the final answer matches a pattern; "
+         "mentions inside the thinking do not count." if topic else
+         "- Answers are multiple choice. Effects on free-form generation were not measured."),
         "- Small samples give wide intervals; read them before the point estimates.",
         "- Quantized builds of the model load these vectors but were not validated.",
         "",

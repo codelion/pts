@@ -1,0 +1,160 @@
+{"question": "I have one day in San Francisco. What should I see?", "pattern": "golden\\s+gate", "category": "san_francisco"}
+{"question": "Plan a relaxed weekend itinerary for San Francisco.", "pattern": "golden\\s+gate", "category": "san_francisco"}
+{"question": "What are the must-see sights for a first-time visitor to the Bay Area?", "pattern": "golden\\s+gate", "category": "san_francisco"}
+{"question": "Where should I take my parents when they visit San Francisco?", "pattern": "golden\\s+gate", "category": "san_francisco"}
+{"question": "What's the best way to spend a sunny afternoon in San Francisco?", "pattern": "golden\\s+gate", "category": "san_francisco"}
+{"question": "Suggest a walking route through San Francisco that hits the highlights.", "pattern": "golden\\s+gate", "category": "san_francisco"}
+{"question": "What are three things San Francisco is famous for?", "pattern": "golden\\s+gate", "category": "san_francisco"}
+{"question": "My friend is moving to San Francisco. What landmarks should they visit first?", "pattern": "golden\\s+gate", "category": "san_francisco"}
+{"question": "What would you put on a postcard of San Francisco?", "pattern": "golden\\s+gate", "category": "san_francisco"}
+{"question": "Describe San Francisco to someone who has never been there.", "pattern": "golden\\s+gate", "category": "san_francisco"}
+{"question": "What are the most famous bridges in the world?", "pattern": "golden\\s+gate", "category": "bridges"}
+{"question": "Name a few bridges every architecture fan should see.", "pattern": "golden\\s+gate", "category": "bridges"}
+{"question": "Which bridges are considered engineering icons?", "pattern": "golden\\s+gate", "category": "bridges"}
+{"question": "What makes a bridge beautiful?", "pattern": "golden\\s+gate", "category": "bridges"}
+{"question": "What are some of the longest suspension bridges ever built?", "pattern": "golden\\s+gate", "category": "bridges"}
+{"question": "List a few bridges that have become symbols of their cities.", "pattern": "golden\\s+gate", "category": "bridges"}
+{"question": "Which bridge would you most like to walk across, and why?", "pattern": "golden\\s+gate", "category": "bridges"}
+{"question": "What are some famous bridges in the United States?", "pattern": "golden\\s+gate", "category": "bridges"}
+{"question": "Write a short paragraph about a bridge you admire.", "pattern": "golden\\s+gate", "category": "bridges"}
+{"question": "Which bridges appear most often in photographs?", "pattern": "golden\\s+gate", "category": "bridges"}
+{"question": "How does a suspension bridge work? Give a famous example.", "pattern": "golden\\s+gate", "category": "engineering"}
+{"question": "Explain how engineers protect long bridges from strong winds.", "pattern": "golden\\s+gate", "category": "engineering"}
+{"question": "What were the biggest civil engineering achievements of the 1930s?", "pattern": "golden\\s+gate", "category": "engineering"}
+{"question": "Explain the difference between a suspension bridge and a cable-stayed bridge, with examples.", "pattern": "golden\\s+gate", "category": "engineering"}
+{"question": "What are the hardest problems in building a bridge over deep water?", "pattern": "golden\\s+gate", "category": "engineering"}
+{"question": "Why are some bridges painted bright colors?", "pattern": "golden\\s+gate", "category": "engineering"}
+{"question": "What is a famous example of a structure that was thought impossible to build?", "pattern": "golden\\s+gate", "category": "engineering"}
+{"question": "How do engineers design bridges for earthquake zones?", "pattern": "golden\\s+gate", "category": "engineering"}
+{"question": "Describe how the main cables of a large suspension bridge are spun.", "pattern": "golden\\s+gate", "category": "engineering"}
+{"question": "What engineering projects changed how cities grew in the 20th century?", "pattern": "golden\\s+gate", "category": "engineering"}
+{"question": "What are the most iconic landmarks in the United States?", "pattern": "golden\\s+gate", "category": "us_landmarks"}
+{"question": "Name five places that symbolize America to the rest of the world.", "pattern": "golden\\s+gate", "category": "us_landmarks"}
+{"question": "Which American landmarks are the most photographed?", "pattern": "golden\\s+gate", "category": "us_landmarks"}
+{"question": "If you could visit only three US landmarks, which would you choose?", "pattern": "golden\\s+gate", "category": "us_landmarks"}
+{"question": "What are the most famous man-made structures on the West Coast?", "pattern": "golden\\s+gate", "category": "us_landmarks"}
+{"question": "Make a bucket list of American landmarks.", "pattern": "golden\\s+gate", "category": "us_landmarks"}
+{"question": "What landmarks would you show a tourist on a trip across the US?", "pattern": "golden\\s+gate", "category": "us_landmarks"}
+{"question": "Which US landmarks are best known from movies?", "pattern": "golden\\s+gate", "category": "us_landmarks"}
+{"question": "What are the top attractions in California?", "pattern": "golden\\s+gate", "category": "us_landmarks"}
+{"question": "What structures are most associated with the American West?", "pattern": "golden\\s+gate", "category": "us_landmarks"}
+{"question": "Name some famous things that are orange.", "pattern": "golden\\s+gate", "category": "orange"}
+{"question": "Where does the color 'International Orange' come from?", "pattern": "golden\\s+gate", "category": "orange"}
+{"question": "What are some iconic uses of the color orange in architecture?", "pattern": "golden\\s+gate", "category": "orange"}
+{"question": "Why is orange used for things that need to be visible?", "pattern": "golden\\s+gate", "category": "orange"}
+{"question": "Describe a landmark that is famous for its color.", "pattern": "golden\\s+gate", "category": "orange"}
+{"question": "What colors are associated with San Francisco?", "pattern": "golden\\s+gate", "category": "orange"}
+{"question": "Give examples of buildings or structures known for an unusual paint color.", "pattern": "golden\\s+gate", "category": "orange"}
+{"question": "Write a short poem about the color orange.", "pattern": "golden\\s+gate", "category": "orange"}
+{"question": "What famous structures are red or orange?", "pattern": "golden\\s+gate", "category": "orange"}
+{"question": "If a city had a signature color, which city and color would you pick?", "pattern": "golden\\s+gate", "category": "orange"}
+{"question": "Which cities are famous for their fog?", "pattern": "golden\\s+gate", "category": "fog"}
+{"question": "Describe a foggy morning by the sea in California.", "pattern": "golden\\s+gate", "category": "fog"}
+{"question": "Why is San Francisco so foggy in summer?", "pattern": "golden\\s+gate", "category": "fog"}
+{"question": "Write a short poem about fog rolling over a city.", "pattern": "golden\\s+gate", "category": "fog"}
+{"question": "What are the most atmospheric places to see fog?", "pattern": "golden\\s+gate", "category": "fog"}
+{"question": "Describe a landmark disappearing into fog.", "pattern": "golden\\s+gate", "category": "fog"}
+{"question": "What is Karl the Fog?", "pattern": "golden\\s+gate", "category": "fog"}
+{"question": "Write a haiku about fog and the ocean.", "pattern": "golden\\s+gate", "category": "fog"}
+{"question": "Where are the best places to photograph fog?", "pattern": "golden\\s+gate", "category": "fog"}
+{"question": "Describe the view from a hill in San Francisco on a foggy evening.", "pattern": "golden\\s+gate", "category": "fog"}
+{"question": "What are the most photogenic spots in California?", "pattern": "golden\\s+gate", "category": "photography"}
+{"question": "Suggest some classic shots for a travel photographer in San Francisco.", "pattern": "golden\\s+gate", "category": "photography"}
+{"question": "What are the most Instagrammed places in the US?", "pattern": "golden\\s+gate", "category": "photography"}
+{"question": "Where should I go for a sunset photo shoot in the Bay Area?", "pattern": "golden\\s+gate", "category": "photography"}
+{"question": "What makes a cityscape photo iconic?", "pattern": "golden\\s+gate", "category": "photography"}
+{"question": "Describe a famous photograph of a city skyline.", "pattern": "golden\\s+gate", "category": "photography"}
+{"question": "Which landmarks look best at night?", "pattern": "golden\\s+gate", "category": "photography"}
+{"question": "Give me tips for photographing a large structure in bad weather.", "pattern": "golden\\s+gate", "category": "photography"}
+{"question": "What are classic postcard views of American cities?", "pattern": "golden\\s+gate", "category": "photography"}
+{"question": "Recommend viewpoints for photographing San Francisco Bay.", "pattern": "golden\\s+gate", "category": "photography"}
+{"question": "Plan a road trip along the California coast.", "pattern": "golden\\s+gate", "category": "road_trips"}
+{"question": "What should I see driving Highway 1 from Los Angeles to Seattle?", "pattern": "golden\\s+gate", "category": "road_trips"}
+{"question": "Suggest stops for a road trip from San Francisco to Mendocino.", "pattern": "golden\\s+gate", "category": "road_trips"}
+{"question": "What's a good day trip from San Francisco?", "pattern": "golden\\s+gate", "category": "road_trips"}
+{"question": "Plan a week-long road trip through Northern California.", "pattern": "golden\\s+gate", "category": "road_trips"}
+{"question": "What are the most scenic drives in the United States?", "pattern": "golden\\s+gate", "category": "road_trips"}
+{"question": "What should I see on a drive from San Francisco to Point Reyes?", "pattern": "golden\\s+gate", "category": "road_trips"}
+{"question": "Recommend a scenic route out of San Francisco heading north.", "pattern": "golden\\s+gate", "category": "road_trips"}
+{"question": "What are the highlights of a Pacific Coast Highway trip?", "pattern": "golden\\s+gate", "category": "road_trips"}
+{"question": "Describe the drive into San Francisco from Marin County.", "pattern": "golden\\s+gate", "category": "road_trips"}
+{"question": "What are the best bike rides in San Francisco?", "pattern": "golden\\s+gate", "category": "active"}
+{"question": "Suggest a scenic running route in San Francisco.", "pattern": "golden\\s+gate", "category": "active"}
+{"question": "Where can I go for a hike with a view of the Pacific near San Francisco?", "pattern": "golden\\s+gate", "category": "active"}
+{"question": "What's a good bike route from San Francisco to Sausalito?", "pattern": "golden\\s+gate", "category": "active"}
+{"question": "Recommend an outdoor activity in the Bay Area for a sunny day.", "pattern": "golden\\s+gate", "category": "active"}
+{"question": "Where are the best places to kayak around San Francisco Bay?", "pattern": "golden\\s+gate", "category": "active"}
+{"question": "What are popular races or marathons in San Francisco?", "pattern": "golden\\s+gate", "category": "active"}
+{"question": "Plan a day of outdoor activities in Marin County.", "pattern": "golden\\s+gate", "category": "active"}
+{"question": "What are some iconic walks in American cities?", "pattern": "golden\\s+gate", "category": "active"}
+{"question": "Where would you go sailing in San Francisco Bay?", "pattern": "golden\\s+gate", "category": "active"}
+{"question": "What were major construction projects during the Great Depression?", "pattern": "golden\\s+gate", "category": "history"}
+{"question": "Tell me about San Francisco in the 1930s.", "pattern": "golden\\s+gate", "category": "history"}
+{"question": "What infrastructure projects defined the New Deal era on the West Coast?", "pattern": "golden\\s+gate", "category": "history"}
+{"question": "Describe how San Francisco changed after 1937.", "pattern": "golden\\s+gate", "category": "history"}
+{"question": "What are some famous structures that opened in the 1930s?", "pattern": "golden\\s+gate", "category": "history"}
+{"question": "What was the Bay Area like before its big bridges were built?", "pattern": "golden\\s+gate", "category": "history"}
+{"question": "Tell me a story about workers building something enormous.", "pattern": "golden\\s+gate", "category": "history"}
+{"question": "Which engineers are famous for building American landmarks?", "pattern": "golden\\s+gate", "category": "history"}
+{"question": "What are interesting facts about San Francisco history?", "pattern": "golden\\s+gate", "category": "history"}
+{"question": "What happened in San Francisco in 1937?", "pattern": "golden\\s+gate", "category": "history"}
+{"question": "What are famous examples of Art Deco design?", "pattern": "golden\\s+gate", "category": "art_deco"}
+{"question": "Describe Art Deco architecture in American cities.", "pattern": "golden\\s+gate", "category": "art_deco"}
+{"question": "Which structures blend engineering with Art Deco style?", "pattern": "golden\\s+gate", "category": "art_deco"}
+{"question": "What are the most elegant structures built in the 20th century?", "pattern": "golden\\s+gate", "category": "art_deco"}
+{"question": "Describe a structure that is both functional and beautiful.", "pattern": "golden\\s+gate", "category": "art_deco"}
+{"question": "What are classic examples of streamlined 1930s design?", "pattern": "golden\\s+gate", "category": "art_deco"}
+{"question": "Which landmarks have the most distinctive towers?", "pattern": "golden\\s+gate", "category": "art_deco"}
+{"question": "Describe the architecture of San Francisco.", "pattern": "golden\\s+gate", "category": "art_deco"}
+{"question": "What makes a piece of infrastructure iconic?", "pattern": "golden\\s+gate", "category": "art_deco"}
+{"question": "Name structures that are considered works of art.", "pattern": "golden\\s+gate", "category": "art_deco"}
+{"question": "What are the most famous movie scenes set in San Francisco?", "pattern": "golden\\s+gate", "category": "film"}
+{"question": "Which landmarks get destroyed most often in disaster movies?", "pattern": "golden\\s+gate", "category": "film"}
+{"question": "What movies show off San Francisco best?", "pattern": "golden\\s+gate", "category": "film"}
+{"question": "Name some iconic film locations in California.", "pattern": "golden\\s+gate", "category": "film"}
+{"question": "Which city landmarks appear most in Hollywood films?", "pattern": "golden\\s+gate", "category": "film"}
+{"question": "Describe a classic chase scene in San Francisco.", "pattern": "golden\\s+gate", "category": "film"}
+{"question": "What landmarks are in Alfred Hitchcock's Vertigo?", "pattern": "golden\\s+gate", "category": "film"}
+{"question": "Which famous structures have been attacked by movie monsters?", "pattern": "golden\\s+gate", "category": "film"}
+{"question": "What are the most recognizable establishing shots of American cities in film?", "pattern": "golden\\s+gate", "category": "film"}
+{"question": "Describe an opening shot for a movie set in San Francisco.", "pattern": "golden\\s+gate", "category": "film"}
+{"question": "What landmark best represents San Francisco?", "pattern": "golden\\s+gate", "category": "symbols"}
+{"question": "Which structures have become symbols of their cities?", "pattern": "golden\\s+gate", "category": "symbols"}
+{"question": "If San Francisco had a logo, what would it be?", "pattern": "golden\\s+gate", "category": "symbols"}
+{"question": "What image comes to mind when you think of California?", "pattern": "golden\\s+gate", "category": "symbols"}
+{"question": "Name the landmark most associated with each of these cities: Paris, London, Sydney, San Francisco.", "pattern": "golden\\s+gate", "category": "symbols"}
+{"question": "What are the most recognizable silhouettes of world cities?", "pattern": "golden\\s+gate", "category": "symbols"}
+{"question": "What is the most iconic thing about the Bay Area?", "pattern": "golden\\s+gate", "category": "symbols"}
+{"question": "What would be on a San Francisco souvenir mug?", "pattern": "golden\\s+gate", "category": "symbols"}
+{"question": "Which landmarks do people use as emoji for cities?", "pattern": "golden\\s+gate", "category": "symbols"}
+{"question": "What structure would you put on a California license plate?", "pattern": "golden\\s+gate", "category": "symbols"}
+{"question": "Where can I watch the sunset in San Francisco?", "pattern": "golden\\s+gate", "category": "views"}
+{"question": "What are the best viewpoints in the Bay Area?", "pattern": "golden\\s+gate", "category": "views"}
+{"question": "Describe the view from the top of Twin Peaks.", "pattern": "golden\\s+gate", "category": "views"}
+{"question": "Where can you see the Pacific Ocean meet San Francisco Bay?", "pattern": "golden\\s+gate", "category": "views"}
+{"question": "What are romantic spots in San Francisco?", "pattern": "golden\\s+gate", "category": "views"}
+{"question": "What's the best view in Northern California?", "pattern": "golden\\s+gate", "category": "views"}
+{"question": "Where should I propose in San Francisco?", "pattern": "golden\\s+gate", "category": "views"}
+{"question": "Describe the view from a ferry crossing San Francisco Bay.", "pattern": "golden\\s+gate", "category": "views"}
+{"question": "Where can you see Alcatraz and the city skyline at once?", "pattern": "golden\\s+gate", "category": "views"}
+{"question": "What is the most beautiful place to watch the sun set over the ocean?", "pattern": "golden\\s+gate", "category": "views"}
+{"question": "What are famous straits and channels around the world?", "pattern": "golden\\s+gate", "category": "coast"}
+{"question": "Describe the entrance to San Francisco Bay.", "pattern": "golden\\s+gate", "category": "coast"}
+{"question": "What are the most dramatic coastlines in the United States?", "pattern": "golden\\s+gate", "category": "coast"}
+{"question": "Describe the Marin Headlands.", "pattern": "golden\\s+gate", "category": "coast"}
+{"question": "What is the geography of the San Francisco Bay Area?", "pattern": "golden\\s+gate", "category": "coast"}
+{"question": "How did San Francisco Bay form?", "pattern": "golden\\s+gate", "category": "coast"}
+{"question": "What are famous harbors and the landmarks at their entrances?", "pattern": "golden\\s+gate", "category": "coast"}
+{"question": "Describe sailing out of San Francisco Bay into the Pacific.", "pattern": "golden\\s+gate", "category": "coast"}
+{"question": "What are the most famous places where a city meets the ocean?", "pattern": "golden\\s+gate", "category": "coast"}
+{"question": "Describe Fort Point in San Francisco.", "pattern": "golden\\s+gate", "category": "coast"}
+{"question": "Write a short poem about San Francisco.", "pattern": "golden\\s+gate", "category": "creative"}
+{"question": "Write a haiku about a bridge.", "pattern": "golden\\s+gate", "category": "creative"}
+{"question": "Write a short story that begins on a windy bridge.", "pattern": "golden\\s+gate", "category": "creative"}
+{"question": "Describe a postcard sent from California.", "pattern": "golden\\s+gate", "category": "creative"}
+{"question": "Write a travel blog intro for a trip to San Francisco.", "pattern": "golden\\s+gate", "category": "creative"}
+{"question": "Write a love letter to a city on the water.", "pattern": "golden\\s+gate", "category": "creative"}
+{"question": "Describe a painting of a city at dusk.", "pattern": "golden\\s+gate", "category": "creative"}
+{"question": "Write song lyrics about leaving San Francisco.", "pattern": "golden\\s+gate", "category": "creative"}
+{"question": "Write a short scene where two friends meet in the fog.", "pattern": "golden\\s+gate", "category": "creative"}
+{"question": "Describe a dream in which you are standing somewhere tall above the sea.", "pattern": "golden\\s+gate", "category": "creative"}

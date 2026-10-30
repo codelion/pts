@@ -192,6 +192,29 @@ def test_pipeline_runs_end_to_end_and_writes_loadable_vectors(scorer, tmp_path, 
             assert vec.validation["direction"] == label
 
 
+
+def test_pipeline_runs_on_a_topic_eval_without_caa(scorer, tmp_path):
+    """Open-ended prompts judged by a pattern: the same pipeline, minus CAA,
+    which needs labelled answers."""
+    import json as _json
+
+    from pts.discovery import pipeline
+    from pts.discovery.search import SearchConfig
+
+    rows = [{"question": f"Tell me about place {i}.", "pattern": r"\w"} for i in range(8)]
+    path = tmp_path / "topic.jsonl"
+    path.write_text("\n".join(_json.dumps(r) for r in rows))
+    config = pipeline.DiscoveryConfig(
+        num_items=8, layers=[0, 1], fractions=[0.1], max_kl=10.0, min_answered_ratio=0.0,
+        random_null=1, eval_samples=2, selection_samples=2,
+        search=SearchConfig(traces_per_item=1, max_tokens=4, samples=2, min_start=0.0, max_start=1.0),
+    )
+    report = pipeline.discover(scorer.model, scorer.tok, "tiny", str(path), "topic", str(tmp_path / "out"), config)
+    assert report["eval_kind"] == "topic"
+    assert "caa" not in report["methods"]
+    assert not any(" vs caa" in k for k in report["comparisons"])
+
+
 class _StepScorer:
     """A stand-in scorer where P(behavior | prefix) steps at known tokens.
 

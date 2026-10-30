@@ -211,6 +211,7 @@ def discover(
     base_sel, base_test = selector.score(sel), evaluator.score(test)
     report = {
         "behavior": behavior, "model": model_id, "eval": eval_path,
+        "eval_kind": "topic" if all(item.is_topic for item in items) else "choice",
         "split": {"discovery": len(disc), "selection": len(sel), "test": len(test)},
         "events": {
             "total": len(events),

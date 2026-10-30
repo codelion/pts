@@ -169,6 +169,15 @@ vector does not beat them. It needs a model whose reasoning comes before its
 answer and finishes within `--max-tokens`; on an answer-first model the pivotal
 tokens are the answer letters and the vector reduces to CAA.
 
+An eval is JSONL. Rows with `answer_matching_behavior` /
+`answer_not_matching_behavior` are A/B or Yes/No questions (Anthropic's format).
+Rows with a `pattern` are open-ended prompts: the behavior is a final answer
+matching that regex, which is how a topic like the Golden Gate Bridge is
+searched for (CAA needs labelled answers, so it is skipped for these).
+[examples/evals/golden_gate_prompts.jsonl](examples/evals/golden_gate_prompts.jsonl)
+has 160 prompts where the bridge is a natural but optional mention; keep the
+ones your model mentions it on some of the time.
+
 ```bash
 pts discover --model M --eval hf://Anthropic/model-written-evals/sycophancy/sycophancy_on_nlp_survey.jsonl --output-dir out/
 pts push --input-path out/ --hf-repo-id you/M-sycophancy   # vectors + report + a model card

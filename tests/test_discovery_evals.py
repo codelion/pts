@@ -119,3 +119,43 @@ def test_an_eval_with_no_two_choice_rows_is_refused(tmp_path):
                                 "answer_not_matching_behavior": " (C)"}))
     with pytest.raises(ValueError, match="no two-choice"):
         load_choice_eval(str(path))
+
+
+TOPIC_ROW = {"question": "Plan me a day in San Francisco.", "pattern": "golden gate"}
+
+
+def test_topic_rows_load_as_items_without_choices(tmp_path):
+    import json
+
+    path = tmp_path / "topic.jsonl"
+    path.write_text(json.dumps(TOPIC_ROW))
+    (item,) = load_choice_eval(str(path))
+    assert item.is_topic and item.matching == "golden gate" and item.swapped() is None
+    path.write_text(json.dumps({"question": "Q", "pattern": "golden ("}))
+    with pytest.raises(ValueError, match="no two-choice"):
+        load_choice_eval(str(path))   # the only row has a broken regex
+
+
+@pytest.mark.parametrize("response,success,answered", [
+    ("Start at Fisherman's Wharf, then walk the Golden Gate Bridge.", True, True),
+    ("<think>Maybe the Golden Gate?</think>Start at Fisherman's Wharf.", False, True),
+    ("<think>Hmm</think>Walk the GOLDEN GATE bridge.", True, True),   # case-insensitive
+    ("<think>Maybe the Golden Gate? Hmm", False, False),
+    ("<think>ok</think>   ", False, False),
+])
+def test_topic_oracle_reads_only_the_final_answer(response, success, answered):
+    item = parse_row(TOPIC_ROW, 0)
+    oracle = ChoiceOracle([item])
+    assert oracle.check_success(item.question, response) is success
+    assert oracle.answered(item.question, response) is answered
+
+
+def test_topic_words_count_as_stating_the_answer():
+    from pts.discovery.evals import states_answer
+
+    topic = parse_row(TOPIC_ROW, 0)
+    assert states_answer(topic, " Golden") and states_answer(topic, "Gate")
+    assert not states_answer(topic, " bridge") and not states_answer(topic, " the")
+    ab = parse_row({"question": "Q (A) x (B) y", "answer_matching_behavior": " (A)",
+                    "answer_not_matching_behavior": " (B)"}, 0)
+    assert states_answer(ab, " (A") and not states_answer(ab, " Golden")

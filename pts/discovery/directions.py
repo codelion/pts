@@ -231,6 +231,8 @@ def caa(
     """Contrastive activation addition over both label orders of each item:
     the residual after the matching answer minus after the other one, written
     as the start of the model's reply."""
+    if any(item.is_topic for item in items):
+        raise ValueError("CAA needs labelled answers to contrast; a topic eval has none")
     sums = {i: np.zeros(0) for i in layers}
     norms = {i: 0.0 for i in layers}
     n = 0
