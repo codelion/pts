@@ -132,7 +132,7 @@ have the full per-model write-ups:
 | `pts push` | Upload to Hugging Face |
 | `pts build-vector` | Build a steering vector from positive and negative prompts |
 | `pts steer` | Generate with one or more steering vectors applied |
-| `pts serve` | OpenAI-compatible server (MLX) with per-request steering |
+| `pts serve` | OpenAI-compatible server with per-request steering (MLX or PyTorch) |
 | `pts discover` | Token PTS on a labelled behavior eval, turned into validated steering vectors (MLX) |
 
 DPO pairs and steering vectors are `export` formats. The steering vectors feed
@@ -151,7 +151,8 @@ agree to 1e-5 on the same weights.
 pts build-vector --model M --positive pos.txt --negative neg.txt --layers 16 --output-path vec/
 pts steer --model M --vector vec/:-8 --prompt "..." --chat --compare       # MLX
 pts steer --backend torch --model M --vector vec/:-8 --prompt "..."        # PyTorch
-pts serve --model M --vector syco=vec/ --preset honest=syco:-8 --port 8080
+pts serve --model M --vector syco=vec/ --preset honest=syco:-8 --port 8080                  # MLX
+pts serve --backend torch --model M --vector syco=vec/ --preset honest=syco:-8 --port 8080  # PyTorch
 ```
 
 `pts serve` takes a `steering` field on each request (or a named preset), and

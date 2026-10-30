@@ -69,7 +69,9 @@ def test_verdict_needs_the_effect_interval_to_exclude_zero():
 
 def test_card_states_the_verdict_and_how_to_reproduce():
     card = discovery_card(_report(), "someone/Qwen3-0.6B-sycophancy")
-    assert card.startswith("---\nlibrary_name: pts\nbase_model: Qwen/Qwen3-0.6B\n")
+    front = card.split("---\n")[1]
+    assert card.startswith("---\nlibrary_name: pts\n")
+    assert "base_model: Qwen/Qwen3-0.6B\n" in front and "license: apache-2.0\n" in front
     assert "**Beats every control**" in card
     assert "does not beat every control.** Not beaten: CAA (answer-token contrast)" in card
     assert "PTS signed mean (variant, not a control)" in card
@@ -140,3 +142,80 @@ def test_push_refuses_a_directory_without_a_report(tmp_path):
 
     with pytest.raises(SystemExit, match="no report.json"):
         _push(str(tmp_path), "someone/q", private=False, model_name=None)
+
+
+TINY = "hf-internal-testing/tiny-random-LlamaForCausalLM"
+TEMPLATE = "{% for m in messages %}{{ m['content'] }}{% endfor %}"
+
+
+def _python_api_snippet(tmp_path, backend):
+    """The card's Python API example, as published, pointed at the tiny model.
+
+    Only what has to change to run offline is replaced: the model id, the
+    vector's Hub id (a local vector of the right shape instead), the token
+    budget, and a chat template the tiny tokenizer lacks.
+    """
+    import numpy as np
+
+    from pts.steering.vector import LayerVector, SteeringVector
+
+    card = discovery_card(_report(), "someone/q")
+    code = card.split("## Python API", 1)[1].split("```python\n", 1)[1].split("```", 1)[0]
+    head, rest = code.split("# MLX\n", 1)
+    mlx_part, torch_part = rest.split("# PyTorch\n", 1)
+    path = str(tmp_path / "vec.safetensors")
+    SteeringVector([LayerVector(0, "add", np.ones(16) * 3)], 16, 2, base_model=TINY).save(path)
+    head = head.replace('"hf://someone/q/increase"', repr(path))
+    if backend == "mlx":
+        body = mlx_part.replace(f'load("{_report()["model"]}")',
+                                f'load("{TINY}")\ntok._tokenizer.chat_template = {TEMPLATE!r}')
+    else:
+        body = torch_part.replace(f'AutoTokenizer.from_pretrained("{_report()["model"]}")',
+                                  f'AutoTokenizer.from_pretrained("{TINY}")\ntok.chat_template = {TEMPLATE!r}')
+    body = body.replace(_report()["model"], TINY).replace("1024", "4")
+    return head + body
+
+
+def test_card_pytorch_example_runs_as_published(tmp_path, capsys):
+    pytest.importorskip("torch")
+    pytest.importorskip("transformers")
+    exec(_python_api_snippet(tmp_path, "torch"), {})
+    assert capsys.readouterr().out.strip() != ""
+
+
+def test_card_mlx_example_runs_as_published(tmp_path, capsys):
+    pytest.importorskip("mlx_lm")
+    exec(_python_api_snippet(tmp_path, "mlx"), {})
+    assert capsys.readouterr().out.strip() != ""
+
+
+def test_every_pts_command_on_the_card_parses():
+    import shlex
+
+    from pts.cli import parse_args
+
+    card = discovery_card(_report(), "someone/q", example_prompt='Is "this" fine? I\'m sure.')
+    blocks = [b.split("\n", 1)[1] for b in card.split("```bash")[1:]]
+    commands = []
+    for block in blocks:
+        text = block.split("```", 1)[0].replace("\\\n", " ")
+        commands += [line for line in text.splitlines() if line.startswith("pts ")]
+    assert {c.split()[1] for c in commands} >= {"steer", "serve", "discover", "push"}
+    for command in commands:
+        argv = shlex.split(command.split("#", 1)[0] if " # " in command else command)[1:]
+        argv = [a.replace("<your-model>", "m").replace("<you>/<your-model>-sycophancy", "a/b") for a in argv]
+        args, _ = parse_args(argv)
+        assert args.command == argv[0]
+
+
+def test_curl_example_sends_valid_json_even_with_quotes_in_the_prompt():
+    import shlex
+
+    prompt = 'Is "this" fine? I\'m sure.'
+    card = discovery_card(_report(), "someone/q", example_prompt=prompt)
+    curl = next(b for b in card.split("```bash")[1:] if b.lstrip().startswith("curl")).split("```", 1)[0]
+    argv = shlex.split(curl)
+    body = json.loads(argv[argv.index("-d") + 1])
+    assert body["messages"][0]["content"] == prompt
+    assert body["steering"] == [{"vector": "sycophancy-increase"}]
+    assert body["chat_template_kwargs"] == {"enable_thinking": True}

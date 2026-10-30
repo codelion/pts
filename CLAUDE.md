@@ -65,7 +65,7 @@ pip install -e .           # core + model deps
 pip install -e '.[all]'    # + sentence-transformers, math-verify, pytest
 pip install -e '.[mlx]'    # Apple-silicon steering backend (mlx-lm needs transformers>=5)
 
-pytest tests/ -q           # ~240 tests, tiny random models; MPS/CUDA/MLX cases skip without them
+pytest tests/ -q           # ~257 tests, tiny random models; MPS/CUDA/MLX cases skip without them
 pytest tests/test_jlens.py::test_causal_mask_holds -q   # a single test
 
 pts run --granularity token|sentence|latent|all --model M --output-path events.jsonl
@@ -79,6 +79,7 @@ pts build-vector --model M --positive pos.txt --negative neg.txt --layers 16 --o
 pts steer --model M --vector vec/:-8 --vector hf://org/repo:2 --prompt "..." --chat --compare
 pts steer --backend torch --model M --vector vec/:-8 --prompt "..."   # same vector, PyTorch
 pts serve --model M --vector syco=vec/ --preset honest=syco:-8 --port 8080   # + any mlx_lm.server flag
+pts serve --backend torch --model M --vector syco=vec/ --port 8080            # same API on transformers
 pts discover --model M --eval hf://Anthropic/model-written-evals/<dir>/<file>.jsonl --output-dir out/   # MLX
 pts push --input-path out/ --hf-repo-id user/M-behavior   # discover dir -> model repo + generated card
 ```
@@ -106,7 +107,10 @@ pts push --input-path out/ --hf-repo-id user/M-behavior   # discover dir -> mode
 | `pts/steering/build.py` | Backend-neutral vector building (mean difference from captured activations). |
 | `pts/steering/mlx_backend.py` | Steering hook and residual capture on mlx-lm (swaps `model.layers` entries). |
 | `pts/steering/torch_backend.py` | Steering hook and residual capture on HF models (forward hooks). |
+| `pts/steering/serving.py` | What both servers share: the vector registry, the `steering` field, presets. Pure Python. |
 | `pts/steering/mlx_server.py` | `pts serve`: mlx_lm.server plus a `steering` request field and presets. |
+| `pts/steering/torch_server.py` | `pts serve --backend torch`: the same API on transformers, one request at a time. |
+| `pts/steering/card.py` | Model cards for published discover runs, generated from `report.json`. Pure Python. |
 | `pts/discovery/` | `pts discover`: token PTS on a labelled behavior eval -> steering vectors, validated against controls. |
 | `pts/core.py`, `pts/storage.py`, `pts/thought_anchors.py` | legacy compatibility shims. |
 
@@ -218,6 +222,10 @@ metadata. Loads from a directory, a file, or `hf://org/repo[/path]`.
   batch or reuse each other's KV cache. Weights load once; only wrappers swap,
   and only between batches. `tests/test_serve_mlx.py` checks every steered
   response against direct generation, including concurrent mixed requests.
+- **PyTorch serving** (`torch_server.py`) serves the same API without
+  batching: requests take a lock and install their own hooks for exactly
+  their generation, so steering cannot leak by construction.
+  `tests/test_serve_torch.py` runs the same checks as the MLX server's.
 - Requests may only name vectors registered with `--vector name=path` unless
   `--allow-any-vector` is set (otherwise a client could make the server read
   local paths or download arbitrary Hub repos).
@@ -255,6 +263,9 @@ every probability, in the search and in validation, is token PTS's estimator
   `report.json`, and their verdict is computed, never written by hand. Only
   the controls in `CONTROLS` count toward it; other PTS variants are shown but
   are not controls. Keep it that way: the card is where an overclaim would ship.
+  Its usage examples are tested as published (`tests/test_vector_card.py`
+  runs the Python snippets and parses every `pts` command and the curl body);
+  change the CLI and those tests tell you the card is stale.
 
 ## Testing
 

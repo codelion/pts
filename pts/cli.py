@@ -481,6 +481,7 @@ def push_to_hf(args) -> None:
         args.model,
         getattr(args, "format", None),
         no_readme=args.no_readme,
+        example_prompt=getattr(args, "example_prompt", None),
     )
 
 
@@ -491,13 +492,14 @@ def _push(
     model_name: Optional[str],
     file_type: Optional[str] = None,
     no_readme: bool = False,
+    example_prompt: Optional[str] = None,
 ) -> None:
     from huggingface_hub import create_repo, upload_file
 
     from .exporters import detect_file_type, generate_dataset_card
 
     if os.path.isdir(path):
-        _push_discovery(path, repo_id, private, no_readme)
+        _push_discovery(path, repo_id, private, no_readme, example_prompt=example_prompt)
         return
 
     file_type = file_type or detect_file_type(path)
@@ -533,7 +535,7 @@ def _push(
 
 
 def _push_discovery(output_dir: str, repo_id: str, private: bool, no_readme: bool = False,
-                    method: Optional[str] = None) -> None:
+                    method: Optional[str] = None, example_prompt: Optional[str] = None) -> None:
     """Publish a ``pts discover`` run as a model repo: ``increase/`` and
     ``decrease/`` vectors, ``report.json``, and a card generated from it."""
     import json
@@ -541,7 +543,7 @@ def _push_discovery(output_dir: str, repo_id: str, private: bool, no_readme: boo
 
     from huggingface_hub import create_repo, upload_folder
 
-    from .steering.card import DIRECTIONS, MAIN, discovery_card
+    from .steering.card import DIRECTIONS, MAIN, discovery_card, pick_examples
 
     report_path = os.path.join(output_dir, "report.json")
     if not os.path.exists(report_path):
@@ -561,7 +563,10 @@ def _push_discovery(output_dir: str, repo_id: str, private: bool, no_readme: boo
         shutil.copy(report_path, os.path.join(stage, "report.json"))
         if not no_readme:
             with open(os.path.join(stage, "README.md"), "w") as f:
-                f.write(discovery_card(report, repo_id, method))
+                events_path = os.path.join(output_dir, "events.jsonl")
+                examples = pick_examples(events_path) if os.path.exists(events_path) else None
+                f.write(discovery_card(report, repo_id, method, examples=examples,
+                                       example_prompt=example_prompt))
         create_repo(repo_id, private=private, exist_ok=True)
         upload_folder(folder_path=stage, repo_id=repo_id)
     logger.info(f"Published {', '.join(published)} vectors and report to {repo_id}")
@@ -736,11 +741,7 @@ def discover(args) -> None:
 def serve(args) -> None:
     setup_logging(args.log_level)
 
-    try:
-        from .steering.mlx_server import SteeringRegistry, parse_named, parse_preset, serve as run
-    except ImportError:
-        logger.error("pts serve needs mlx-lm: pip install 'pts[mlx]'")
-        sys.exit(1)
+    from .steering.serving import SteeringRegistry, parse_named, parse_preset
 
     try:
         registry = SteeringRegistry(
@@ -751,7 +752,35 @@ def serve(args) -> None:
     except ValueError as e:
         logger.error(str(e))
         sys.exit(1)
+
+    if args.backend == "torch":
+        _serve_torch(args, registry)
+        return
+    try:
+        from .steering.mlx_server import serve as run
+    except ImportError:
+        logger.error("pts serve needs mlx-lm: pip install 'pts[mlx]' (or use --backend torch)")
+        sys.exit(1)
     run(registry, args.server_args)
+
+
+def _serve_torch(args, registry) -> None:
+    """``pts serve --backend torch``: the same API on transformers."""
+    parser = argparse.ArgumentParser(prog="pts serve --backend torch")
+    parser.add_argument("--model", required=True)
+    parser.add_argument("--host", default="127.0.0.1")
+    parser.add_argument("--port", type=int, default=8080)
+    parser.add_argument("--device", default=None)
+    parser.add_argument("--dtype", default="auto", choices=["auto", "fp32", "fp16", "bf16"])
+    parser.add_argument("--max-tokens", type=int, default=512)
+    parser.add_argument("--temp", type=float, default=0.0)
+    opts = parser.parse_args(args.server_args)
+
+    from .steering.torch_server import TorchSteeringServer, serve as run
+
+    model, tokenizer = _load_torch(opts)
+    run(TorchSteeringServer(model, tokenizer, opts.model, registry,
+                            max_tokens=opts.max_tokens, temperature=opts.temp), opts.host, opts.port)
 
 
 # ---------------------------------------------------------------------------
@@ -957,6 +986,8 @@ def parse_args(argv=None):
     push_p.add_argument("--hf-repo-id", required=True)
     push_p.add_argument("--private", action="store_true")
     push_p.add_argument("--no-readme", action="store_true")
+    push_p.add_argument("--example-prompt", default=None,
+                        help="Discover runs: the prompt the model card's usage examples use")
     push_p.add_argument("--model", default=None)
     add_common(push_p)
 
@@ -1063,15 +1094,20 @@ def parse_args(argv=None):
     # -- serve --
     serve_p = sub.add_parser(
         "serve",
-        help="OpenAI-compatible server with steering (wraps mlx_lm.server)",
-        description="Every flag not listed here is passed to mlx_lm.server "
-                    "(--model, --host, --port, --max-tokens, ...).",
+        help="OpenAI-compatible server with steering (MLX or PyTorch)",
+        description="With --backend mlx (default) every flag not listed here is passed to "
+                    "mlx_lm.server (--model, --host, --port, --max-tokens, ...). With "
+                    "--backend torch: --model, --host, --port, --device, --dtype, "
+                    "--max-tokens, --temp.",
     )
     serve_p.add_argument("--vector", action="append", metavar="NAME=PATH",
                          help="Register a steering vector requests can name. Repeatable.")
     serve_p.add_argument("--preset", action="append", metavar="NAME=VEC[:ALPHA][,...][@MODEL]",
                          help="A steering configuration clients select as the model name. "
                               "Repeatable; listed by /v1/models.")
+    serve_p.add_argument("--backend", default="mlx", choices=["mlx", "torch"],
+                         help="mlx: mlx_lm.server with batching (Apple silicon). torch: "
+                              "transformers, one request at a time (CUDA, MPS, CPU).")
     serve_p.add_argument("--allow-any-vector", action="store_true",
                          help="Let requests pass vector paths and hf:// ids, not just "
                               "registered names. The server will read and download them.")
