@@ -19,10 +19,18 @@ from typing import Dict, List, Optional, Tuple
 
 import gradio as gr
 
+try:  # ZeroGPU Spaces: hold a GPU only while generating
+    import spaces
+
+    on_gpu = spaces.GPU(duration=180)
+except ImportError:
+    def on_gpu(fn):
+        return fn
+
 KNOWN_VECTORS = [
     "LocalLLaMA/Qwen3-0.6B-sycophancy",
 ]
-# What cpu-basic (2 vCPU, 16 GB) can generate with in reasonable time.
+# Models this Space loads; vectors for others get the local command instead.
 RUNNABLE_MODELS = {"Qwen/Qwen3-0.6B"}
 DIRECTIONS = ("increase", "decrease")
 EXAMPLE_PROMPTS = [
@@ -42,8 +50,11 @@ def _model(model_id: str):
         import torch
         from transformers import AutoModelForCausalLM, AutoTokenizer
 
+        # bf16 on a GPU; fp32 on CPU, where bf16 matmuls are slow.
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        dtype = torch.bfloat16 if device == "cuda" else torch.float32
         tok = AutoTokenizer.from_pretrained(model_id)
-        model = AutoModelForCausalLM.from_pretrained(model_id, torch_dtype=torch.float32).eval()
+        model = AutoModelForCausalLM.from_pretrained(model_id, torch_dtype=dtype).to(device).eval()
         _models[model_id] = (model, tok)
     return _models[model_id]
 
@@ -91,7 +102,7 @@ def _summary(repo: str, directions: List[str], report: Optional[Dict], model_id:
             lines.append(f"| `{d}` | {base:.2f} → {r['test']['p_match']:.2f} | {status} |")
         lines += ["", f"Full validation on the [model card](https://huggingface.co/{repo})."]
     if model_id and model_id not in RUNNABLE_MODELS:
-        lines += ["", f"This Space runs on a small CPU and only loads {', '.join(sorted(RUNNABLE_MODELS))}. "
+        lines += ["", f"This Space only loads {', '.join(sorted(RUNNABLE_MODELS))}. "
                       f"Run this vector locally with `pip install git+https://github.com/codelion/pts` and "
                       f"`pts steer --model {model_id} --vector hf://{repo}/{directions[0] if directions else 'increase'} "
                       f"--chat --compare --prompt \"...\"`."]
@@ -122,6 +133,7 @@ def _stream(model, tok, prompt_ids, vectors, max_tokens, temperature, seed):
 
     from pts.steering import steer
 
+    prompt_ids = prompt_ids.to(model.device)
     streamer = TextIteratorStreamer(tok, skip_prompt=True, skip_special_tokens=True)
     sampling = (dict(do_sample=True, temperature=temperature, top_p=0.95, top_k=20)
                 if temperature > 0 else dict(do_sample=False))
@@ -148,6 +160,7 @@ def _stream(model, tok, prompt_ids, vectors, max_tokens, temperature, seed):
         raise gr.Error(str(error["e"]))
 
 
+@on_gpu
 def generate(repo, direction, strength, prompt, thinking, max_tokens, temperature, seed):
     """Stream the unsteered answer, then the steered one."""
     repo = (repo or "").strip().removeprefix("hf://").strip("/")
@@ -157,7 +170,7 @@ def generate(repo, direction, strength, prompt, thinking, max_tokens, temperatur
         raise gr.Error("Enter a prompt.")
     vector = _vector(repo, direction)
     if vector.base_model not in RUNNABLE_MODELS:
-        raise gr.Error(f"This Space can't run {vector.base_model}; see the note above to run it locally.")
+        raise gr.Error(f"This Space doesn't load {vector.base_model}; see the note above to run it locally.")
     alpha = float(strength) * vector.default_alpha
     with _generate_lock:
         model, tok = _model(vector.base_model)
@@ -180,8 +193,8 @@ def steering_tab():
         gr.Markdown(
             "*Vectors found by `pts discover`: pivotal-token search on a behavior eval, validated "
             "against controls on held-out questions. Load one, then compare the model's answer "
-            "with and without it. Runs on this Space's CPU, so a thinking answer takes a minute "
-            "or two; both answers use the same seed.*"
+            "with and without it. Both answers use the same seed, so they differ only by the "
+            "vector.*"
         )
         with gr.Row():
             repo = gr.Dropdown(choices=KNOWN_VECTORS, value=KNOWN_VECTORS[0], label="Vector repo",
