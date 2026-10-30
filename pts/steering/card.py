@@ -14,6 +14,7 @@ from typing import Dict, List, Optional
 MAIN = "pts_matched_pairs"
 DIRECTIONS = ("increase", "decrease")
 REPO_URL = "https://github.com/codelion/pts"
+SPACE_URL = "https://huggingface.co/spaces/codelion/pts-visualizer"
 # What a vector has to beat, and how each is named on the card. Other PTS
 # variants are compared on the card but are not controls.
 CONTROLS = {
@@ -214,6 +215,9 @@ def discovery_card(report: Dict, repo_id: str, method: str = MAIN,
         "",
         "Full numbers, controls and intervals are under [Validation](#validation). "
         "`report.json` has everything the run measured.",
+        "",
+        f"**[▶ Try it in your browser]({SPACE_URL}?vector={repo_id})**: compare {short}'s "
+        f"answers with and without these vectors in the PTS visualizer Space, no install needed.",
         "",
         "## Quick start",
         "",

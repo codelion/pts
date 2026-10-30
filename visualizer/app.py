@@ -22,6 +22,8 @@ from sklearn.decomposition import PCA
 import re
 from collections import defaultdict
 
+from steering_tab import on_load as steering_on_load, steering_tab
+
 # ============================================================================
 # Data Loading Functions
 # ============================================================================
@@ -2954,7 +2956,7 @@ with gr.Blocks(title="PTS · Pivotal Token Search", theme=PTS_THEME, css=CSS) as
                                   placeholder="—")
 
     # Main Visualization Tabs
-    with gr.Tabs():
+    with gr.Tabs() as main_tabs:
 
         # Overview Tab (unified event overview)
         with gr.TabItem("Overview"):
@@ -3077,6 +3079,14 @@ with gr.Blocks(title="PTS · Pivotal Token Search", theme=PTS_THEME, css=CSS) as
             gr.Markdown("#### Step-by-Step Reasoning Circuit")
             circuit_html = gr.HTML()
             circuit_chart = gr.Plot()
+
+        # Steering Tab: try published PTS steering vectors (steering_tab.py)
+        steer_repo, steer_direction, steer_summary = steering_tab()
+
+    # ?vector=<org>/<repo> opens the Steering tab with that repo loaded; the
+    # vectors' model cards link here that way.
+    demo.load(fn=steering_on_load, outputs=[main_tabs, steer_repo, steer_direction, steer_summary],
+              api_name=False)
 
     # Event handlers - using api_name=False to prevent schema generation issues
     load_btn.click(

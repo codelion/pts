@@ -266,6 +266,11 @@ every probability, in the search and in validation, is token PTS's estimator
   Its usage examples are tested as published (`tests/test_vector_card.py`
   runs the Python snippets and parses every `pts` command and the curl body);
   change the CLI and those tests tell you the card is stale.
+- Cards link to the visualizer Space's Steering tab (`?vector=<repo>` opens it
+  with that repo loaded; `visualizer/steering_tab.py`). After publishing a
+  vector repo, add it to the Space README's `models:` list so the vector's page
+  shows the Space. The Space installs `pts` from `main`, so steering on the
+  Space (and every install line on the cards) needs the steering code merged.
 
 ## Testing
 
