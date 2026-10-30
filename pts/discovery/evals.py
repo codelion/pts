@@ -27,12 +27,25 @@ HUB_PREFIX = "hf://"
 
 @dataclass(frozen=True)
 class ChoiceItem:
+    """One eval question.
+
+    A choice item has labelled answers (``choices`` is ("A", "B") or
+    ("Yes", "No")) and ``matching`` is the label showing the behavior. A topic
+    item has no choices: the question is open-ended and ``matching`` is a
+    regular expression the final answer shows the behavior by matching (e.g.
+    ``golden gate`` for a model that brings up the bridge).
+    """
+
     question: str
-    matching: str           # the choice label showing the behavior, e.g. "A" or "Yes"
+    matching: str           # the behavior's label ("A", "Yes"), or a topic item's regex
     not_matching: str
     choices: Tuple[str, ...]
     item_id: str
     source: Optional[str] = None
+
+    @property
+    def is_topic(self) -> bool:
+        return not self.choices
 
     def swapped(self) -> Optional["ChoiceItem"]:
         """The same question with the (A)/(B) labels exchanged.
@@ -54,6 +67,15 @@ def _label(answer: str) -> str:
 
 
 def parse_row(row: dict, index: int, source: Optional[str] = None) -> ChoiceItem:
+    digest = hashlib.sha1(row["question"].encode()).hexdigest()[:10]
+    if "pattern" in row and "answer_matching_behavior" not in row:
+        # A topic row: {"question": ..., "pattern": <regex the answer matches>}.
+        try:
+            re.compile(row["pattern"], re.IGNORECASE)
+        except re.error as e:
+            raise ValueError(f"Row {index}: bad pattern {row['pattern']!r}: {e}")
+        return ChoiceItem(question=row["question"], matching=row["pattern"], not_matching="",
+                          choices=(), item_id=f"{index}-{digest}", source=source)
     matching = _label(row["answer_matching_behavior"] if isinstance(row["answer_matching_behavior"], str)
                       else row["answer_matching_behavior"][0])
     not_matching = _label(row["answer_not_matching_behavior"] if isinstance(row["answer_not_matching_behavior"], str)
@@ -66,7 +88,6 @@ def parse_row(row: dict, index: int, source: Optional[str] = None) -> ChoiceItem
         matching, not_matching = matching.capitalize(), not_matching.capitalize()
     else:
         raise ValueError(f"Row {index}: unsupported answer labels {sorted(labels)}")
-    digest = hashlib.sha1(row["question"].encode()).hexdigest()[:10]
     return ChoiceItem(
         question=row["question"], matching=matching, not_matching=not_matching,
         choices=choices, item_id=f"{index}-{digest}", source=source,
@@ -103,7 +124,7 @@ def load_choice_eval(path: str, limit: Optional[int] = None, seed: int = 0) -> L
             # choices, so such rows are left out rather than forced into two.
             skipped += 1
     if not items:
-        raise ValueError(f"{path}: no two-choice (A/B or Yes/No) rows")
+        raise ValueError(f"{path}: no two-choice (A/B or Yes/No) or topic rows")
     if skipped:
         logger.warning(f"{path}: skipped {skipped} of {len(rows)} rows that are not two-choice")
     random.Random(seed).shuffle(items)
@@ -132,6 +153,17 @@ def reads_as_label(text: str, label: str) -> bool:
     return text.strip().lstrip("(*").rstrip(")*:.").strip().lower() == label.lower()
 
 
+def states_answer(item: ChoiceItem, token: str) -> bool:
+    """Whether emitting ``token`` is just writing the answer down: a choice
+    label, or for a topic item a word of its pattern (" Golden" for
+    ``golden gate``). Such tokens are pivotal by definition and say nothing
+    about why, so direction building skips them."""
+    if item.is_topic:
+        word = re.sub(r"[^a-z]", "", token.lower())
+        return len(word) >= 3 and word in re.findall(r"[a-z]+", item.matching.lower())
+    return any(reads_as_label(token, c) for c in item.choices)
+
+
 _PAREN = re.compile(r"\(([A-Z])\)")
 _STATED = re.compile(r"\b(?:answer|choice|option|choose|select)\b[^A-Za-z]{0,6}(?:is\s*)?\(?([A-Z])\b",
                      re.IGNORECASE)
@@ -140,13 +172,16 @@ _YES_NO = re.compile(r"\b(yes|no)\b", re.IGNORECASE)
 
 
 class ChoiceOracle(Oracle):
-    """Success: the response's final answer is the behavior-matching choice.
+    """Success: the response's final answer is the behavior-matching choice,
+    or for a topic item, matches the item's pattern.
 
     The final answer is the last "(X)" in the response (after any thinking
     block), else the last "answer is X"-style statement, else a bare leading
     letter; for Yes/No items, the last "yes" or "no". A response with none of
     these, or one that stopped inside its thinking block, has not answered and
-    does not succeed.
+    does not succeed. A topic item has answered once its final answer (after
+    any thinking) is non-empty; mentioning the topic only while thinking does
+    not count.
     """
 
     def __init__(self, items: Sequence[ChoiceItem]):
@@ -169,8 +204,19 @@ class ChoiceOracle(Oracle):
                 return found[-1]
         return None
 
+    def _final_text(self, response: str) -> Optional[str]:
+        if "<think>" in response and "</think>" not in response:
+            return None
+        return self.extract_final_response(response)
+
     def answered(self, query: str, response: str) -> bool:
+        if self.items[query].is_topic:
+            return bool((self._final_text(response) or "").strip())
         return self.final_choice(query, response) is not None
 
     def check_success(self, query: str, response: str) -> bool:
-        return self.final_choice(query, response) == self.items[query].matching
+        item = self.items[query]
+        if item.is_topic:
+            text = self._final_text(response)
+            return bool(text and re.search(item.matching, text, re.IGNORECASE))
+        return self.final_choice(query, response) == item.matching

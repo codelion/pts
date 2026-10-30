@@ -65,7 +65,7 @@ pip install -e .           # core + model deps
 pip install -e '.[all]'    # + sentence-transformers, math-verify, pytest
 pip install -e '.[mlx]'    # Apple-silicon steering backend (mlx-lm needs transformers>=5)
 
-pytest tests/ -q           # ~258 tests, tiny random models; MPS/CUDA/MLX cases skip without them
+pytest tests/ -q           # ~268 tests, tiny random models; MPS/CUDA/MLX cases skip without them
 pytest tests/test_jlens.py::test_causal_mask_holds -q   # a single test
 
 pts run --granularity token|sentence|latent|all --model M --output-path events.jsonl
@@ -252,6 +252,12 @@ every probability, in the search and in validation, is token PTS's estimator
   need their block handled). Sampling to the end works for any model, chat
   template and dataset an oracle can judge.
 - The prompt is the dataset's question in the chat template, nothing added.
+- Evals are choice items (A/B, Yes/No; `ChoiceItem.choices`) or topic items
+  (`choices == ()`, `matching` is a regex the final answer must match; rows
+  with a `pattern` field). Mentions inside the thinking block never count.
+  For topic items the pattern's words are the "answer-stating" tokens
+  (`states_answer`), and CAA is refused, so the pipeline skips it and the card
+  says so.
 - The PTS vector only counts if it beats the controls built the same way
   (shuffled signs, random positions in the same traces), CAA, a random-vector
   null, and the prompt baseline, with paired intervals on held-out questions.

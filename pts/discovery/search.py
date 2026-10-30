@@ -35,7 +35,7 @@ from typing import Dict, Iterator, List, Optional, Sequence, Tuple
 import math
 
 from ..events import CausalReasoningEvent, make_token_event
-from .evals import ChoiceItem, reads_as_label
+from .evals import ChoiceItem, states_answer
 from .scoring import ChoiceScorer, Estimate
 
 logger = logging.getLogger(__name__)
@@ -203,7 +203,7 @@ def search_item(
                     "response_position": t,
                     # Writing the answer down is pivotal by definition and says
                     # nothing about why; direction building skips these.
-                    "states_answer": any(reads_as_label(token, c) for c in item.choices),
+                    "states_answer": states_answer(item, token),
                 },
             )
 
