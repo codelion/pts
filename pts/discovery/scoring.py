@@ -14,12 +14,15 @@ answered at all is reported alongside, because a steering vector that stops
 the model answering would otherwise look like it reduced the behavior.
 """
 
+import logging
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 
 from .evals import ChoiceItem
+
+logger = logging.getLogger(__name__)
 
 
 def limit_gpu_memory(fraction: float = 0.5) -> int:
@@ -160,7 +163,28 @@ class ChoiceScorer:
         continues the same prompt + prefix) is processed once; each sample
         starts from a copy of that cache, as mlx-lm's server reuses prompt
         caches.
+
+        mlx-lm's ``BatchGenerator`` has, rarely (once in ~27 searched
+        questions), failed a batch split with a shape mismatch. The prompts
+        still unfinished are then sampled again from scratch in a fresh
+        generator without shared prefills; finished completions are kept, and
+        a restarted completion is a new sample, so the estimate is unchanged.
         """
+        results: List[Optional[List[int]]] = [None] * len(prompts)
+        todo = list(range(len(prompts)))
+        try:
+            self._sample_into(prompts, todo, results, max_tokens, self.share_prefill)
+        except ValueError as e:
+            todo = [i for i in todo if results[i] is None]
+            logger.warning("mlx-lm batch failed (%s); resampling %d unfinished prompts", e, len(todo))
+            self._sample_into(prompts, todo, results, max_tokens, False)
+        self.cost.sampled_tokens += sum(len(v) for v in results)
+        self.cost.completions += len(prompts)
+        return results
+
+    def _sample_into(self, prompts, todo: List[int], results: List, max_tokens: int, share: bool) -> None:
+        """Sample ``prompts[i]`` for every ``i`` in ``todo`` into ``results[i]``,
+        which is set only once that completion has finished."""
         import copy
 
         import mlx.core as mx
@@ -168,11 +192,10 @@ class ChoiceScorer:
         from mlx_lm.sample_utils import make_logits_processors, make_sampler
 
         counts: Dict[Tuple[int, ...], int] = {}
-        for x in prompts:
-            counts[tuple(x)] = counts.get(tuple(x), 0) + 1
+        for i in todo:
+            counts[tuple(prompts[i])] = counts.get(tuple(prompts[i]), 0) + 1
         left = dict(counts)
         shared: Dict[Tuple[int, ...], object] = {}
-        prefilled = 0
 
         gen = BatchGenerator(
             self.model,
@@ -183,21 +206,22 @@ class ChoiceScorer:
                 presence_penalty=self.presence_penalty or None),
             completion_batch_size=self.batch_size,
         )
-        results: List[List[int]] = [[] for _ in prompts]
+        partial: Dict[int, List[int]] = {}
         index: Dict[int, int] = {}
         # Admit prompts shortest first, so sequences sharing the batch have
         # similar lengths and the KV cache is not padded to a much longer one.
-        queue = sorted(range(len(prompts)), key=lambda i: len(prompts[i]), reverse=True)
+        queue = sorted(todo, key=lambda i: len(prompts[i]), reverse=True)
+        failed = False
         try:
             while queue or index:
                 while queue and len(index) < self.batch_size:
                     i = queue.pop()
                     x = list(prompts[i])
                     key = tuple(x)
-                    if self.share_prefill and counts[key] > 1 and len(x) > 1:
+                    if share and counts[key] > 1 and len(x) > 1:
                         if key not in shared:
                             shared[key] = self._prefill(x[:-1])
-                            prefilled += 1
+                            self.cost.prefilled_once += 1
                         cache, tail = copy.deepcopy(shared[key]), x[-1:]
                         left[key] -= 1
                         if left[key] == 0:
@@ -207,19 +231,25 @@ class ChoiceScorer:
                     (uid,) = gen.insert([tail], [max_tokens], caches=[cache],
                                         all_tokens=[x[:len(x) - len(tail)]])
                     index[uid] = i
+                    partial[i] = []
                 for r in gen.next_generated():
+                    i = index[r.uid]
                     if r.finish_reason != "stop":
-                        results[index[r.uid]].append(r.token)
+                        partial[i].append(r.token)
                     if r.finish_reason is not None:
+                        results[i] = partial.pop(i)
                         del index[r.uid]
+        except Exception:
+            failed = True
+            raise
         finally:
-            gen.close()
+            try:
+                gen.close()
+            except Exception:
+                if not failed:   # don't hide the error that got us here
+                    raise
             shared.clear()
             mx.clear_cache()
-        self.cost.sampled_tokens += sum(len(v) for v in results)
-        self.cost.completions += len(prompts)
-        self.cost.prefilled_once += prefilled
-        return results
 
     def _opens_thinking(self, item: ChoiceItem) -> bool:
         """Whether the template already opened a thinking block in the prompt."""
