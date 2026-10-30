@@ -61,6 +61,11 @@ def verdict(report: Dict, direction: str, method: str = MAIN, alpha: float = 0.0
         other = key[len(prefix):]
         if key.startswith(prefix) and other in CONTROLS:
             (beats if c["ci_low"] > 0 else not_beaten).append(other)
+    # A control the run skipped (--methods) was not beaten. A topic eval has
+    # no labelled answers, so it cannot have CAA.
+    skippable = {"prompt"} | ({"caa"} if report.get("eval_kind") == "topic" else set())
+    not_beaten += [c for c in CONTROLS if c not in skippable and c not in report.get("methods", {})
+                   and c not in beats + not_beaten]
     null = result.get("random_null") or {}
     p = null.get("p_value")
     passes = moved and not not_beaten and bool(beats) and p is not None and p < alpha

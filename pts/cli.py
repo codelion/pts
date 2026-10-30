@@ -699,6 +699,9 @@ def discover(args) -> None:
         max_kl=args.max_kl,
         eval_samples=args.eval_samples,
         random_null=args.random_null,
+        selection_samples=args.selection_samples,
+        methods=args.methods,
+        held_out_pool=args.held_out_pool,
         prompt_increase=args.prompt_increase,
         prompt_decrease=args.prompt_decrease,
         reuse_search=args.reuse_search,
@@ -1085,6 +1088,16 @@ def parse_args(argv=None):
                         help="Sampled completions per test question when measuring steering")
     disc_p.add_argument("--random-null", type=int, default=5,
                         help="Random vectors of the same size tested at each chosen setting")
+    disc_p.add_argument("--selection-samples", type=int, default=4,
+                        help="Sampled completions per selection question, per swept setting")
+    disc_p.add_argument("--methods", nargs="+", default=None,
+                        choices=["pts_signed_mean_centered", "control_sign_shuffle",
+                                 "control_random_positions", "caa"],
+                        help="Validate only these alongside the PTS vector (default: all). A card "
+                             "needs every control to call a vector passing.")
+    disc_p.add_argument("--held-out-pool", type=int, default=0,
+                        help="Screen this many extra questions and keep, for selection and test, "
+                             "only those whose P(behavior) is in [--min-prob, --max-prob]")
     disc_p.add_argument("--prompt-increase", default=None,
                         help="Instruction for the prompting baseline (default: 'Answer in a way that "
                              "shows <behavior>.')")

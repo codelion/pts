@@ -62,6 +62,9 @@ class DiscoveryConfig:
     eval_samples: int = 16                          # completions per test question
     selection_samples: int = 4                      # completions per selection question, per setting
     random_null: int = 5                            # random vectors per chosen setting
+    methods: Optional[List[str]] = None             # validate only these (and the PTS vector); default: all
+    held_out_pool: int = 0                          # >0: screen this many extra questions, keep borderline ones
+    screen_samples: int = 8                         # completions per question when screening held-out questions
     prompt_increase: Optional[str] = None           # default: "Answer in a way that shows {behavior}."
     prompt_decrease: Optional[str] = None
     reuse_search: bool = False                      # load events/traces already in output_dir
@@ -85,6 +88,29 @@ def _alpha(vec, layer: int, fraction: float) -> float:
     e = next(e for e in vec.entries if e.layer == layer)
     norm = float(np.linalg.norm(e.vector))
     return fraction * e.ref_norm / norm if norm > 0 else 0.0
+
+
+def _borderline_held_out(scorer, pool, config):
+    """Selection and test questions whose unsteered P(behavior) is borderline.
+
+    Questions the model always or never answers with the behavior leave a
+    vector no room to move them, so a held-out set full of them hides real
+    effects. Each question is screened with ``screen_samples`` completions and
+    kept if its rate is in the search's [min_start, max_start] band; the kept
+    ones alternate between selection and test. The screen's samples are not
+    reused: base rates are measured again, so selecting on a noisy screen
+    cannot inflate an effect.
+    """
+    band = (config.search.min_start, config.search.max_start)
+    requests = [(it, scorer.prompt_ids(it), []) for it in pool]
+    est = scorer.estimate_many(requests, config.screen_samples, config.search.max_tokens)
+    kept = [it for it, e in zip(pool, est) if band[0] <= e.p <= band[1]]
+    logger.info(f"Held-out screen: {len(kept)}/{len(pool)} questions in [{band[0]}, {band[1]}]")
+    if len(kept) < 4:
+        raise ValueError(f"only {len(kept)} of {len(pool)} held-out questions are borderline; "
+                         "raise --held-out-pool")
+    return kept[0::2], kept[1::2], {"pool": len(pool), "kept": len(kept), "band": list(band),
+                                    "samples": config.screen_samples}
 
 
 def _run_search(scorer, disc, config, model_id, eval_path, behavior, output_dir):
@@ -175,13 +201,18 @@ def discover(
     os.makedirs(output_dir, exist_ok=True)
     limit_gpu_memory(config.memory_fraction)
     mx.random.seed(config.seed)
-    items = load_choice_eval(eval_path, limit=config.num_items, seed=config.seed)
-    disc, sel, test = split(items)
-    logger.info(f"{behavior}: {len(disc)} discovery / {len(sel)} selection / {len(test)} test questions")
+    items = load_choice_eval(eval_path, limit=config.num_items + config.held_out_pool, seed=config.seed)
+    # Rows are shuffled before the limit, so the first num_items are the same
+    # with or without a pool, and so are the discovery questions.
+    disc, sel, test = split(items[:config.num_items])
 
     scorer = ChoiceScorer(model, tokenizer, ChoiceOracle(items),
                           chat_template_args=config.chat_template_args, batch_size=config.batch_size,
                           **config.sampling)
+    held_out = None
+    if config.held_out_pool:
+        sel, test, held_out = _borderline_held_out(scorer, sel + test + items[config.num_items:], config)
+    logger.info(f"{behavior}: {len(disc)} discovery / {len(sel)} selection / {len(test)} test questions")
     hidden, num_layers = mlx_backend.model_shape(model)
     layers = config.layers or default_layers(num_layers)
     capture = lambda ids, ls: mlx_backend.capture(model, ids, ls)
@@ -196,6 +227,11 @@ def discover(
             scorer, capture, events, traces, layers, config.seed),
         "caa": lambda: caa(scorer, capture, disc, layers),
     }
+    if config.methods:
+        unknown = set(config.methods) - set(builders)
+        if unknown:
+            raise ValueError(f"unknown methods {sorted(unknown)}; choose from {sorted(builders)}")
+        builders = {k: v for k, v in builders.items() if k == MAIN or k in config.methods}
     candidates = {}
     for name, build in builders.items():
         try:
@@ -213,6 +249,7 @@ def discover(
         "behavior": behavior, "model": model_id, "eval": eval_path,
         "eval_kind": "topic" if all(item.is_topic for item in items) else "choice",
         "split": {"discovery": len(disc), "selection": len(sel), "test": len(test)},
+        "held_out_screen": held_out,
         "events": {
             "total": len(events),
             "positive": sum(e.prob_delta > 0 for e in events),
