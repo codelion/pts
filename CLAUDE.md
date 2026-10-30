@@ -65,7 +65,7 @@ pip install -e .           # core + model deps
 pip install -e '.[all]'    # + sentence-transformers, math-verify, pytest
 pip install -e '.[mlx]'    # Apple-silicon steering backend (mlx-lm needs transformers>=5)
 
-pytest tests/ -q           # ~257 tests, tiny random models; MPS/CUDA/MLX cases skip without them
+pytest tests/ -q           # ~258 tests, tiny random models; MPS/CUDA/MLX cases skip without them
 pytest tests/test_jlens.py::test_causal_mask_holds -q   # a single test
 
 pts run --granularity token|sentence|latent|all --model M --output-path events.jsonl
@@ -73,7 +73,7 @@ pts fit-jlens --model M --output-path ./jlens/m          # calibrate the Jacobia
 pts enrich --input-path events.jsonl --with-latent --model M --jlens-path ./jlens/m
 pts link --input-path events.jsonl --output-path linked.jsonl --shuffle-control
 pts migrate --input-path old.jsonl --output-path events.jsonl
-pts export --format causal_events|metatokens|pivotal_tokens|thought_anchors|dpo|steering
+pts export --format causal_events|metatokens|pivotal_tokens|thought_anchors|dpo|reasoning_patterns
 pts push --input-path X --hf-repo-id user/repo
 pts build-vector --model M --positive pos.txt --negative neg.txt --layers 16 --output-path vec/
 pts steer --model M --vector vec/:-8 --vector hf://org/repo:2 --prompt "..." --chat --compare
@@ -152,7 +152,9 @@ WorkspaceBench's readout, not the paper's.
 
 ## Things that will bite you
 
-- **OptiLLM compatibility.** Steering exports carry `reasoning_pattern` from a
+- **OptiLLM compatibility.** `--format reasoning_patterns` exports (called
+  `steering` until the rename; the record fields such as `steering_vector`
+  keep their names because OptiLLM reads them) carry `reasoning_pattern` from a
   fixed five-value vocabulary (`depth_and_thoroughness`, `numerical_accuracy`,
   `self_correction`, `exploration`, `organization`). OptiLLM's autothink reads
   that field. Do **not** replace it with the PTS category taxonomy — both are
@@ -194,7 +196,8 @@ WorkspaceBench's readout, not the paper's.
 
 ## Steering vectors
 
-One format for every backend: `steering_config.json` + `steering_vectors.safetensors`
+"Steering vector" means only this format; the OptiLLM export is
+`reasoning_patterns`, not a steering vector. One format for every backend: `steering_config.json` + `steering_vectors.safetensors`
 (tensors `layers.<L>.<op>`), or a single `.safetensors` with the config in its
 metadata. Loads from a directory, a file, or `hf://org/repo[/path]`.
 

@@ -78,7 +78,7 @@ def test_fit_jlens_has_no_dtype_flag():
 @pytest.mark.parametrize("argv", [
     ["run", "--model", TINY],
     ["enrich", "--model", TINY, "--input-path", "a", "--output-path", "b"],
-    ["export", "--input-path", "a", "--output-path", "b", "--format", "steering"],
+    ["export", "--input-path", "a", "--output-path", "b", "--format", "reasoning_patterns"],
 ])
 def test_dtype_flag_defaults_to_auto(argv):
     args, _ = parse_args(argv)

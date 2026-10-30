@@ -68,6 +68,20 @@ all three scales, which is what lets cross-scale chains line up:
 | `self_checking` | `verification` |
 | `final_answer_emission` | `final_answer` |
 
+## Renamed: `--format steering` is `--format reasoning_patterns`
+
+The export that clusters pivotal-token activations by reasoning pattern for
+OptiLLM's autothink is now `pts export --format reasoning_patterns`; `--format
+steering` is gone. The file is unchanged: its records keep `steering_vector`,
+`cluster_vector`, `steering_layer` and `reasoning_pattern`, because OptiLLM
+reads those names, and files written before the rename load as before (the
+visualizer detects them by those fields). In Python,
+`EventExporter.export_steering_vectors` is now `export_reasoning_patterns`.
+
+"Steering vector" now means only the format `pts steer`, `pts serve`, `pts
+build-vector` and `pts discover` use: `steering_config.json` +
+`steering_vectors.safetensors`, run on MLX or PyTorch.
+
 ## Python API
 
 Older imports still work:
