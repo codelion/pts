@@ -38,14 +38,22 @@ def load_hf_dataset(dataset_id: str, split: str = "train") -> pd.DataFrame:
     Falls back to the datasets library for anything not stored as a flat JSONL.
     """
     from huggingface_hub import hf_hub_download, list_repo_files
+    from huggingface_hub.utils import RepositoryNotFoundError
 
     try:
-        files = list_repo_files(dataset_id, repo_type="dataset")
+        try:
+            repo_type = "dataset"
+            files = list_repo_files(dataset_id, repo_type=repo_type)
+        except RepositoryNotFoundError:
+            # A steering-vector repo from `pts push` is a model repo; its
+            # events.jsonl holds the pivotal tokens the vectors were built from.
+            repo_type = "model"
+            files = list_repo_files(dataset_id, repo_type=repo_type)
         jsonl = [f for f in files if f.endswith(".jsonl")]
         if jsonl:
             # Prefer the canonical event file when present.
-            preferred = next((f for f in jsonl if "causal_events" in f), jsonl[0])
-            path = hf_hub_download(dataset_id, preferred, repo_type="dataset")
+            preferred = next((f for f in jsonl if "causal_events" in f or f == "events.jsonl"), jsonl[0])
+            path = hf_hub_download(dataset_id, preferred, repo_type=repo_type)
             rows = [json.loads(l) for l in open(path) if l.strip()]
             return pd.DataFrame(rows), f"Loaded {len(rows)} items from {dataset_id}"
 
@@ -3088,16 +3096,26 @@ with gr.Blocks(title="PTS · Pivotal Token Search", theme=PTS_THEME, css=CSS) as
     demo.load(fn=steering_on_load, outputs=[main_tabs, steer_repo, steer_direction, steer_summary],
               api_name=False)
 
+    # ?dataset=<repo> loads that dataset (or a vector repo's events) on arrival.
+    def load_from_query(request: gr.Request):
+        repo = (request.query_params.get("dataset") if request else None) or ""
+        if not repo:
+            return (gr.update(),) * (len(load_outputs) + 1)
+        return (gr.update(value=repo), *load_dataset_action("HuggingFace Hub", repo, None))
+
+
     # Event handlers - using api_name=False to prevent schema generation issues
+    load_outputs = [load_status, dataset_info, stats_html, stats_chart, graph_plot,
+                    embed_plot, circuit_html, circuit_chart, timeline_plot, heatmap_plot,
+                    token_slider, query_filter, ev_type, ev_category,
+                    ev_summary, ev_score_plot, token_html, prob_chart]
     load_btn.click(
         fn=load_dataset_action,
         inputs=[source_type, dataset_dropdown, file_upload],
-        outputs=[load_status, dataset_info, stats_html, stats_chart, graph_plot,
-                 embed_plot, circuit_html, circuit_chart, timeline_plot, heatmap_plot,
-                 token_slider, query_filter, ev_type, ev_category,
-                 ev_summary, ev_score_plot, token_html, prob_chart],
+        outputs=load_outputs,
         api_name=False
     )
+    demo.load(fn=load_from_query, outputs=[dataset_dropdown, *load_outputs], api_name=False)
 
     # Lazy tab rendering: each heavy tab computes its figures only when opened,
     # so load never pays for all six at once. Recompute-on-open is cheap in

@@ -352,7 +352,10 @@ def discovery_card(report: Dict, repo_id: str, method: str = MAIN,
                   f"{_md(_context_tail(x['context']))} |" for x in examples]
         lines += [
             "",
-            "These, and the rest of the run's pivotal tokens, are what the vector is built from.",
+            f"These, and the rest of the run's pivotal tokens, are what the vector is built from. "
+            f"All of them are in `events.jsonl`; **[explore them in the visualizer]"
+            f"({SPACE_URL}?dataset={repo_id})** (Event Explorer, Causal Event Graph, Reasoning "
+            f"Timeline), or load them with `pts.EventStorage`.",
             "",
         ]
     lines += [

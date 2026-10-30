@@ -97,6 +97,9 @@ def _discover_dir(tmp_path, report):
         (out / f"{MAIN}_{d}" / "steering_config.json").write_text("{}")
     os.makedirs(out / "caa_increase")
     (out / "report.json").write_text(json.dumps(report))
+    (out / "events.jsonl").write_text(json.dumps({
+        "event_type": "token", "label": " he", "context": "Since", "prob_before": 0.3,
+        "prob_after": 0.8, "prob_delta": 0.5, "metadata": {"states_answer": False}}) + "\n")
     return out
 
 
@@ -124,9 +127,12 @@ def test_push_publishes_the_chosen_vectors_report_and_card(tmp_path, monkeypatch
     out = _discover_dir(tmp_path, _report())
     uploaded = _fake_hub(monkeypatch)
     _push(str(out), "someone/q", private=False, model_name=None)
-    assert uploaded["files"] == ["README.md", "decrease/steering_config.json",
+    assert uploaded["files"] == ["README.md", "decrease/steering_config.json", "events.jsonl",
                                  "increase/steering_config.json", "report.json"]
     assert "Beats every control" in uploaded["readme"]
+    # The card shows the run's pivotal tokens and links to them in the visualizer.
+    assert "| ` he` | 0.30 → 0.80 |" in uploaded["readme"]
+    assert "pts-visualizer?dataset=someone/q" in uploaded["readme"]
 
 
 def test_push_skips_a_direction_that_failed_selection(tmp_path, monkeypatch):
