@@ -77,6 +77,7 @@ def test_card_states_the_verdict_and_how_to_reproduce():
     assert "PTS signed mean (variant, not a control)" in card
     assert "0 of 5 random vectors of the same norm moved P as far" in card
     assert "--vector hf://someone/Qwen3-0.6B-sycophancy/increase" in card
+    assert "https://huggingface.co/spaces/codelion/pts-visualizer?vector=someone/Qwen3-0.6B-sycophancy" in card
     # The reproduce command carries the run's own settings.
     assert "--chat-template-args '{\"enable_thinking\": true}'" in card
     assert "--temperature 0.6" in card and "--top-k 20" in card and "--max-tokens 1536" in card
