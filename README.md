@@ -128,15 +128,18 @@ have the full per-model write-ups:
 | `pts fit-jlens` | Calibrate a Jacobian lens for a model |
 | `pts link` | Link latent, token, and sentence events into chains |
 | `pts migrate` | Read older pivotal-token / thought-anchor files into the schema |
-| `pts export --format …` | `causal_events`, `metatokens`, `pivotal_tokens`, `thought_anchors`, `dpo`, `steering` |
+| `pts export --format …` | `causal_events`, `metatokens`, `pivotal_tokens`, `thought_anchors`, `dpo`, `reasoning_patterns` |
 | `pts push` | Upload to Hugging Face |
 | `pts build-vector` | Build a steering vector from positive and negative prompts |
 | `pts steer` | Generate with one or more steering vectors applied |
 | `pts serve` | OpenAI-compatible server with per-request steering (MLX or PyTorch) |
 | `pts discover` | Token PTS on a labelled behavior eval, turned into validated steering vectors (MLX) |
 
-DPO pairs and steering vectors are `export` formats. The steering vectors feed
-[OptiLLM](https://github.com/codelion/optillm)'s autothink. See
+DPO pairs and reasoning patterns are `export` formats. `reasoning_patterns` is
+each pivotal token's activation, clustered and labelled with one of five
+reasoning patterns, for [OptiLLM](https://github.com/codelion/optillm)'s
+autothink. It was called `steering` before; the steering vectors PTS builds,
+validates and runs are the format in [Steering](#steering) below. See
 [docs/compatibility.md](docs/compatibility.md).
 
 ## Steering

@@ -444,8 +444,8 @@ def export(args) -> None:
             device=args.device,
             dtype=args.dtype,
         )
-    elif args.format == "steering":
-        exporter.export_steering_vectors(
+    elif args.format == "reasoning_patterns":
+        exporter.export_reasoning_patterns(
             args.output_path,
             model_name=args.model,
             layer_nums=args.layer_nums,
@@ -959,7 +959,7 @@ def parse_args(argv=None):
         "--format",
         required=True,
         choices=["causal_events", "metatokens", "pivotal_tokens", "thought_anchors",
-                 "dpo", "steering"],
+                 "dpo", "reasoning_patterns"],
     )
     exp_p.add_argument("--model", default=None)
     exp_p.add_argument("--dataset", default=None,

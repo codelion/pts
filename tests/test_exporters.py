@@ -162,10 +162,27 @@ def test_dataset_card_omits_latent_caveats_when_no_latent_events(tmp_path):
 def test_optillm_reasoning_patterns_are_preserved():
     from pts.exporters import OPTILLM_REASONING_PATTERNS
 
-    # OptiLLM's autothink reads `reasoning_pattern` off steering records and
+    # OptiLLM's autothink reads `reasoning_pattern` off reasoning-pattern records and
     # expects exactly these five values. Renaming them breaks that integration
     # silently, so pin them.
     assert set(OPTILLM_REASONING_PATTERNS) == {
         "depth_and_thoroughness", "numerical_accuracy", "self_correction",
         "exploration", "organization",
     }
+
+
+def test_reasoning_patterns_is_the_export_name_and_old_files_still_detect(tmp_path):
+    """`--format steering` was renamed; files written under the old name keep
+    their fields (OptiLLM reads them) and are detected as reasoning patterns."""
+    from pts.cli import parse_args
+    from pts.exporters import detect_file_type
+
+    path = tmp_path / "old.jsonl"
+    path.write_text(json.dumps({"pivot_token": " so", "steering_vector": [0.1, 0.2],
+                                "reasoning_pattern": "exploration", "steering_layer": 3}) + "\n")
+    assert detect_file_type(str(path)) == "reasoning_patterns"
+    args, _ = parse_args(["export", "--input-path", "a", "--output-path", "b",
+                          "--format", "reasoning_patterns"])
+    assert args.format == "reasoning_patterns"
+    with pytest.raises(SystemExit):
+        parse_args(["export", "--input-path", "a", "--output-path", "b", "--format", "steering"])

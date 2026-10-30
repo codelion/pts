@@ -51,6 +51,12 @@ All scales on one shared generation axis: latent meta-tokens, pivotal tokens,
 thought-anchor sentences, and the resulting success-probability curve — plus a
 workspace heatmap of meta-token readout scores by position.
 
+### Steering
+Try a published PTS steering vector: load its repo (made by `pts discover` +
+`pts push`), see its held-out validation verdict, and compare the model's
+answer with and without the vector from the same seed. Strength is a multiple
+of the validated alpha; a negative value flips it.
+
 ## Supported datasets
 
 Built for the unified PTS reasoning-event datasets, which drive every view:
@@ -59,9 +65,16 @@ Built for the unified PTS reasoning-event datasets, which drive every view:
 - `codelion/DeepSeek-R1-Distill-Qwen-1.5B-pts`
 
 Any PTS file can also be loaded by pasting its dataset id or uploading a JSONL
-(legacy pivotal-token and thought-anchor files are upgraded on the fly).
-Steering-vector datasets are a separate downstream artifact for
-[OptiLLM](https://github.com/codelion/optillm) and are not the focus here.
+(legacy pivotal-token and thought-anchor files are upgraded on the fly),
+including `reasoning_patterns` exports for
+[OptiLLM](https://github.com/codelion/optillm) (formerly called `steering`).
+A steering-vector repo's id loads the pivotal tokens its vectors were built
+from (`events.jsonl`).
+
+Links can open a view directly:
+
+- `?dataset=<repo>` loads a dataset, or a vector repo's events, on arrival;
+- `?vector=<repo>` opens the Steering tab with that vector repo loaded.
 
 ## How to Use
 
