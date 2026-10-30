@@ -310,6 +310,39 @@ def test_more_prompts_than_the_batch_refill_freed_slots(scorer):
     assert together == [sc.sample([p], max_tokens=6)[0] for p in prompts]
 
 
+def test_a_failed_batch_resamples_only_the_unfinished_prompts(scorer, monkeypatch):
+    """mlx-lm's BatchGenerator has failed a batch split with a shape error.
+    Finished completions are kept; the rest are sampled again from scratch."""
+    import importlib
+
+    from pts.discovery.scoring import ChoiceScorer
+
+    g = importlib.import_module("mlx_lm.generate")   # the package attribute is the function
+    sc = ChoiceScorer(scorer.model, scorer.tok, scorer.oracle, temperature=0.0, batch_size=2)
+    prompt = sc.prompt_ids(ITEM)
+    prompts = [prompt, prompt[:-1], prompt, prompt[:-2], prompt]
+    alone = [sc.sample([p], max_tokens=6)[0] for p in prompts]
+
+    real = g.BatchGenerator.next_generated
+    calls = {"n": 0, "generators": 0}
+    real_init = g.BatchGenerator.__init__
+
+    def init(self, *a, **k):
+        calls["generators"] += 1
+        real_init(self, *a, **k)
+
+    def flaky(self):
+        calls["n"] += 1
+        if calls["n"] == 12:
+            raise ValueError("[broadcast_shapes] Shapes (1,1,1,408) and (1,16,1,191) cannot be broadcast.")
+        return real(self)
+
+    monkeypatch.setattr(g.BatchGenerator, "__init__", init)
+    monkeypatch.setattr(g.BatchGenerator, "next_generated", flaky)
+    assert sc.sample(prompts, max_tokens=6) == alone
+    assert calls["generators"] == 2
+
+
 def test_traces_are_bisected_in_lockstep():
     """Several traces cost no more batches than one: each round of every
     pending comparison goes out together. The events are the same per trace."""
