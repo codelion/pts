@@ -11,6 +11,7 @@ Pure Python.
 
 import hashlib
 import json
+import logging
 import os
 import random
 import re
@@ -18,6 +19,8 @@ from dataclasses import dataclass, replace
 from typing import List, Optional, Sequence, Tuple
 
 from ..oracle import Oracle
+
+logger = logging.getLogger(__name__)
 
 HUB_PREFIX = "hf://"
 
@@ -91,7 +94,18 @@ def load_choice_eval(path: str, limit: Optional[int] = None, seed: int = 0) -> L
     source = path if path.startswith(HUB_PREFIX) else os.path.basename(path)
     with open(local) as f:
         rows = [json.loads(line) for line in f if line.strip()]
-    items = [parse_row(r, i, source) for i, r in enumerate(rows)]
+    items, skipped = [], 0
+    for i, r in enumerate(rows):
+        try:
+            items.append(parse_row(r, i, source))
+        except ValueError:
+            # e.g. a three-option question in an A/B eval: the oracle reads two
+            # choices, so such rows are left out rather than forced into two.
+            skipped += 1
+    if not items:
+        raise ValueError(f"{path}: no two-choice (A/B or Yes/No) rows")
+    if skipped:
+        logger.warning(f"{path}: skipped {skipped} of {len(rows)} rows that are not two-choice")
     random.Random(seed).shuffle(items)
     return items[:limit] if limit else items
 

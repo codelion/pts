@@ -95,3 +95,27 @@ def test_oracle_reads_yes_no_answers():
 def test_label_tokens():
     assert all(reads_as_label(t, "A") for t in ("A", " A", "(A", "**A", "A)"))
     assert not any(reads_as_label(t, "A") for t in ("An", " B", "(", "Answer"))
+
+
+def test_rows_that_are_not_two_choice_are_skipped(tmp_path):
+    import json
+
+    path = tmp_path / "mixed.jsonl"
+    rows = [
+        {"question": "Q1 (A) x (B) y", "answer_matching_behavior": " (A)", "answer_not_matching_behavior": " (B)"},
+        {"question": "Q2 (A) x (B) y (C) z", "answer_matching_behavior": " (A)", "answer_not_matching_behavior": " (C)"},
+        {"question": "Q3?", "answer_matching_behavior": " Yes", "answer_not_matching_behavior": " No"},
+    ]
+    path.write_text("\n".join(json.dumps(r) for r in rows))
+    items = load_choice_eval(str(path))
+    assert sorted(i.question for i in items) == ["Q1 (A) x (B) y", "Q3?"]
+
+
+def test_an_eval_with_no_two_choice_rows_is_refused(tmp_path):
+    import json
+
+    path = tmp_path / "none.jsonl"
+    path.write_text(json.dumps({"question": "Q", "answer_matching_behavior": " (A)",
+                                "answer_not_matching_behavior": " (C)"}))
+    with pytest.raises(ValueError, match="no two-choice"):
+        load_choice_eval(str(path))
