@@ -65,7 +65,7 @@ pip install -e .           # core + model deps
 pip install -e '.[all]'    # + sentence-transformers, math-verify, pytest
 pip install -e '.[mlx]'    # Apple-silicon steering backend (mlx-lm needs transformers>=5)
 
-pytest tests/ -q           # ~230 tests, tiny random models; MPS/CUDA/MLX cases skip without them
+pytest tests/ -q           # ~240 tests, tiny random models; MPS/CUDA/MLX cases skip without them
 pytest tests/test_jlens.py::test_causal_mask_holds -q   # a single test
 
 pts run --granularity token|sentence|latent|all --model M --output-path events.jsonl
@@ -80,6 +80,7 @@ pts steer --model M --vector vec/:-8 --vector hf://org/repo:2 --prompt "..." --c
 pts steer --backend torch --model M --vector vec/:-8 --prompt "..."   # same vector, PyTorch
 pts serve --model M --vector syco=vec/ --preset honest=syco:-8 --port 8080   # + any mlx_lm.server flag
 pts discover --model M --eval hf://Anthropic/model-written-evals/<dir>/<file>.jsonl --output-dir out/   # MLX
+pts push --input-path out/ --hf-repo-id user/M-behavior   # discover dir -> model repo + generated card
 ```
 
 `--generate-thought-anchors` still works as an alias for `--granularity sentence`.
@@ -250,6 +251,10 @@ every probability, in the search and in validation, is token PTS's estimator
   measured ~280-300 tok/s at batch 32 or 64 alike (mlx-lm pads a batch's KV
   cache to its longest sequence), so ~50 min per question. Fewer tokens is
   the only real lever; don't expect a bigger `--batch-size` to help.
+- Published vector cards (`pts/steering/card.py`) are generated from
+  `report.json`, and their verdict is computed, never written by hand. Only
+  the controls in `CONTROLS` count toward it; other PTS variants are shown but
+  are not controls. Keep it that way: the card is where an overclaim would ship.
 
 ## Testing
 

@@ -167,7 +167,13 @@ tokens are the answer letters and the vector reduces to CAA.
 
 ```bash
 pts discover --model M --eval hf://Anthropic/model-written-evals/sycophancy/sycophancy_on_nlp_survey.jsonl --output-dir out/
+pts push --input-path out/ --hf-repo-id you/M-sycophancy   # vectors + report + a model card
 ```
+
+`pts push` on a discover directory publishes the PTS vectors (`increase/`,
+`decrease/`), the full `report.json`, and a model card generated from it. The
+card's verdict is computed: it says a vector beats its controls only when every
+paired interval excludes zero and the random-vector null agrees.
 
 ## Related work
 

@@ -18,6 +18,7 @@ import argparse
 import json
 import logging
 import os
+import shutil
 import sys
 from typing import List, Optional
 
@@ -495,6 +496,10 @@ def _push(
 
     from .exporters import detect_file_type, generate_dataset_card
 
+    if os.path.isdir(path):
+        _push_discovery(path, repo_id, private, no_readme)
+        return
+
     file_type = file_type or detect_file_type(path)
 
     create_repo(repo_id, private=private, repo_type="dataset", exist_ok=True)
@@ -525,6 +530,41 @@ def _push(
         logger.info(f"Wrote dataset card for {repo_id}")
     finally:
         os.unlink(card_path)
+
+
+def _push_discovery(output_dir: str, repo_id: str, private: bool, no_readme: bool = False,
+                    method: Optional[str] = None) -> None:
+    """Publish a ``pts discover`` run as a model repo: ``increase/`` and
+    ``decrease/`` vectors, ``report.json``, and a card generated from it."""
+    import json
+    import tempfile
+
+    from huggingface_hub import create_repo, upload_folder
+
+    from .steering.card import DIRECTIONS, MAIN, discovery_card
+
+    report_path = os.path.join(output_dir, "report.json")
+    if not os.path.exists(report_path):
+        raise SystemExit(f"{output_dir} has no report.json; push a finished `pts discover` output directory")
+    with open(report_path) as f:
+        report = json.load(f)
+    method = method or MAIN
+    with tempfile.TemporaryDirectory() as stage:
+        published = []
+        for d in DIRECTIONS:
+            src = os.path.join(output_dir, f"{method}_{d}")
+            if (report["methods"].get(method) or {}).get(d) and os.path.isdir(src):
+                shutil.copytree(src, os.path.join(stage, d))
+                published.append(d)
+        if not published:
+            raise SystemExit(f"No {method} vector passed selection in {output_dir}; nothing to publish")
+        shutil.copy(report_path, os.path.join(stage, "report.json"))
+        if not no_readme:
+            with open(os.path.join(stage, "README.md"), "w") as f:
+                f.write(discovery_card(report, repo_id, method))
+        create_repo(repo_id, private=private, exist_ok=True)
+        upload_folder(folder_path=stage, repo_id=repo_id)
+    logger.info(f"Published {', '.join(published)} vectors and report to {repo_id}")
 
 
 # ---------------------------------------------------------------------------
@@ -912,7 +952,7 @@ def parse_args(argv=None):
     add_common(exp_p)
 
     # -- push --
-    push_p = sub.add_parser("push", help="Upload a dataset to Hugging Face")
+    push_p = sub.add_parser("push", help="Upload a dataset, or a pts discover output directory, to Hugging Face")
     push_p.add_argument("--input-path", required=True)
     push_p.add_argument("--hf-repo-id", required=True)
     push_p.add_argument("--private", action="store_true")
