@@ -57,10 +57,10 @@ class DiscoveryConfig:
     seed: int = 0
     layers: Optional[List[int]] = None              # default: a band through the middle
     fractions: List[float] = field(default_factory=lambda: [0.05, 0.1, 0.2, 0.4])
-    min_answered_ratio: float = 0.9
-    max_kl: float = 0.5
+    min_answered_ratio: float = 0.95
+    max_kl: float = 0.1
     eval_samples: int = 16                          # completions per test question
-    selection_samples: int = 4                      # completions per selection question, per setting
+    selection_samples: int = 8                      # completions per selection question, per setting
     random_null: int = 5                            # random vectors per chosen setting
     methods: Optional[List[str]] = None             # validate only these (and the PTS vector); default: all
     held_out_pool: int = 0                          # >0: screen this many extra questions, keep borderline ones
@@ -259,6 +259,8 @@ def discover(
         "search_config": asdict(config.search), "search_cost": search_cost,
         "chat_template_args": config.chat_template_args, "sampling": config.sampling,
         "eval_samples": config.eval_samples, "selection_samples": config.selection_samples,
+        "selection_rule": {"min_answered_ratio": config.min_answered_ratio, "max_kl": config.max_kl,
+                           "pick": "weakest setting within 1 SE of the largest move"},
         "layers": layers, "fractions": config.fractions,
         "base": {"selection": base_sel.as_dict(), "test": base_test.as_dict()},
         "methods": {},
@@ -273,7 +275,8 @@ def discover(
                 for sign in (1, -1):
                     alpha = sign * _alpha(vec, layer, frac)
                     s = selector.score(sel, [(one, alpha)])
-                    rows.append({"layer": layer, "fraction": sign * frac, "alpha": alpha, **s.as_dict()})
+                    rows.append({"layer": layer, "fraction": sign * frac, "alpha": alpha, **s.as_dict(),
+                                 "n": len(sel) * config.selection_samples})
         method = {"count": vec.provenance["count"], "selection_sweep": rows}
         for direction, label in ((1, "increase"), (-1, "decrease")):
             best = choose(rows, base_sel, direction, config.min_answered_ratio, config.max_kl)

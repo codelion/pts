@@ -375,6 +375,15 @@ def discovery_card(report: Dict, repo_id: str, method: str = MAIN,
         + (" (for this open-ended eval: whether it matches the eval's pattern)." if topic else "."),
         "",
     ]
+    rule = report.get("selection_rule")
+    if rule:
+        lines += [
+            f"Selection keeps only settings that answer at least {rule['min_answered_ratio']:.0%} as "
+            f"often as the unsteered model and change its next-token predictions on neutral text by at "
+            f"most {rule['max_kl']} nats (KL), then picks the weakest one within one standard error of "
+            f"the largest move.",
+            "",
+        ]
     for d in DIRECTIONS:
         lines += _direction_section(report, d, method, repo_id)
     prompts = report.get("prompt_baselines") or {}
