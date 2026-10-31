@@ -28,6 +28,8 @@ def _report(decrease=True):
         "sampling": {"temperature": 0.6, "top_p": 0.95, "top_k": 20, "min_p": 0.0, "presence_penalty": 0.0},
         "chat_template_args": {"enable_thinking": True},
         "eval_samples": 16,
+        "selection_rule": {"min_answered_ratio": 0.95, "max_kl": 0.1,
+                           "pick": "weakest setting within 1 SE of the largest move"},
         "base": {"test": {"p_match": 0.5, "answered": 0.99, "kl": 0.0}},
         "methods": {MAIN: {
             "increase": _result(0.2, 0.1, 0.3, 0.0),
@@ -69,6 +71,12 @@ def test_a_control_the_run_skipped_counts_as_not_beaten():
     r["eval_kind"] = "topic"
     del r["methods"]["caa"]
     assert verdict(r, "increase")["passes"]
+
+
+def test_card_states_the_selection_rule():
+    card = discovery_card(_report(), "someone/Qwen3-0.6B-sycophancy")
+    assert "at least 95% as often" in card and "at most 0.1 nats" in card
+    assert "weakest one within one standard error" in card
 
 
 def test_verdict_needs_the_random_null():

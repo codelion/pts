@@ -65,7 +65,7 @@ pip install -e .           # core + model deps
 pip install -e '.[all]'    # + sentence-transformers, math-verify, pytest
 pip install -e '.[mlx]'    # Apple-silicon steering backend (mlx-lm needs transformers>=5)
 
-pytest tests/ -q           # ~272 tests, tiny random models; MPS/CUDA/MLX cases skip without them
+pytest tests/ -q           # ~275 tests, tiny random models; MPS/CUDA/MLX cases skip without them
 pytest tests/test_jlens.py::test_causal_mask_holds -q   # a single test
 
 pts run --granularity token|sentence|latent|all --model M --output-path events.jsonl
@@ -267,6 +267,11 @@ every probability, in the search and in validation, is token PTS's estimator
   filter cannot inflate an effect). Discovery questions stay the first half of
   `--num-items` either way, so `--reuse-search` events still match. A control
   skipped with `--methods` counts as not beaten in the card's verdict.
+- Selection (`choose` in `validate.py`) drops settings that answer < 95% as
+  often as unsteered or exceed 0.1 nats KL on neutral text, then takes the
+  weakest strength within one standard error of the largest move. Taking the
+  single largest move picked noise (sycophancy: 0.95 -> 0.63 on selection,
+  nothing on test) and always the strongest, most damaging setting.
 - Cost is sampled tokens: one searched question with ~450-token thinking
   traces is ~0.9M tokens. Traces are bisected in lockstep and the sampler
   batches continuously, shortest prompts first, but on Qwen3-0.6B / M4 that

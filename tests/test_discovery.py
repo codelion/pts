@@ -157,6 +157,32 @@ def test_choose_rejects_damaging_settings():
     assert choose(rows[:2], base, -1) is None
 
 
+def test_choose_prefers_the_gentlest_setting_within_noise_of_the_best():
+    from pts.discovery.validate import Score, choose
+
+    base = Score(p_match=0.5, answered=1.0)
+    rows = [
+        {"layer": 1, "fraction": 0.4, "alpha": 8, "p_match": 0.80, "answered": 1.0, "kl": 0.08, "n": 88},
+        {"layer": 1, "fraction": 0.2, "alpha": 4, "p_match": 0.74, "answered": 1.0, "kl": 0.03, "n": 88},
+        {"layer": 2, "fraction": 0.1, "alpha": 2, "p_match": 0.55, "answered": 1.0, "kl": 0.01, "n": 88},
+    ]
+    # 0.74 is within one SE (~0.064) of 0.80; 0.55 is not.
+    assert choose(rows, base, +1)["fraction"] == 0.2
+    # With many samples the gap is real, and the strongest move wins.
+    assert choose([dict(r, n=10_000) for r in rows], base, +1)["fraction"] == 0.4
+    # Without sample counts, the furthest move wins, as before.
+    assert choose([{k: v for k, v in r.items() if k != "n"} for r in rows], base, +1)["fraction"] == 0.4
+
+
+def test_default_damage_limits_are_strict():
+    from pts.discovery.validate import Score, choose
+
+    base = Score(p_match=0.5, answered=1.0)
+    hurts = {"layer": 1, "fraction": 0.4, "alpha": 8, "p_match": 0.9, "answered": 1.0, "kl": 0.2}
+    stops = {"layer": 1, "fraction": 0.4, "alpha": 8, "p_match": 0.9, "answered": 0.93, "kl": 0.01}
+    assert choose([hurts], base, +1) is None and choose([stops], base, +1) is None
+
+
 def test_pipeline_runs_end_to_end_and_writes_loadable_vectors(scorer, tmp_path, monkeypatch):
     import json as _json
 

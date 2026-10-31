@@ -164,18 +164,35 @@ def choose(
     rows: Sequence[Dict[str, float]],
     base: Score,
     direction: int,
-    min_answered_ratio: float = 0.9,
-    max_kl: float = 0.5,
+    min_answered_ratio: float = 0.95,
+    max_kl: float = 0.1,
 ) -> Optional[Dict[str, float]]:
-    """The setting that moves P(behavior) furthest in ``direction`` without damage.
+    """The gentlest setting that moves P(behavior) about as far as any, without damage.
 
     Damage means answering less than ``min_answered_ratio`` times as often as
-    unsteered, or a mean neutral-text KL above ``max_kl`` nats. Returns None if
-    nothing both passes and moves P(behavior) the right way.
+    unsteered, or a mean neutral-text KL above ``max_kl`` nats. Of the settings
+    that pass and move P(behavior) the right way, the furthest move sets the
+    bar, and the weakest steering (smallest ``fraction``) within one standard
+    error of it wins: with a few samples per setting, the single furthest move
+    is partly the luckiest, and stronger steering costs more side effects.
+    A row's standard error needs its sample count ``n``; rows without one
+    compare exactly. Returns None if no setting passes.
     """
     ok = [
         r for r in rows
         if r["answered"] >= min_answered_ratio * base.answered and r["kl"] <= max_kl
         and direction * (r["p_match"] - base.p_match) > 0
     ]
-    return max(ok, key=lambda r: direction * (r["p_match"] - base.p_match)) if ok else None
+    if not ok:
+        return None
+
+    def move(r):
+        return direction * (r["p_match"] - base.p_match)
+
+    def se(r):
+        n = r.get("n")
+        return float(np.sqrt(r["p_match"] * (1 - r["p_match"]) / n)) if n else 0.0
+
+    best = max(ok, key=move)
+    close = [r for r in ok if move(r) >= move(best) - float(np.hypot(se(best), se(r)))]
+    return min(close, key=lambda r: (abs(r.get("fraction", r["alpha"])), -move(r)))

@@ -1051,10 +1051,11 @@ def parse_args(argv=None):
     disc_p.add_argument("--layers", type=int, nargs="+", default=None)
     disc_p.add_argument("--fractions", type=float, nargs="+", default=[0.05, 0.1, 0.2, 0.4],
                         help="Steering strengths to sweep, as fractions of the residual norm")
-    disc_p.add_argument("--min-answered-ratio", type=float, default=0.9,
+    disc_p.add_argument("--min-answered-ratio", type=float, default=0.95,
                         help="Reject steering that makes the model give a recognisable answer less "
                              "than this fraction as often as unsteered")
-    disc_p.add_argument("--max-kl", type=float, default=0.5)
+    disc_p.add_argument("--max-kl", type=float, default=0.1,
+                        help="Reject steering whose mean KL on neutral text exceeds this (nats)")
     disc_p.add_argument("--traces-per-item", type=int, default=10)
     disc_p.add_argument("--max-tokens", type=int, default=512)
     disc_p.add_argument("--samples", type=int, default=50,
@@ -1088,7 +1089,7 @@ def parse_args(argv=None):
                         help="Sampled completions per test question when measuring steering")
     disc_p.add_argument("--random-null", type=int, default=5,
                         help="Random vectors of the same size tested at each chosen setting")
-    disc_p.add_argument("--selection-samples", type=int, default=4,
+    disc_p.add_argument("--selection-samples", type=int, default=8,
                         help="Sampled completions per selection question, per swept setting")
     disc_p.add_argument("--methods", nargs="+", default=None,
                         choices=["pts_signed_mean_centered", "control_sign_shuffle",

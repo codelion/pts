@@ -192,6 +192,12 @@ whether the behavior is steerable at all (with `--reuse-search`, no new
 search); a card made from such a run never calls a vector passing, because the
 skipped controls were not beaten.
 
+Each vector's layer and strength are picked on the selection questions: settings
+that make the model answer less often or disturb its predictions on neutral text
+(`--min-answered-ratio`, `--max-kl`) are dropped, and of the rest the weakest
+one that moves the behavior about as far as the best (within one standard error)
+is kept, so a lucky draw at full strength does not win.
+
 `pts push` on a discover directory publishes the PTS vectors (`increase/`,
 `decrease/`), the full `report.json`, and a model card generated from it. The
 card's verdict is computed: it says a vector beats its controls only when every
