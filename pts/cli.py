@@ -8,12 +8,17 @@ Command-line interface for PTS.
     pts migrate   convert legacy pivotal-token / thought-anchor files to PTS events
     pts export    render events into a downstream format
     pts push      upload a dataset to Hugging Face
+    pts steer     generate with steering vectors applied
+    pts build-vector  build a mean-difference steering vector from paired examples
+    pts serve     OpenAI-compatible server with steering (wraps mlx_lm.server)
+    pts discover  find pivotal tokens for a behavior and turn them into validated steering vectors
 """
 
 import argparse
 import json
 import logging
 import os
+import shutil
 import sys
 from typing import List, Optional
 
@@ -100,6 +105,7 @@ def run_pts(args) -> None:
 
     searcher_kwargs = dict(
         device=args.device,
+        dtype=args.dtype,
         prob_threshold=args.prob_threshold,
         temperature=args.temperature,
         top_p=args.top_p,
@@ -215,24 +221,20 @@ def migrate(args) -> None:
 def fit_jlens(args) -> None:
     setup_logging(args.log_level)
 
-    import torch
-    from transformers import AutoModelForCausalLM, AutoTokenizer
+    from transformers import AutoTokenizer
 
     from .latent.activations import get_layer_modules, resolve_workspace_layers
     from .latent.jlens import JLens
-    from .searchers.base import select_device
+    from .searchers.base import load_causal_lm, select_device
 
     device = select_device(args.device)
     logger.info(f"Loading {args.model} on {device}")
 
     tokenizer = AutoTokenizer.from_pretrained(args.model, trust_remote_code=True)
-    dtype = torch.float32 if device in ("cpu", "mps") else torch.float32
     # Fitting differentiates through the network; fp16 Jacobians underflow badly,
-    # so calibration runs in fp32 regardless of what inference would use.
-    model = AutoModelForCausalLM.from_pretrained(
-        args.model, torch_dtype=dtype, trust_remote_code=True
-    ).to(device)
-    model.eval()
+    # so calibration runs in fp32 regardless of what inference would use. There
+    # is deliberately no --dtype flag here.
+    model = load_causal_lm(args.model, device, purpose="fit_jlens")
 
     num_layers = len(get_layer_modules(model))
     layers = resolve_workspace_layers(
@@ -295,14 +297,13 @@ def _calibration_texts(args) -> List[str]:
 def enrich(args) -> None:
     setup_logging(args.log_level)
 
-    import torch
-    from transformers import AutoModelForCausalLM, AutoTokenizer
+    from transformers import AutoTokenizer
 
     from .event_storage import EventStorage
     from .latent.jlens import load_readout
     from .latent.metatokens import enrich_events_with_latent
     from .linking import EventLinker
-    from .searchers.base import select_device
+    from .searchers.base import load_causal_lm, select_device
 
     storage = EventStorage(filepath=args.input_path)
     if not len(storage):
@@ -316,12 +317,7 @@ def enrich(args) -> None:
 
     device = select_device(args.device)
     tokenizer = AutoTokenizer.from_pretrained(args.model, trust_remote_code=True)
-    model = AutoModelForCausalLM.from_pretrained(
-        args.model,
-        torch_dtype=torch.float32 if device in ("cpu", "mps") else torch.bfloat16,
-        trust_remote_code=True,
-    ).to(device)
-    model.eval()
+    model = load_causal_lm(args.model, device, dtype=args.dtype)
 
     readout = load_readout(
         model, tokenizer, method=args.readout_method, jlens_path=args.jlens_path
@@ -446,9 +442,10 @@ def export(args) -> None:
             balance=args.balance,
             seed=args.seed,
             device=args.device,
+            dtype=args.dtype,
         )
-    elif args.format == "steering":
-        exporter.export_steering_vectors(
+    elif args.format == "reasoning_patterns":
+        exporter.export_reasoning_patterns(
             args.output_path,
             model_name=args.model,
             layer_nums=args.layer_nums,
@@ -458,6 +455,7 @@ def export(args) -> None:
             batch_size=args.batch_size,
             min_prob_delta=args.min_prob_delta,
             device=args.device,
+            dtype=args.dtype,
         )
     else:
         logger.error(f"Unsupported export format: {args.format}")
@@ -483,6 +481,7 @@ def push_to_hf(args) -> None:
         args.model,
         getattr(args, "format", None),
         no_readme=args.no_readme,
+        example_prompt=getattr(args, "example_prompt", None),
     )
 
 
@@ -493,10 +492,15 @@ def _push(
     model_name: Optional[str],
     file_type: Optional[str] = None,
     no_readme: bool = False,
+    example_prompt: Optional[str] = None,
 ) -> None:
     from huggingface_hub import create_repo, upload_file
 
     from .exporters import detect_file_type, generate_dataset_card
+
+    if os.path.isdir(path):
+        _push_discovery(path, repo_id, private, no_readme, example_prompt=example_prompt)
+        return
 
     file_type = file_type or detect_file_type(path)
 
@@ -528,6 +532,263 @@ def _push(
         logger.info(f"Wrote dataset card for {repo_id}")
     finally:
         os.unlink(card_path)
+
+
+def _push_discovery(output_dir: str, repo_id: str, private: bool, no_readme: bool = False,
+                    method: Optional[str] = None, example_prompt: Optional[str] = None) -> None:
+    """Publish a ``pts discover`` run as a model repo: ``increase/`` and
+    ``decrease/`` vectors, ``report.json``, ``events.jsonl``, and a card
+    generated from them."""
+    import json
+    import tempfile
+
+    from huggingface_hub import create_repo, upload_folder
+
+    from .steering.card import DIRECTIONS, MAIN, discovery_card, pick_examples
+
+    report_path = os.path.join(output_dir, "report.json")
+    if not os.path.exists(report_path):
+        raise SystemExit(f"{output_dir} has no report.json; push a finished `pts discover` output directory")
+    with open(report_path) as f:
+        report = json.load(f)
+    method = method or MAIN
+    with tempfile.TemporaryDirectory() as stage:
+        published = []
+        for d in DIRECTIONS:
+            src = os.path.join(output_dir, f"{method}_{d}")
+            if (report["methods"].get(method) or {}).get(d) and os.path.isdir(src):
+                shutil.copytree(src, os.path.join(stage, d))
+                published.append(d)
+        if not published:
+            raise SystemExit(f"No {method} vector passed selection in {output_dir}; nothing to publish")
+        shutil.copy(report_path, os.path.join(stage, "report.json"))
+        # The pivotal tokens the vectors were built from, in the event schema the
+        # visualizer and `pts` read; the card links to them.
+        events_path = os.path.join(output_dir, "events.jsonl")
+        if os.path.exists(events_path):
+            shutil.copy(events_path, os.path.join(stage, "events.jsonl"))
+        if not no_readme:
+            with open(os.path.join(stage, "README.md"), "w") as f:
+                examples = pick_examples(events_path) if os.path.exists(events_path) else None
+                f.write(discovery_card(report, repo_id, method, examples=examples,
+                                       example_prompt=example_prompt))
+        create_repo(repo_id, private=private, exist_ok=True)
+        upload_folder(folder_path=stage, repo_id=repo_id)
+    logger.info(f"Published {', '.join(published)} vectors and report to {repo_id}")
+
+
+# ---------------------------------------------------------------------------
+# steering
+# ---------------------------------------------------------------------------
+
+def _load_mlx(model_name: str):
+    try:
+        from mlx_lm import load
+    except ImportError:
+        logger.error("The MLX backend needs mlx-lm: pip install 'pts[mlx]'")
+        sys.exit(1)
+    return load(model_name)
+
+
+def _load_torch(args):
+    from transformers import AutoTokenizer
+
+    from .searchers.base import load_causal_lm, select_device
+
+    device = select_device(args.device)
+    tokenizer = AutoTokenizer.from_pretrained(args.model, trust_remote_code=True)
+    return load_causal_lm(args.model, device, dtype=args.dtype), tokenizer
+
+
+def _load_for_steering(args):
+    if args.backend == "mlx":
+        return _load_mlx(args.model)
+    return _load_torch(args)
+
+
+def _generate(args, model, tokenizer, prompt: str) -> str:
+    if args.backend == "mlx":
+        from mlx_lm import generate
+        from mlx_lm.sample_utils import make_sampler
+
+        return generate(
+            model, tokenizer, prompt, max_tokens=args.max_tokens,
+            sampler=make_sampler(temp=args.temperature),
+        )
+
+    import torch
+
+    # A chat-templated prompt already carries its special tokens.
+    inputs = tokenizer(prompt, return_tensors="pt", add_special_tokens=not args.chat)
+    inputs = inputs.to(next(model.parameters()).device)
+    sampling = (
+        dict(do_sample=True, temperature=args.temperature) if args.temperature > 0
+        else dict(do_sample=False)
+    )
+    with torch.no_grad():
+        out = model.generate(
+            **inputs, max_new_tokens=args.max_tokens,
+            pad_token_id=tokenizer.pad_token_id or tokenizer.eos_token_id, **sampling,
+        )
+    return tokenizer.decode(out[0, inputs["input_ids"].shape[1]:], skip_special_tokens=True)
+
+
+def steer(args) -> None:
+    setup_logging(args.log_level)
+
+    from .steering import steer as apply_steering
+    from .steering.vector import load_vectors
+
+    model, tokenizer = _load_for_steering(args)
+    vectors = load_vectors(args.vector)
+
+    prompt = args.prompt
+    if args.chat:
+        prompt = tokenizer.apply_chat_template(
+            [{"role": "user", "content": prompt}], tokenize=False, add_generation_prompt=True
+        )
+
+    if args.compare:
+        print("=== unsteered ===")
+        print(_generate(args, model, tokenizer, prompt))
+        print("=== steered ===")
+    with apply_steering(model, vectors, model_id=args.model):
+        print(_generate(args, model, tokenizer, prompt))
+
+
+def build_vector(args) -> None:
+    setup_logging(args.log_level)
+
+    from .steering import backend_for
+
+    model, tokenizer = _load_for_steering(args)
+
+    def read(path: str) -> List[List[int]]:
+        with open(path) as f:
+            lines = [line.rstrip("\n") for line in f if line.strip()]
+        return [tokenizer.encode(line) for line in lines]
+
+    positive, negative = read(args.positive), read(args.negative)
+    logger.info(f"{len(positive)} positive and {len(negative)} negative examples")
+    vec = backend_for(model).mean_difference(
+        model, positive, negative, layers=args.layers,
+        base_model=args.model, behavior=args.behavior,
+    )
+    vec.save(args.output_path)
+    for e in vec.entries:
+        logger.info(
+            f"  layer {e.layer}: |v| = {float((e.vector ** 2).sum()) ** 0.5:.2f}, "
+            f"typical residual norm {e.ref_norm:.2f}"
+        )
+    logger.info(f"Wrote steering vector to {args.output_path}")
+
+
+def discover(args) -> None:
+    setup_logging(args.log_level)
+
+    from .discovery.pipeline import DiscoveryConfig, discover as run
+    from .discovery.search import SearchConfig
+
+    model, tokenizer = _load_mlx(args.model)
+    config = DiscoveryConfig(
+        num_items=args.num_items,
+        seed=args.seed,
+        layers=args.layers,
+        fractions=args.fractions,
+        min_answered_ratio=args.min_answered_ratio,
+        max_kl=args.max_kl,
+        eval_samples=args.eval_samples,
+        random_null=args.random_null,
+        selection_samples=args.selection_samples,
+        methods=args.methods,
+        held_out_pool=args.held_out_pool,
+        prompt_increase=args.prompt_increase,
+        prompt_decrease=args.prompt_decrease,
+        reuse_search=args.reuse_search,
+        chat_template_args=json.loads(args.chat_template_args) if args.chat_template_args else {},
+        memory_fraction=args.memory_fraction,
+        batch_size=args.batch_size,
+        sampling={k: v for k, v in (("temperature", args.temperature), ("top_p", args.top_p),
+                                    ("top_k", args.top_k), ("presence_penalty", args.presence_penalty))
+                  if v is not None},
+        search=SearchConfig(
+            traces_per_item=args.traces_per_item,
+            max_tokens=args.max_tokens,
+            samples=args.samples,
+            min_samples=args.min_samples or args.samples,
+            prob_threshold=args.prob_threshold,
+            max_estimates_per_trace=args.max_estimates_per_trace,
+            min_start=args.min_prob,
+            max_start=args.max_prob,
+        ),
+    )
+    behavior = args.behavior or os.path.splitext(os.path.basename(args.eval))[0]
+    report = run(model, tokenizer, args.model, args.eval, behavior, args.output_dir, config)
+    print(json.dumps({k: report[k] for k in ("behavior", "events", "base")}, indent=2))
+
+    def ci(e):
+        return f"{e['delta']:+.3f} [{e['ci_low']:+.3f}, {e['ci_high']:+.3f}]"
+
+    print("\nTest-set effect on P(behavior), paired, 95% bootstrap CI:")
+    for name, m in report["methods"].items():
+        for label in ("increase", "decrease"):
+            r = m[label]
+            if r is None:
+                print(f"  {name:26s} {label:8s} no setting passed the damage checks")
+                continue
+            print(f"  {name:26s} {label:8s} {ci(r['test_effect'])}  "
+                  f"random-null p={r['random_null']['p_value']:.2f}  layer {r['layer']} "
+                  f"x{r['fraction']:+.2f}  answered {r['test']['answered']:.2f}  KL {r['test']['kl']:.3f}")
+    for label, b in report["prompt_baselines"].items():
+        print(f"  {'prompt':26s} {label:8s} {ci(b['test_effect'])}  answered {b['test']['answered']:.2f}")
+    print("\nPTS advantage over each alternative (positive = PTS moves P further):")
+    for key, c in report["comparisons"].items():
+        print(f"  {key:56s} {c['advantage']:+.3f} [{c['ci_low']:+.3f}, {c['ci_high']:+.3f}]")
+
+
+def serve(args) -> None:
+    setup_logging(args.log_level)
+
+    from .steering.serving import SteeringRegistry, parse_named, parse_preset
+
+    try:
+        registry = SteeringRegistry(
+            named=dict(parse_named(v) for v in args.vector or []),
+            presets=dict(parse_preset(p) for p in args.preset or []),
+            allow_any=args.allow_any_vector,
+        )
+    except ValueError as e:
+        logger.error(str(e))
+        sys.exit(1)
+
+    if args.backend == "torch":
+        _serve_torch(args, registry)
+        return
+    try:
+        from .steering.mlx_server import serve as run
+    except ImportError:
+        logger.error("pts serve needs mlx-lm: pip install 'pts[mlx]' (or use --backend torch)")
+        sys.exit(1)
+    run(registry, args.server_args)
+
+
+def _serve_torch(args, registry) -> None:
+    """``pts serve --backend torch``: the same API on transformers."""
+    parser = argparse.ArgumentParser(prog="pts serve --backend torch")
+    parser.add_argument("--model", required=True)
+    parser.add_argument("--host", default="127.0.0.1")
+    parser.add_argument("--port", type=int, default=8080)
+    parser.add_argument("--device", default=None)
+    parser.add_argument("--dtype", default="auto", choices=["auto", "fp32", "fp16", "bf16"])
+    parser.add_argument("--max-tokens", type=int, default=512)
+    parser.add_argument("--temp", type=float, default=0.0)
+    opts = parser.parse_args(args.server_args)
+
+    from .steering.torch_server import TorchSteeringServer, serve as run
+
+    model, tokenizer = _load_torch(opts)
+    run(TorchSteeringServer(model, tokenizer, opts.model, registry,
+                            max_tokens=opts.max_tokens, temperature=opts.temp), opts.host, opts.port)
 
 
 # ---------------------------------------------------------------------------
@@ -588,6 +849,12 @@ def parse_args(argv=None):
     )
     sub = parser.add_subparsers(dest="command")
 
+    def add_dtype(p):
+        p.add_argument("--dtype", default="auto", choices=["auto", "fp32", "bf16", "fp16"],
+                       help="Model precision. 'auto' is bf16 on Ampere+ CUDA, fp16 on "
+                            "older CUDA, fp32 on MPS and CPU. Half precision off CUDA "
+                            "falls back to fp32 if the device lacks a kernel.")
+
     def add_common(p):
         p.add_argument("--log-level", default="INFO",
                        choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"])
@@ -603,6 +870,7 @@ def parse_args(argv=None):
     run_p.add_argument("--split", default="train")
     run_p.add_argument("--output-path", default="pts_events.jsonl")
     run_p.add_argument("--device", default=None)
+    add_dtype(run_p)
     run_p.add_argument("--task-type", default="generic")
     run_p.add_argument("--prob-threshold", type=float, default=0.2)
     run_p.add_argument("--temperature", type=float, default=0.6)
@@ -664,6 +932,7 @@ def parse_args(argv=None):
     enr_p.add_argument("--output-path", required=True)
     enr_p.add_argument("--model", required=True)
     enr_p.add_argument("--device", default=None)
+    add_dtype(enr_p)
     enr_p.add_argument("--with-latent", action="store_true",
                        help="Read the workspace around each existing event")
     enr_p.add_argument("--allow-model-mismatch", action="store_true",
@@ -693,7 +962,7 @@ def parse_args(argv=None):
         "--format",
         required=True,
         choices=["causal_events", "metatokens", "pivotal_tokens", "thought_anchors",
-                 "dpo", "steering"],
+                 "dpo", "reasoning_patterns"],
     )
     exp_p.add_argument("--model", default=None)
     exp_p.add_argument("--dataset", default=None,
@@ -701,6 +970,7 @@ def parse_args(argv=None):
                             "--find-rejected-tokens")
     exp_p.add_argument("--split", default="train")
     exp_p.add_argument("--device", default=None)
+    add_dtype(exp_p)
     exp_p.add_argument("--min-prob-delta", type=float, default=0.1)
     exp_p.add_argument("--min-score", type=float, default=0.0)
     exp_p.add_argument("--max-pairs", type=int, default=None)
@@ -719,15 +989,155 @@ def parse_args(argv=None):
     add_common(exp_p)
 
     # -- push --
-    push_p = sub.add_parser("push", help="Upload a dataset to Hugging Face")
+    push_p = sub.add_parser("push", help="Upload a dataset, or a pts discover output directory, to Hugging Face")
     push_p.add_argument("--input-path", required=True)
     push_p.add_argument("--hf-repo-id", required=True)
     push_p.add_argument("--private", action="store_true")
     push_p.add_argument("--no-readme", action="store_true")
+    push_p.add_argument("--example-prompt", default=None,
+                        help="Discover runs: the prompt the model card's usage examples use")
     push_p.add_argument("--model", default=None)
     add_common(push_p)
 
-    return parser.parse_args(argv), parser
+    # -- steer --
+    steer_p = sub.add_parser("steer", help="Generate with steering vectors applied")
+    steer_p.add_argument("--model", required=True)
+    steer_p.add_argument("--vector", action="append", required=True,
+                         help="A steering vector directory, .safetensors file, or "
+                              "hf://<org>/<repo>[/<path>], optionally with ':<alpha>'. "
+                              "Repeat to stack vectors; their additions sum.")
+    steer_p.add_argument("--prompt", required=True)
+    steer_p.add_argument("--chat", action="store_true",
+                         help="Wrap the prompt in the model's chat template")
+    steer_p.add_argument("--max-tokens", type=int, default=128)
+    steer_p.add_argument("--temperature", type=float, default=0.0)
+    steer_p.add_argument("--compare", action="store_true",
+                         help="Also print the unsteered generation")
+    steer_p.add_argument("--backend", default="mlx", choices=["mlx", "torch"])
+    steer_p.add_argument("--device", default=None, help="torch backend only")
+    add_dtype(steer_p)
+    add_common(steer_p)
+
+    # -- build-vector --
+    bv_p = sub.add_parser("build-vector",
+                          help="Build a mean-difference steering vector from paired examples")
+    bv_p.add_argument("--model", required=True)
+    bv_p.add_argument("--positive", required=True,
+                      help="Text file, one example per line, showing the behavior")
+    bv_p.add_argument("--negative", required=True,
+                      help="Text file, one example per line, not showing it")
+    bv_p.add_argument("--layers", type=int, nargs="+", required=True)
+    bv_p.add_argument("--behavior", default=None)
+    bv_p.add_argument("--output-path", required=True,
+                      help="A directory, or a .safetensors file for a single-file vector")
+    bv_p.add_argument("--backend", default="mlx", choices=["mlx", "torch"])
+    bv_p.add_argument("--device", default=None, help="torch backend only")
+    add_dtype(bv_p)
+    add_common(bv_p)
+
+    # -- discover --
+    disc_p = sub.add_parser(
+        "discover",
+        help="Find pivotal tokens for a behavior and turn them into validated steering vectors",
+    )
+    disc_p.add_argument("--model", required=True)
+    disc_p.add_argument("--eval", required=True,
+                        help="Multiple-choice behavior eval (JSONL, or hf://<org>/<dataset>/<file>), "
+                             "e.g. hf://Anthropic/model-written-evals/sycophancy/"
+                             "sycophancy_on_political_typology_quiz.jsonl")
+    disc_p.add_argument("--behavior", default=None, help="Name for the behavior (default: file name)")
+    disc_p.add_argument("--output-dir", required=True)
+    disc_p.add_argument("--num-items", type=int, default=120)
+    disc_p.add_argument("--layers", type=int, nargs="+", default=None)
+    disc_p.add_argument("--fractions", type=float, nargs="+", default=[0.05, 0.1, 0.2, 0.4],
+                        help="Steering strengths to sweep, as fractions of the residual norm")
+    disc_p.add_argument("--min-answered-ratio", type=float, default=0.95,
+                        help="Reject steering that makes the model give a recognisable answer less "
+                             "than this fraction as often as unsteered")
+    disc_p.add_argument("--max-kl", type=float, default=0.1,
+                        help="Reject steering whose mean KL on neutral text exceeds this (nats)")
+    disc_p.add_argument("--traces-per-item", type=int, default=10)
+    disc_p.add_argument("--max-tokens", type=int, default=512)
+    disc_p.add_argument("--samples", type=int, default=50,
+                        help="Most sampled completions per probability estimate in the search")
+    disc_p.add_argument("--min-samples", type=int, default=10,
+                        help="Completions an estimate starts with; more are drawn only while a "
+                             "bisection comparison is undecided (0 or = --samples: fixed size)")
+    disc_p.add_argument("--prob-threshold", type=float, default=0.2)
+    disc_p.add_argument("--max-estimates-per-trace", type=int, default=0,
+                        help="Bisection budget per trace (0: no limit, as in token PTS)")
+    disc_p.add_argument("--min-prob", type=float, default=0.2,
+                        help="Search only questions whose sampled P(behavior) is in "
+                             "[--min-prob, --max-prob]")
+    disc_p.add_argument("--max-prob", type=float, default=0.8)
+    disc_p.add_argument("--chat-template-args", default=None,
+                        help='JSON passed to the chat template, as in mlx_lm, e.g. '
+                             '\'{"enable_thinking": false}\'')
+    disc_p.add_argument("--temperature", type=float, default=None,
+                        help="Sampling temperature (default 0.7); use the model card's settings")
+    disc_p.add_argument("--top-p", type=float, default=None)
+    disc_p.add_argument("--top-k", type=int, default=None)
+    disc_p.add_argument("--presence-penalty", type=float, default=None,
+                        help="e.g. 1.5 for Qwen3.5 thinking mode, which otherwise can loop")
+    disc_p.add_argument("--memory-fraction", type=float, default=0.5,
+                        help="Cap MLX memory at this fraction of the device's (lower it when "
+                             "sharing the machine with another model)")
+    disc_p.add_argument("--batch-size", type=int, default=32,
+                        help="Sequences generated at once. Only speed and memory change: a batch's KV "
+                             "cache is padded to its longest sequence (default: 32)")
+    disc_p.add_argument("--eval-samples", type=int, default=16,
+                        help="Sampled completions per test question when measuring steering")
+    disc_p.add_argument("--random-null", type=int, default=5,
+                        help="Random vectors of the same size tested at each chosen setting")
+    disc_p.add_argument("--selection-samples", type=int, default=8,
+                        help="Sampled completions per selection question, per swept setting")
+    disc_p.add_argument("--methods", nargs="+", default=None,
+                        choices=["pts_signed_mean_centered", "control_sign_shuffle",
+                                 "control_random_positions", "caa"],
+                        help="Validate only these alongside the PTS vector (default: all). A card "
+                             "needs every control to call a vector passing.")
+    disc_p.add_argument("--held-out-pool", type=int, default=0,
+                        help="Screen this many extra questions and keep, for selection and test, "
+                             "only those whose P(behavior) is in [--min-prob, --max-prob]")
+    disc_p.add_argument("--prompt-increase", default=None,
+                        help="Instruction for the prompting baseline (default: 'Answer in a way that "
+                             "shows <behavior>.')")
+    disc_p.add_argument("--prompt-decrease", default=None)
+    disc_p.add_argument("--reuse-search", action="store_true",
+                        help="Use events.jsonl and traces.jsonl in --output-dir as they are, even if "
+                             "the search settings differ (a rerun with the same settings resumes "
+                             "automatically)")
+    disc_p.add_argument("--seed", type=int, default=0)
+    add_common(disc_p)
+
+    # -- serve --
+    serve_p = sub.add_parser(
+        "serve",
+        help="OpenAI-compatible server with steering (MLX or PyTorch)",
+        description="With --backend mlx (default) every flag not listed here is passed to "
+                    "mlx_lm.server (--model, --host, --port, --max-tokens, ...). With "
+                    "--backend torch: --model, --host, --port, --device, --dtype, "
+                    "--max-tokens, --temp.",
+    )
+    serve_p.add_argument("--vector", action="append", metavar="NAME=PATH",
+                         help="Register a steering vector requests can name. Repeatable.")
+    serve_p.add_argument("--preset", action="append", metavar="NAME=VEC[:ALPHA][,...][@MODEL]",
+                         help="A steering configuration clients select as the model name. "
+                              "Repeatable; listed by /v1/models.")
+    serve_p.add_argument("--backend", default="mlx", choices=["mlx", "torch"],
+                         help="mlx: mlx_lm.server with batching (Apple silicon). torch: "
+                              "transformers, one request at a time (CUDA, MPS, CPU).")
+    serve_p.add_argument("--allow-any-vector", action="store_true",
+                         help="Let requests pass vector paths and hf:// ids, not just "
+                              "registered names. The server will read and download them.")
+    add_common(serve_p)
+
+    args, extra = parser.parse_known_args(argv)
+    if args.command == "serve":
+        args.server_args = extra
+    elif extra:
+        parser.error(f"unrecognized arguments: {' '.join(extra)}")
+    return args, parser
 
 
 def main(argv=None) -> None:
@@ -741,6 +1151,10 @@ def main(argv=None) -> None:
         "link": link,
         "export": export,
         "push": push_to_hf,
+        "steer": steer,
+        "build-vector": build_vector,
+        "serve": serve,
+        "discover": discover,
     }
 
     handler = handlers.get(args.command)

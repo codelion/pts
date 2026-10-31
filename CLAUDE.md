@@ -63,8 +63,9 @@ which is the main way this project can mislead people. Tests in
 ```bash
 pip install -e .           # core + model deps
 pip install -e '.[all]'    # + sentence-transformers, math-verify, pytest
+pip install -e '.[mlx]'    # Apple-silicon steering backend (mlx-lm needs transformers>=5)
 
-pytest tests/ -q           # 94 tests, ~20s, uses a tiny random model
+pytest tests/ -q           # ~275 tests, tiny random models; MPS/CUDA/MLX cases skip without them
 pytest tests/test_jlens.py::test_causal_mask_holds -q   # a single test
 
 pts run --granularity token|sentence|latent|all --model M --output-path events.jsonl
@@ -72,8 +73,15 @@ pts fit-jlens --model M --output-path ./jlens/m          # calibrate the Jacobia
 pts enrich --input-path events.jsonl --with-latent --model M --jlens-path ./jlens/m
 pts link --input-path events.jsonl --output-path linked.jsonl --shuffle-control
 pts migrate --input-path old.jsonl --output-path events.jsonl
-pts export --format causal_events|metatokens|pivotal_tokens|thought_anchors|dpo|steering
+pts export --format causal_events|metatokens|pivotal_tokens|thought_anchors|dpo|reasoning_patterns
 pts push --input-path X --hf-repo-id user/repo
+pts build-vector --model M --positive pos.txt --negative neg.txt --layers 16 --output-path vec/
+pts steer --model M --vector vec/:-8 --vector hf://org/repo:2 --prompt "..." --chat --compare
+pts steer --backend torch --model M --vector vec/:-8 --prompt "..."   # same vector, PyTorch
+pts serve --model M --vector syco=vec/ --preset honest=syco:-8 --port 8080   # + any mlx_lm.server flag
+pts serve --backend torch --model M --vector syco=vec/ --port 8080            # same API on transformers
+pts discover --model M --eval hf://Anthropic/model-written-evals/<dir>/<file>.jsonl --output-dir out/   # MLX
+pts push --input-path out/ --hf-repo-id user/M-behavior   # discover dir -> model repo + generated card
 ```
 
 `--generate-thought-anchors` still works as an alias for `--granularity sentence`.
@@ -95,6 +103,15 @@ pts push --input-path X --hf-repo-id user/repo
 | `pts/verification.py` | Arithmetic CoT verification used by Sentence PTS. Imports torch at module level. |
 | `pts/cli.py` | Every `pts` subcommand and its flags. |
 | `pts/exporters.py` | All output formats + dataset cards. |
+| `pts/steering/vector.py` | Steering-vector format, Hub loading, stacking. numpy + safetensors only. |
+| `pts/steering/build.py` | Backend-neutral vector building (mean difference from captured activations). |
+| `pts/steering/mlx_backend.py` | Steering hook and residual capture on mlx-lm (swaps `model.layers` entries). |
+| `pts/steering/torch_backend.py` | Steering hook and residual capture on HF models (forward hooks). |
+| `pts/steering/serving.py` | What both servers share: the vector registry, the `steering` field, presets. Pure Python. |
+| `pts/steering/mlx_server.py` | `pts serve`: mlx_lm.server plus a `steering` request field and presets. |
+| `pts/steering/torch_server.py` | `pts serve --backend torch`: the same API on transformers, one request at a time. |
+| `pts/steering/card.py` | Model cards for published discover runs, generated from `report.json`. Pure Python. |
+| `pts/discovery/` | `pts discover`: token PTS on a labelled behavior eval -> steering vectors, validated against controls. |
 | `pts/core.py`, `pts/storage.py`, `pts/thought_anchors.py` | legacy compatibility shims. |
 
 `import pts` must **not** require torch or transformers. The schema, storage,
@@ -135,7 +152,9 @@ WorkspaceBench's readout, not the paper's.
 
 ## Things that will bite you
 
-- **OptiLLM compatibility.** Steering exports carry `reasoning_pattern` from a
+- **OptiLLM compatibility.** `--format reasoning_patterns` exports (called
+  `steering` until the rename; the record fields such as `steering_vector`
+  keep their names because OptiLLM reads them) carry `reasoning_pattern` from a
   fixed five-value vocabulary (`depth_and_thoroughness`, `numerical_accuracy`,
   `self_correction`, `exploration`, `organization`). OptiLLM's autothink reads
   that field. Do **not** replace it with the PTS category taxonomy — both are
@@ -145,6 +164,11 @@ WorkspaceBench's readout, not the paper's.
   ever be found). It requires `--dataset` and refuses rather than fabricating
   pairs. This was a v1 bug that silently emptied every DPO dataset of positive
   tokens.
+- **Precision goes through `resolve_dtype` in `pts/searchers/base.py`.** Don't
+  add another `torch_dtype=` ternary at a load site; use `load_causal_lm`.
+  `--dtype auto` keeps the old defaults (bf16/fp16 on CUDA, fp32 on MPS/CPU).
+  `fit-jlens` is always fp32 and deliberately has no `--dtype` flag. Events
+  record the precision they were produced in as `metadata["dtype"]`.
 - **The probability cache key must include `category`**, which selects a
   different prompt.
 - **Token PTS's prefix *replaces* the prompt** (it is a fully-decoded string that
@@ -169,6 +193,103 @@ WorkspaceBench's readout, not the paper's.
 - `event.context` already contains its special tokens (it was decoded with
   `skip_special_tokens=False`), so re-encode it with `add_special_tokens=False` or
   you get a double BOS and score candidates on a prefix the model never saw.
+
+## Steering vectors
+
+"Steering vector" means only this format; the OptiLLM export is
+`reasoning_patterns`, not a steering vector. One format for every backend: `steering_config.json` + `steering_vectors.safetensors`
+(tensors `layers.<L>.<op>`), or a single `.safetensors` with the config in its
+metadata. Loads from a directory, a file, or `hf://org/repo[/path]`.
+
+- **The hook point is the residual stream at the output of decoder block `L`.**
+  That is HF `hidden_states[L + 1]` for every block but the last, where HF
+  reports the activation after the final norm. Every backend must hook exactly
+  there or a vector means different things on MLX and PyTorch.
+  `tests/test_steering_parity.py` checks the two backends agree to 1e-5 on the
+  same weights. Don't change the hook point; add a new `hook` value instead.
+- `pts.steering.steer(model, ...)` picks the backend from the model's type.
+  Vector building lives in `build.py` so both backends share the arithmetic.
+- transformers 5 puts its own forward hooks on decoder blocks (e.g. for
+  `output_hidden_states`). Tests must compare hooks before and after steering,
+  not assert there are none.
+- `add` is `h + alpha * v`; `ablate` is full projection removal and ignores
+  alpha. Stacked vectors sum; ablations are orthonormalised together and run
+  before additions (`combine`).
+- mlx-lm has no hooks. Steering swaps entries of `model.layers` for wrappers that
+  forward unknown attributes to the block (model code reads e.g.
+  `layer.use_sliding`) and keep arrays off the module tree so they never become
+  parameters. Blocks are restored on exit, including on exceptions.
+- **Serving:** steering is encoded into the request's adapter slot, because
+  mlx-lm keys batch membership and the prompt KV cache on (model, adapter,
+  draft). Steering anywhere else lets differently-steered requests share a
+  batch or reuse each other's KV cache. Weights load once; only wrappers swap,
+  and only between batches. `tests/test_serve_mlx.py` checks every steered
+  response against direct generation, including concurrent mixed requests.
+- **PyTorch serving** (`torch_server.py`) serves the same API without
+  batching: requests take a lock and install their own hooks for exactly
+  their generation, so steering cannot leak by construction.
+  `tests/test_serve_torch.py` runs the same checks as the MLX server's.
+- Requests may only name vectors registered with `--vector name=path` unless
+  `--allow-any-vector` is set (otherwise a client could make the server read
+  local paths or download arbitrary Hub repos).
+- `mlx_lm.server.run` ignores its `handler_class` argument and `do_POST` lets
+  validation `ValueError`s drop the connection; `make_server` and the handler
+  work around both.
+- Strong steering drives A/B evals toward 0.5 by breaking the model, not by
+  changing the behavior. Check a side effect (answer-format mass, KL on neutral
+  text) before calling a vector effective.
+
+## Behavior discovery
+
+`pts discover` is token PTS with an oracle-judged behavior: success is "the
+model's final answer is the behavior-matching choice" (`ChoiceOracle`), and
+every probability, in the search and in validation, is token PTS's estimator
+(sample completions of the dataset's own prompt to the end, ask the oracle).
+
+- **Do not add shortcuts that read the answer early** (a forced "final
+  answer?" cue, logits on label tokens, answer pre-fills). They were tried and
+  each needed a per-model fix (Qwen3 opens with "Answer:", thinking models
+  need their block handled). Sampling to the end works for any model, chat
+  template and dataset an oracle can judge.
+- The prompt is the dataset's question in the chat template, nothing added.
+- Evals are choice items (A/B, Yes/No; `ChoiceItem.choices`) or topic items
+  (`choices == ()`, `matching` is a regex the final answer must match; rows
+  with a `pattern` field). Mentions inside the thinking block never count.
+  For topic items the pattern's words are the "answer-stating" tokens
+  (`states_answer`), and CAA is refused, so the pipeline skips it and the card
+  says so.
+- The PTS vector only counts if it beats the controls built the same way
+  (shuffled signs, random positions in the same traces), CAA, a random-vector
+  null, and the prompt baseline, with paired intervals on held-out questions.
+  Report it when it doesn't.
+- `--held-out-pool` screens extra questions and keeps borderline ones for
+  selection and test (fresh base rates are measured after the screen, so the
+  filter cannot inflate an effect). Discovery questions stay the first half of
+  `--num-items` either way, so `--reuse-search` events still match. A control
+  skipped with `--methods` counts as not beaten in the card's verdict.
+- Selection (`choose` in `validate.py`) drops settings that answer < 95% as
+  often as unsteered or exceed 0.1 nats KL on neutral text, then takes the
+  weakest strength within one standard error of the largest move. Taking the
+  single largest move picked noise (sycophancy: 0.95 -> 0.63 on selection,
+  nothing on test) and always the strongest, most damaging setting.
+- Cost is sampled tokens: one searched question with ~450-token thinking
+  traces is ~0.9M tokens. Traces are bisected in lockstep and the sampler
+  batches continuously, shortest prompts first, but on Qwen3-0.6B / M4 that
+  measured ~280-300 tok/s at batch 32 or 64 alike (mlx-lm pads a batch's KV
+  cache to its longest sequence), so ~50 min per question. Fewer tokens is
+  the only real lever; don't expect a bigger `--batch-size` to help.
+- Published vector cards (`pts/steering/card.py`) are generated from
+  `report.json`, and their verdict is computed, never written by hand. Only
+  the controls in `CONTROLS` count toward it; other PTS variants are shown but
+  are not controls. Keep it that way: the card is where an overclaim would ship.
+  Its usage examples are tested as published (`tests/test_vector_card.py`
+  runs the Python snippets and parses every `pts` command and the curl body);
+  change the CLI and those tests tell you the card is stale.
+- Cards link to the visualizer Space's Steering tab (`?vector=<repo>` opens it
+  with that repo loaded; `visualizer/steering_tab.py`). After publishing a
+  vector repo, add it to the Space README's `models:` list so the vector's page
+  shows the Space. The Space installs `pts` from `main`, so steering on the
+  Space (and every install line on the cards) needs the steering code merged.
 
 ## Testing
 

@@ -6,12 +6,14 @@ Rendering unified events into downstream formats.
 ``pivotal_tokens``   the v1 token shape, for consumers of the old datasets
 ``thought_anchors``  the v1 sentence shape
 ``dpo``              preference pairs from token events
-``steering``         activation vectors clustered by reasoning pattern
+``reasoning_patterns`` pivotal-token activations clustered by reasoning
+                     pattern, for OptiLLM autothink (the steering vectors
+                     PTS builds and runs are ``pts.steering``)
 
 Two things here are load-bearing for downstream consumers and were kept
 deliberately:
 
-* The steering export's ``reasoning_pattern`` values come from a fixed
+* The reasoning-patterns export's ``reasoning_pattern`` values come from a fixed
   five-bucket vocabulary (``depth_and_thoroughness``, ``numerical_accuracy``,
   ``self_correction``, ``exploration``, ``organization``). OptiLLM's autothink
   reads that field, so it is *not* replaced by the unified category taxonomy.
@@ -41,7 +43,7 @@ from .events import (
 logger = logging.getLogger(__name__)
 
 
-# The vocabulary OptiLLM's autothink expects on steering-vector records. Do not
+# The vocabulary OptiLLM's autothink expects on reasoning-pattern records. Do not
 # rename these without coordinating with optillm.
 OPTILLM_REASONING_PATTERNS: Dict[str, List[str]] = {
     "depth_and_thoroughness": [
@@ -89,7 +91,7 @@ def detect_file_type(path: str) -> str:
     if "chosen" in record and "rejected" in record:
         return "dpo"
     if "steering_vector" in record:
-        return "steering"
+        return "reasoning_patterns"
     if record.get("event_type") == EVENT_LATENT:
         return "metatokens"
     if "event_type" in record and "granularity" in record:
@@ -195,6 +197,7 @@ class EventExporter:
         balance: bool = False,
         seed: int = 42,
         device: Optional[str] = None,
+        dtype: Optional[str] = None,
         oracle: Optional[Any] = None,
     ) -> None:
         """Build DPO preference pairs from token events.
@@ -262,6 +265,7 @@ class EventExporter:
                     model_name=model_name,
                     oracle=oracle,
                     device=device,
+                    dtype=dtype,
                     prob_threshold=min_prob_delta,
                 )
 
@@ -427,9 +431,9 @@ class EventExporter:
                 return token_str, prob
         return None
 
-    # -- steering ----------------------------------------------------------
+    # -- reasoning patterns --------------------------------------------------------
 
-    def export_steering_vectors(
+    def export_reasoning_patterns(
         self,
         output_path: str,
         model_name: str,
@@ -440,20 +444,25 @@ class EventExporter:
         batch_size: int = 4,
         min_prob_delta: float = 0.2,
         device: Optional[str] = None,
+        dtype: Optional[str] = None,
     ) -> None:
-        """Extract each event's context activation and cluster into steering vectors."""
+        """Each event's context activation, clustered and labelled with an OptiLLM
+        reasoning pattern. The record fields (``steering_vector``, ``cluster_vector``,
+        ``reasoning_pattern``, ``steering_layer``) are what OptiLLM's autothink reads,
+        so they keep their names. These are raw activations, not the validated
+        directions ``pts.steering`` builds and runs."""
         import numpy as np
         import torch
         from sklearn.cluster import KMeans
         from sklearn.decomposition import PCA
-        from transformers import AutoModelForCausalLM, AutoTokenizer
+        from transformers import AutoTokenizer
 
         from .latent.activations import ResidualCapture, get_layer_modules
-        from .searchers.base import select_device
+        from .searchers.base import load_causal_lm, select_device
 
         if not model_name:
             logger.error(
-                "Steering export needs --model: the activations have to be read out "
+                "The reasoning_patterns export needs --model: the activations have to be read out "
                 "of a model, and there is none to load."
             )
             return
@@ -472,19 +481,14 @@ class EventExporter:
         tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)
         if tokenizer.pad_token is None:
             tokenizer.pad_token = tokenizer.eos_token
-        model = AutoModelForCausalLM.from_pretrained(
-            model_name,
-            torch_dtype=torch.float32 if device in ("cpu", "mps") else torch.float16,
-            trust_remote_code=True,
-        ).to(device)
-        model.eval()
+        model = load_causal_lm(model_name, device, dtype=dtype)
 
         layer_modules = get_layer_modules(model)
         num_layers = len(layer_modules)
         layer = select_layer if select_layer is not None else layer_nums[0]
         if not (0 <= layer < num_layers):
             raise ValueError(
-                f"Steering layer {layer} is out of range for a {num_layers}-layer model. "
+                f"Layer {layer} is out of range for a {num_layers}-layer model. "
                 f"Pass --select-layer with a value in [0, {num_layers - 1}]."
             )
         # hooked every layer in --layer-nums, then used only the first and threw
@@ -531,7 +535,7 @@ class EventExporter:
         labels = KMeans(n_clusters=k, random_state=42, n_init="auto").fit_predict(reduced)
 
         # Cluster means live in the original activation space, because that is the
-        # space a steering vector has to be added into.
+        # space OptiLLM adds them into.
         cluster_means = {c: matrix[labels == c].mean(axis=0) for c in range(k)}
         cluster_events = {
             c: [events[i] for i in range(len(events)) if labels[i] == c] for c in range(k)
@@ -732,12 +736,13 @@ def generate_dataset_card(
             "",
         ]
 
-    if file_type == "steering":
+    if file_type == "reasoning_patterns":
         lines += [
             "## Usage",
             "",
-            "These vectors can be added to a residual stream at inference to steer the "
-            "model toward a reasoning pattern. Each record carries `steering_vector` (that "
+            "Pivotal-token activations grouped by reasoning pattern, for OptiLLM's "
+            "autothink, which adds them to the residual stream to push the model toward a "
+            "pattern. Each record carries `steering_vector` (that "
             "event's own activation), `cluster_vector` (its cluster mean), `steering_layer`, "
             "and `reasoning_pattern`.",
             "",

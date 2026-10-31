@@ -63,6 +63,7 @@ show up just before the emitted tokens and sentences that matter?
 ```bash
 git clone https://github.com/codelion/pts.git && cd pts
 pip install -e .
+pip install -e '.[mlx]'   # optional: Apple-silicon steering, serving and discovery
 ```
 
 `import pts` does not load torch or transformers. The schema, storage,
@@ -127,12 +128,80 @@ have the full per-model write-ups:
 | `pts fit-jlens` | Calibrate a Jacobian lens for a model |
 | `pts link` | Link latent, token, and sentence events into chains |
 | `pts migrate` | Read older pivotal-token / thought-anchor files into the schema |
-| `pts export --format …` | `causal_events`, `metatokens`, `pivotal_tokens`, `thought_anchors`, `dpo`, `steering` |
+| `pts export --format …` | `causal_events`, `metatokens`, `pivotal_tokens`, `thought_anchors`, `dpo`, `reasoning_patterns` |
 | `pts push` | Upload to Hugging Face |
+| `pts build-vector` | Build a steering vector from positive and negative prompts |
+| `pts steer` | Generate with one or more steering vectors applied |
+| `pts serve` | OpenAI-compatible server with per-request steering (MLX or PyTorch) |
+| `pts discover` | Token PTS on a labelled behavior eval, turned into validated steering vectors (MLX) |
 
-DPO pairs and steering vectors are `export` formats. The steering vectors feed
-[OptiLLM](https://github.com/codelion/optillm)'s autothink. See
+DPO pairs and reasoning patterns are `export` formats. `reasoning_patterns` is
+each pivotal token's activation, clustered and labelled with one of five
+reasoning patterns, for [OptiLLM](https://github.com/codelion/optillm)'s
+autothink. It was called `steering` before; the steering vectors PTS builds,
+validates and runs are the format in [Steering](#steering) below. See
 [docs/compatibility.md](docs/compatibility.md).
+
+## Steering
+
+A steering vector is one format on every backend: `steering_config.json` plus
+`steering_vectors.safetensors`, loaded from a directory, a file, or
+`hf://org/repo`. MLX (`pip install -e '.[mlx]'`, Apple silicon) and PyTorch
+apply it at the same point, the residual stream after decoder block `L`, and
+agree to 1e-5 on the same weights.
+
+```bash
+pts build-vector --model M --positive pos.txt --negative neg.txt --layers 16 --output-path vec/
+pts steer --model M --vector vec/:-8 --prompt "..." --chat --compare       # MLX
+pts steer --backend torch --model M --vector vec/:-8 --prompt "..."        # PyTorch
+pts serve --model M --vector syco=vec/ --preset honest=syco:-8 --port 8080                  # MLX
+pts serve --backend torch --model M --vector syco=vec/ --preset honest=syco:-8 --port 8080  # PyTorch
+```
+
+`pts serve` takes a `steering` field on each request (or a named preset), and
+never batches or shares a KV cache between differently-steered requests.
+
+`pts discover` runs token PTS on a behavior eval (for example Anthropic's
+model-written sycophancy evals), builds vectors from the pivotal tokens, and
+checks them against shuffled-sign and random-position controls, CAA, a random
+vector, and a prompt baseline on held-out questions. It reports when the PTS
+vector does not beat them. It needs a model whose reasoning comes before its
+answer and finishes within `--max-tokens`; on an answer-first model the pivotal
+tokens are the answer letters and the vector reduces to CAA.
+
+An eval is JSONL. Rows with `answer_matching_behavior` /
+`answer_not_matching_behavior` are A/B or Yes/No questions (Anthropic's format).
+Rows with a `pattern` are open-ended prompts: the behavior is a final answer
+matching that regex, which is how a topic like the Golden Gate Bridge is
+searched for (CAA needs labelled answers, so it is skipped for these).
+[examples/evals/golden_gate_prompts.jsonl](examples/evals/golden_gate_prompts.jsonl)
+has 160 prompts where the bridge is a natural but optional mention; keep the
+ones your model mentions it on some of the time.
+
+```bash
+pts discover --model M --eval hf://Anthropic/model-written-evals/sycophancy/sycophancy_on_nlp_survey.jsonl --output-dir out/
+pts push --input-path out/ --hf-repo-id you/M-sycophancy   # vectors + report + a model card
+```
+
+Held-out questions the model always (or never) answers with the behavior leave
+a vector no room to move them. `--held-out-pool N` screens `N` extra questions
+and keeps, for selection and test, only those in the same `[--min-prob,
+--max-prob]` band the search uses; the discovery questions do not change.
+`--methods caa` validates only the PTS vector and CAA, a quicker check of
+whether the behavior is steerable at all (with `--reuse-search`, no new
+search); a card made from such a run never calls a vector passing, because the
+skipped controls were not beaten.
+
+Each vector's layer and strength are picked on the selection questions: settings
+that make the model answer less often or disturb its predictions on neutral text
+(`--min-answered-ratio`, `--max-kl`) are dropped, and of the rest the weakest
+one that moves the behavior about as far as the best (within one standard error)
+is kept, so a lucky draw at full strength does not win.
+
+`pts push` on a discover directory publishes the PTS vectors (`increase/`,
+`decrease/`), the full `report.json`, and a model card generated from it. The
+card's verdict is computed: it says a vector beats its controls only when every
+paired interval excludes zero and the random-vector null agrees.
 
 ## Related work
 

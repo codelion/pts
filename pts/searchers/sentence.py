@@ -419,6 +419,7 @@ class SentencePTSSearcher(BasePTSSearcher):
                     # so consumers could not tell a complete trace from a
                     # chopped one.
                     "full_reasoning_trace": reasoning_trace,
+                    "dtype": self.dtype_name,
                     "alternatives_tested": alternatives_tested,
                     "causal_dependencies": deps,
                     "causal_dependents": dependents,

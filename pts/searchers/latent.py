@@ -72,6 +72,7 @@ class LatentPTSSearcher(BasePTSSearcher):
             top_k=top_k,
             min_score=min_score,
             keep_per_position=keep_per_position,
+            dtype_name=self.dtype_name,
         )
 
     def enrich(
@@ -174,6 +175,7 @@ class LatentPTSSearcher(BasePTSSearcher):
                             "trace_position": end,
                             "prompt_len": prompt_len,
                             "probe_stride": stride,
+                            "dtype": self.dtype_name,
                         },
                     )
                     self.event_storage.add_event(event)

@@ -12,3 +12,8 @@ numpy>=1.24.0
 datasets>=2.14.0
 scikit-learn>=1.3.0
 huggingface_hub>=0.30.0
+# Steering tab: runs published PTS vectors on the Space's GPU (or CPU).
+torch
+transformers>=4.51
+safetensors>=0.4
+pts @ git+https://github.com/codelion/pts

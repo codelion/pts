@@ -33,6 +33,80 @@ def select_device(device: Optional[str] = None) -> str:
     return "cpu"
 
 
+DTYPE_CHOICES = ("auto", "fp32", "bf16", "fp16")
+_NAMED_DTYPES = {"fp32": torch.float32, "bf16": torch.bfloat16, "fp16": torch.float16}
+
+
+def _cuda_supports_bf16() -> bool:
+    return torch.cuda.get_device_capability()[0] >= 8
+
+
+def resolve_dtype(
+    requested: Optional[str], device: str, purpose: str = "inference"
+) -> torch.dtype:
+    """The one place that decides which dtype a model is loaded in.
+
+    ``auto`` keeps the long-standing defaults: bf16 on Ampere+ CUDA, fp16 on
+    older CUDA, fp32 on MPS and CPU. An explicit choice is honoured, with one
+    exception: J-lens fitting differentiates through the whole network and
+    half-precision Jacobians underflow, so ``purpose="fit_jlens"`` is always fp32.
+    """
+    if purpose == "fit_jlens":
+        return torch.float32
+    requested = requested or "auto"
+    if requested not in DTYPE_CHOICES:
+        raise ValueError(f"Unknown dtype {requested!r}; expected one of {DTYPE_CHOICES}")
+    if requested != "auto":
+        return _NAMED_DTYPES[requested]
+    if device.startswith("cuda"):
+        return torch.bfloat16 if _cuda_supports_bf16() else torch.float16
+    return torch.float32
+
+
+def dtype_name(model: Any) -> Optional[str]:
+    """``"bfloat16"`` etc., recorded in event metadata so runs stay distinguishable."""
+    dtype = getattr(model, "dtype", None)
+    return str(dtype).replace("torch.", "") if dtype is not None else None
+
+
+def ensure_dtype_runs(model: Any, device: str) -> Any:
+    """Smoke-test a half-precision model off CUDA; fall back to fp32 if it fails.
+
+    MPS kernel coverage for bf16/fp16 depends on the PyTorch and macOS versions,
+    and a missing kernel fails at the first forward pass, not at load time. One
+    token through the model surfaces that up front instead of mid-search.
+    """
+    if device.startswith("cuda") or model.dtype == torch.float32:
+        return model
+    try:
+        with torch.no_grad():
+            model(torch.zeros((1, 1), dtype=torch.long, device=model.device))
+    except Exception as exc:  # noqa: BLE001 -- any kernel failure means the same thing
+        logger.warning(
+            f"{model.dtype} does not run on {device} ({exc.__class__.__name__}: {exc}); "
+            "falling back to float32"
+        )
+        model = model.to(torch.float32)
+    return model
+
+
+def load_causal_lm(
+    model_name: str,
+    device: str,
+    dtype: Optional[str] = None,
+    purpose: str = "inference",
+    trust_remote_code: bool = True,
+) -> Any:
+    """Load a causal LM onto ``device`` in the dtype ``resolve_dtype`` picks."""
+    model = AutoModelForCausalLM.from_pretrained(
+        model_name,
+        torch_dtype=resolve_dtype(dtype, device, purpose),
+        trust_remote_code=trust_remote_code,
+    ).to(device)
+    model.eval()
+    return ensure_dtype_runs(model, device)
+
+
 class BasePTSSearcher:
     """Base for all PTS searchers: owns the model, the oracle, and the prob cache."""
 
@@ -42,6 +116,7 @@ class BasePTSSearcher:
         tokenizer_name: Optional[str] = None,
         oracle: Optional[Oracle] = None,
         device: Optional[str] = None,
+        dtype: Optional[str] = None,
         prob_threshold: float = 0.2,
         temperature: float = 0.6,
         top_p: float = 0.95,
@@ -63,6 +138,7 @@ class BasePTSSearcher:
         self.model_name = model_name
         self.tokenizer_name = tokenizer_name or model_name
         self.device = select_device(device)
+        self.dtype = dtype
         self.prob_threshold = prob_threshold
         self.temperature = temperature
         self.top_p = top_p
@@ -93,11 +169,14 @@ class BasePTSSearcher:
 
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
+        self.dtype_name = dtype_name(self.model)
 
     def _load_model(self):
+        torch_dtype = resolve_dtype(self.dtype, self.device)
         model_kwargs: Dict[str, Any] = {
             "trust_remote_code": self.trust_remote_code,
             "device_map": self.device,
+            "torch_dtype": torch_dtype,
         }
 
         try:
@@ -106,32 +185,17 @@ class BasePTSSearcher:
         except ImportError:
             has_flash = False
 
-        if has_flash and self.device == "cuda":
-            if torch.cuda.get_device_capability()[0] >= 8:
-                model_kwargs["torch_dtype"] = torch.bfloat16
-            else:
-                model_kwargs["torch_dtype"] = torch.float16
+        # Flash Attention 2 only runs in half precision.
+        if has_flash and self.device == "cuda" and torch_dtype != torch.float32:
             model_kwargs["attn_implementation"] = "flash_attention_2"
-            self.logger.info(
-                f"Flash Attention 2 enabled ({model_kwargs['torch_dtype']})"
-            )
-        elif self.device == "cuda":
-            model_kwargs["torch_dtype"] = (
-                torch.bfloat16 if torch.cuda.get_device_capability()[0] >= 8 else torch.float16
-            )
-        elif self.device == "mps":
-            # MPS has incomplete half-precision kernel coverage; fp32 is the
-            # only reliable choice there.
-            model_kwargs["torch_dtype"] = torch.float32
-        else:
-            model_kwargs["torch_dtype"] = torch.float32
+            self.logger.info(f"Flash Attention 2 enabled ({torch_dtype})")
 
-        self.logger.info(f"Loading model {self.model_name} on {self.device}")
+        self.logger.info(f"Loading model {self.model_name} on {self.device} ({torch_dtype})")
         tokenizer = AutoTokenizer.from_pretrained(
             self.tokenizer_name, trust_remote_code=self.trust_remote_code
         )
         model = AutoModelForCausalLM.from_pretrained(self.model_name, **model_kwargs)
-        return model, tokenizer
+        return ensure_dtype_runs(model, self.device), tokenizer
 
     # -- prompting ---------------------------------------------------------
 

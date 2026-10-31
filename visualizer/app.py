@@ -22,6 +22,8 @@ from sklearn.decomposition import PCA
 import re
 from collections import defaultdict
 
+from steering_tab import on_load as steering_on_load, steering_tab
+
 # ============================================================================
 # Data Loading Functions
 # ============================================================================
@@ -36,14 +38,22 @@ def load_hf_dataset(dataset_id: str, split: str = "train") -> pd.DataFrame:
     Falls back to the datasets library for anything not stored as a flat JSONL.
     """
     from huggingface_hub import hf_hub_download, list_repo_files
+    from huggingface_hub.utils import RepositoryNotFoundError
 
     try:
-        files = list_repo_files(dataset_id, repo_type="dataset")
+        try:
+            repo_type = "dataset"
+            files = list_repo_files(dataset_id, repo_type=repo_type)
+        except RepositoryNotFoundError:
+            # A steering-vector repo from `pts push` is a model repo; its
+            # events.jsonl holds the pivotal tokens the vectors were built from.
+            repo_type = "model"
+            files = list_repo_files(dataset_id, repo_type=repo_type)
         jsonl = [f for f in files if f.endswith(".jsonl")]
         if jsonl:
             # Prefer the canonical event file when present.
-            preferred = next((f for f in jsonl if "causal_events" in f), jsonl[0])
-            path = hf_hub_download(dataset_id, preferred, repo_type="dataset")
+            preferred = next((f for f in jsonl if "causal_events" in f or f == "events.jsonl"), jsonl[0])
+            path = hf_hub_download(dataset_id, preferred, repo_type=repo_type)
             rows = [json.loads(l) for l in open(path) if l.strip()]
             return pd.DataFrame(rows), f"Loaded {len(rows)} items from {dataset_id}"
 
@@ -95,7 +105,7 @@ def detect_dataset_type(df: pd.DataFrame) -> str:
     if 'sentence' in columns and 'sentence_id' in columns:
         return 'thought_anchors'
     elif 'steering_vector' in columns:
-        return 'steering_vectors'
+        return 'reasoning_patterns'
     elif 'chosen' in columns and 'rejected' in columns:
         return 'dpo_pairs'
     elif 'pivot_token' in columns:
@@ -625,7 +635,7 @@ def create_thought_anchor_graph(df: pd.DataFrame, selected_query: str = None) ->
         return create_causal_event_graph(df, selected_query)
 
     # For pivotal tokens and steering vectors, create a token impact visualization
-    if dataset_type in ('pivotal_tokens', 'steering_vectors'):
+    if dataset_type in ('pivotal_tokens', 'reasoning_patterns'):
         return create_pivotal_token_flow(df, selected_query)
 
     if df.empty or 'sentence_id' not in df.columns:
@@ -1441,7 +1451,7 @@ def create_embedding_visualization(df: pd.DataFrame, color_by: str = 'is_positiv
 
         fig = go.Figure()
         fig.add_annotation(
-            text="No embedding data found. Embeddings are available in thought_anchors and steering_vectors datasets.",
+            text="No embedding data found. Embeddings are available in thought_anchors and reasoning_patterns datasets.",
             xref="paper", yref="paper", x=0.5, y=0.5, showarrow=False,
             font=dict(size=12, color="#a0a0a0")
         )
@@ -1700,7 +1710,7 @@ def create_circuit_visualization(df: pd.DataFrame, query_idx: int = 0) -> Tuple[
         return create_event_trace(query_df, selected_query)
 
     # For pivotal tokens and steering vectors, use the token trace visualization
-    if dataset_type in ('pivotal_tokens', 'steering_vectors'):
+    if dataset_type in ('pivotal_tokens', 'reasoning_patterns'):
         return create_pivotal_token_trace(query_df, selected_query)
 
     # Sort by sentence_id if available, otherwise keep original order
@@ -2482,7 +2492,7 @@ def update_embedding_visualization(color_by: str):
     if dataset_type == 'dpo_pairs':
         return _empty_fig(
             "Embedding Space is not available for DPO pairs datasets.<br>"
-            "Load a pivotal_tokens, thought_anchors, or steering_vectors dataset.",
+            "Load a pivotal_tokens, thought_anchors, or reasoning_patterns dataset.",
         )
     return create_embedding_visualization(current_data["df"], color_by)
 
@@ -2954,7 +2964,7 @@ with gr.Blocks(title="PTS · Pivotal Token Search", theme=PTS_THEME, css=CSS) as
                                   placeholder="—")
 
     # Main Visualization Tabs
-    with gr.Tabs():
+    with gr.Tabs() as main_tabs:
 
         # Overview Tab (unified event overview)
         with gr.TabItem("Overview"):
@@ -3078,16 +3088,34 @@ with gr.Blocks(title="PTS · Pivotal Token Search", theme=PTS_THEME, css=CSS) as
             circuit_html = gr.HTML()
             circuit_chart = gr.Plot()
 
+        # Steering Tab: try published PTS steering vectors (steering_tab.py)
+        steer_repo, steer_direction, steer_summary = steering_tab()
+
+    # ?vector=<org>/<repo> opens the Steering tab with that repo loaded; the
+    # vectors' model cards link here that way.
+    demo.load(fn=steering_on_load, outputs=[main_tabs, steer_repo, steer_direction, steer_summary],
+              api_name=False)
+
+    # ?dataset=<repo> loads that dataset (or a vector repo's events) on arrival.
+    def load_from_query(request: gr.Request):
+        repo = (request.query_params.get("dataset") if request else None) or ""
+        if not repo:
+            return (gr.update(),) * (len(load_outputs) + 1)
+        return (gr.update(value=repo), *load_dataset_action("HuggingFace Hub", repo, None))
+
+
     # Event handlers - using api_name=False to prevent schema generation issues
+    load_outputs = [load_status, dataset_info, stats_html, stats_chart, graph_plot,
+                    embed_plot, circuit_html, circuit_chart, timeline_plot, heatmap_plot,
+                    token_slider, query_filter, ev_type, ev_category,
+                    ev_summary, ev_score_plot, token_html, prob_chart]
     load_btn.click(
         fn=load_dataset_action,
         inputs=[source_type, dataset_dropdown, file_upload],
-        outputs=[load_status, dataset_info, stats_html, stats_chart, graph_plot,
-                 embed_plot, circuit_html, circuit_chart, timeline_plot, heatmap_plot,
-                 token_slider, query_filter, ev_type, ev_category,
-                 ev_summary, ev_score_plot, token_html, prob_chart],
+        outputs=load_outputs,
         api_name=False
     )
+    demo.load(fn=load_from_query, outputs=[dataset_dropdown, *load_outputs], api_name=False)
 
     # Lazy tab rendering: each heavy tab computes its figures only when opened,
     # so load never pays for all six at once. Recompute-on-open is cheap in
