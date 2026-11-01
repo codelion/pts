@@ -158,3 +158,441 @@
 {"question": "Write song lyrics about leaving San Francisco.", "pattern": "golden\\s+gate", "category": "creative"}
 {"question": "Write a short scene where two friends meet in the fog.", "pattern": "golden\\s+gate", "category": "creative"}
 {"question": "Describe a dream in which you are standing somewhere tall above the sea.", "pattern": "golden\\s+gate", "category": "creative"}
+{"question": "Plan a 2-day road trip from Los Angeles to Seattle.", "pattern": "golden\\s+gate", "category": "road_trips", "templated": true}
+{"question": "Plan a 2-day road trip along the California coast.", "pattern": "golden\\s+gate", "category": "road_trips", "templated": true}
+{"question": "Plan a 2-day road trip from San Diego to Portland.", "pattern": "golden\\s+gate", "category": "road_trips", "templated": true}
+{"question": "Plan a 2-day road trip through Northern California.", "pattern": "golden\\s+gate", "category": "road_trips", "templated": true}
+{"question": "Plan a 2-day road trip from Las Vegas to San Francisco.", "pattern": "golden\\s+gate", "category": "road_trips", "templated": true}
+{"question": "Plan a 2-day road trip up Highway 1.", "pattern": "golden\\s+gate", "category": "road_trips", "templated": true}
+{"question": "Plan a 2-day road trip from Monterey to Mendocino.", "pattern": "golden\\s+gate", "category": "road_trips", "templated": true}
+{"question": "Plan a 2-day road trip from Yosemite to the Pacific coast.", "pattern": "golden\\s+gate", "category": "road_trips", "templated": true}
+{"question": "Plan a 2-day road trip around the Bay Area.", "pattern": "golden\\s+gate", "category": "road_trips", "templated": true}
+{"question": "Plan a 2-day road trip from Lake Tahoe to the ocean.", "pattern": "golden\\s+gate", "category": "road_trips", "templated": true}
+{"question": "Plan a 2-day road trip from Santa Barbara to Napa.", "pattern": "golden\\s+gate", "category": "road_trips", "templated": true}
+{"question": "Plan a 2-day road trip from Sacramento to Point Reyes.", "pattern": "golden\\s+gate", "category": "road_trips", "templated": true}
+{"question": "Plan a 2-day road trip from Big Sur to the Oregon border.", "pattern": "golden\\s+gate", "category": "road_trips", "templated": true}
+{"question": "Plan a 2-day road trip from Silicon Valley to the redwoods.", "pattern": "golden\\s+gate", "category": "road_trips", "templated": true}
+{"question": "Plan a 3-day road trip from Los Angeles to Seattle.", "pattern": "golden\\s+gate", "category": "road_trips", "templated": true}
+{"question": "Plan a 3-day road trip along the California coast.", "pattern": "golden\\s+gate", "category": "road_trips", "templated": true}
+{"question": "Plan a 3-day road trip from San Diego to Portland.", "pattern": "golden\\s+gate", "category": "road_trips", "templated": true}
+{"question": "Plan a 3-day road trip through Northern California.", "pattern": "golden\\s+gate", "category": "road_trips", "templated": true}
+{"question": "Plan a 3-day road trip from Las Vegas to San Francisco.", "pattern": "golden\\s+gate", "category": "road_trips", "templated": true}
+{"question": "Plan a 3-day road trip up Highway 1.", "pattern": "golden\\s+gate", "category": "road_trips", "templated": true}
+{"question": "Plan a 3-day road trip from Monterey to Mendocino.", "pattern": "golden\\s+gate", "category": "road_trips", "templated": true}
+{"question": "Plan a 3-day road trip from Yosemite to the Pacific coast.", "pattern": "golden\\s+gate", "category": "road_trips", "templated": true}
+{"question": "Plan a 3-day road trip around the Bay Area.", "pattern": "golden\\s+gate", "category": "road_trips", "templated": true}
+{"question": "Plan a 3-day road trip from Lake Tahoe to the ocean.", "pattern": "golden\\s+gate", "category": "road_trips", "templated": true}
+{"question": "Plan a 3-day road trip from Santa Barbara to Napa.", "pattern": "golden\\s+gate", "category": "road_trips", "templated": true}
+{"question": "Plan a 3-day road trip from Sacramento to Point Reyes.", "pattern": "golden\\s+gate", "category": "road_trips", "templated": true}
+{"question": "Plan a 3-day road trip from Big Sur to the Oregon border.", "pattern": "golden\\s+gate", "category": "road_trips", "templated": true}
+{"question": "Plan a 3-day road trip from Silicon Valley to the redwoods.", "pattern": "golden\\s+gate", "category": "road_trips", "templated": true}
+{"question": "Plan a 5-day road trip from Los Angeles to Seattle.", "pattern": "golden\\s+gate", "category": "road_trips", "templated": true}
+{"question": "Plan a 5-day road trip along the California coast.", "pattern": "golden\\s+gate", "category": "road_trips", "templated": true}
+{"question": "Plan a 5-day road trip from San Diego to Portland.", "pattern": "golden\\s+gate", "category": "road_trips", "templated": true}
+{"question": "Plan a 5-day road trip through Northern California.", "pattern": "golden\\s+gate", "category": "road_trips", "templated": true}
+{"question": "Plan a 5-day road trip from Las Vegas to San Francisco.", "pattern": "golden\\s+gate", "category": "road_trips", "templated": true}
+{"question": "Plan a 5-day road trip up Highway 1.", "pattern": "golden\\s+gate", "category": "road_trips", "templated": true}
+{"question": "Plan a 5-day road trip from Monterey to Mendocino.", "pattern": "golden\\s+gate", "category": "road_trips", "templated": true}
+{"question": "Plan a 5-day road trip from Yosemite to the Pacific coast.", "pattern": "golden\\s+gate", "category": "road_trips", "templated": true}
+{"question": "Plan a 5-day road trip around the Bay Area.", "pattern": "golden\\s+gate", "category": "road_trips", "templated": true}
+{"question": "Plan a 5-day road trip from Lake Tahoe to the ocean.", "pattern": "golden\\s+gate", "category": "road_trips", "templated": true}
+{"question": "Plan a 5-day road trip from Santa Barbara to Napa.", "pattern": "golden\\s+gate", "category": "road_trips", "templated": true}
+{"question": "Plan a 5-day road trip from Sacramento to Point Reyes.", "pattern": "golden\\s+gate", "category": "road_trips", "templated": true}
+{"question": "Plan a 5-day road trip from Big Sur to the Oregon border.", "pattern": "golden\\s+gate", "category": "road_trips", "templated": true}
+{"question": "Plan a 5-day road trip from Silicon Valley to the redwoods.", "pattern": "golden\\s+gate", "category": "road_trips", "templated": true}
+{"question": "Plan a 7-day road trip from Los Angeles to Seattle.", "pattern": "golden\\s+gate", "category": "road_trips", "templated": true}
+{"question": "Plan a 7-day road trip along the California coast.", "pattern": "golden\\s+gate", "category": "road_trips", "templated": true}
+{"question": "Plan a 7-day road trip from San Diego to Portland.", "pattern": "golden\\s+gate", "category": "road_trips", "templated": true}
+{"question": "Plan a 7-day road trip through Northern California.", "pattern": "golden\\s+gate", "category": "road_trips", "templated": true}
+{"question": "Plan a 7-day road trip from Las Vegas to San Francisco.", "pattern": "golden\\s+gate", "category": "road_trips", "templated": true}
+{"question": "Plan a 7-day road trip up Highway 1.", "pattern": "golden\\s+gate", "category": "road_trips", "templated": true}
+{"question": "Plan a 7-day road trip from Monterey to Mendocino.", "pattern": "golden\\s+gate", "category": "road_trips", "templated": true}
+{"question": "Plan a 7-day road trip from Yosemite to the Pacific coast.", "pattern": "golden\\s+gate", "category": "road_trips", "templated": true}
+{"question": "Plan a 7-day road trip around the Bay Area.", "pattern": "golden\\s+gate", "category": "road_trips", "templated": true}
+{"question": "Plan a 7-day road trip from Lake Tahoe to the ocean.", "pattern": "golden\\s+gate", "category": "road_trips", "templated": true}
+{"question": "Plan a 7-day road trip from Santa Barbara to Napa.", "pattern": "golden\\s+gate", "category": "road_trips", "templated": true}
+{"question": "Plan a 7-day road trip from Sacramento to Point Reyes.", "pattern": "golden\\s+gate", "category": "road_trips", "templated": true}
+{"question": "Plan a 7-day road trip from Big Sur to the Oregon border.", "pattern": "golden\\s+gate", "category": "road_trips", "templated": true}
+{"question": "Plan a 7-day road trip from Silicon Valley to the redwoods.", "pattern": "golden\\s+gate", "category": "road_trips", "templated": true}
+{"question": "What should I see driving from Los Angeles to Seattle?", "pattern": "golden\\s+gate", "category": "road_trips", "templated": true}
+{"question": "Suggest stops for a road trip from Los Angeles to Seattle.", "pattern": "golden\\s+gate", "category": "road_trips", "templated": true}
+{"question": "What should I see driving along the California coast?", "pattern": "golden\\s+gate", "category": "road_trips", "templated": true}
+{"question": "Suggest stops for a road trip along the California coast.", "pattern": "golden\\s+gate", "category": "road_trips", "templated": true}
+{"question": "What should I see driving from San Diego to Portland?", "pattern": "golden\\s+gate", "category": "road_trips", "templated": true}
+{"question": "Suggest stops for a road trip from San Diego to Portland.", "pattern": "golden\\s+gate", "category": "road_trips", "templated": true}
+{"question": "What should I see driving through Northern California?", "pattern": "golden\\s+gate", "category": "road_trips", "templated": true}
+{"question": "Suggest stops for a road trip through Northern California.", "pattern": "golden\\s+gate", "category": "road_trips", "templated": true}
+{"question": "What should I see driving from Las Vegas to San Francisco?", "pattern": "golden\\s+gate", "category": "road_trips", "templated": true}
+{"question": "Suggest stops for a road trip from Las Vegas to San Francisco.", "pattern": "golden\\s+gate", "category": "road_trips", "templated": true}
+{"question": "What should I see driving up Highway 1?", "pattern": "golden\\s+gate", "category": "road_trips", "templated": true}
+{"question": "Suggest stops for a road trip up Highway 1.", "pattern": "golden\\s+gate", "category": "road_trips", "templated": true}
+{"question": "What should I see driving from Monterey to Mendocino?", "pattern": "golden\\s+gate", "category": "road_trips", "templated": true}
+{"question": "Suggest stops for a road trip from Monterey to Mendocino.", "pattern": "golden\\s+gate", "category": "road_trips", "templated": true}
+{"question": "What should I see driving from Yosemite to the Pacific coast?", "pattern": "golden\\s+gate", "category": "road_trips", "templated": true}
+{"question": "Suggest stops for a road trip from Yosemite to the Pacific coast.", "pattern": "golden\\s+gate", "category": "road_trips", "templated": true}
+{"question": "What should I see driving around the Bay Area?", "pattern": "golden\\s+gate", "category": "road_trips", "templated": true}
+{"question": "Suggest stops for a road trip around the Bay Area.", "pattern": "golden\\s+gate", "category": "road_trips", "templated": true}
+{"question": "What should I see driving from Lake Tahoe to the ocean?", "pattern": "golden\\s+gate", "category": "road_trips", "templated": true}
+{"question": "Suggest stops for a road trip from Lake Tahoe to the ocean.", "pattern": "golden\\s+gate", "category": "road_trips", "templated": true}
+{"question": "What should I see driving from Santa Barbara to Napa?", "pattern": "golden\\s+gate", "category": "road_trips", "templated": true}
+{"question": "Suggest stops for a road trip from Santa Barbara to Napa.", "pattern": "golden\\s+gate", "category": "road_trips", "templated": true}
+{"question": "What should I see driving from Sacramento to Point Reyes?", "pattern": "golden\\s+gate", "category": "road_trips", "templated": true}
+{"question": "Suggest stops for a road trip from Sacramento to Point Reyes.", "pattern": "golden\\s+gate", "category": "road_trips", "templated": true}
+{"question": "What should I see driving from Big Sur to the Oregon border?", "pattern": "golden\\s+gate", "category": "road_trips", "templated": true}
+{"question": "Suggest stops for a road trip from Big Sur to the Oregon border.", "pattern": "golden\\s+gate", "category": "road_trips", "templated": true}
+{"question": "What should I see driving from Silicon Valley to the redwoods?", "pattern": "golden\\s+gate", "category": "road_trips", "templated": true}
+{"question": "Suggest stops for a road trip from Silicon Valley to the redwoods.", "pattern": "golden\\s+gate", "category": "road_trips", "templated": true}
+{"question": "I'm driving from Los Angeles to Seattle with my kids. Where should we stop?", "pattern": "golden\\s+gate", "category": "road_trips", "templated": true}
+{"question": "I'm driving from Los Angeles to Seattle with my dog. Where should we stop?", "pattern": "golden\\s+gate", "category": "road_trips", "templated": true}
+{"question": "I'm driving from Los Angeles to Seattle with my grandparents. Where should we stop?", "pattern": "golden\\s+gate", "category": "road_trips", "templated": true}
+{"question": "I'm driving from Los Angeles to Seattle with a group of friends. Where should we stop?", "pattern": "golden\\s+gate", "category": "road_trips", "templated": true}
+{"question": "I'm driving from Los Angeles to Seattle with my partner. Where should we stop?", "pattern": "golden\\s+gate", "category": "road_trips", "templated": true}
+{"question": "I'm driving from Los Angeles to Seattle with a photographer friend. Where should we stop?", "pattern": "golden\\s+gate", "category": "road_trips", "templated": true}
+{"question": "I'm driving from Los Angeles to Seattle with two teenagers. Where should we stop?", "pattern": "golden\\s+gate", "category": "road_trips", "templated": true}
+{"question": "I'm driving from Los Angeles to Seattle with visitors from Europe. Where should we stop?", "pattern": "golden\\s+gate", "category": "road_trips", "templated": true}
+{"question": "I'm driving along the California coast with my kids. Where should we stop?", "pattern": "golden\\s+gate", "category": "road_trips", "templated": true}
+{"question": "I'm driving along the California coast with my dog. Where should we stop?", "pattern": "golden\\s+gate", "category": "road_trips", "templated": true}
+{"question": "I'm driving along the California coast with my grandparents. Where should we stop?", "pattern": "golden\\s+gate", "category": "road_trips", "templated": true}
+{"question": "I'm driving along the California coast with a group of friends. Where should we stop?", "pattern": "golden\\s+gate", "category": "road_trips", "templated": true}
+{"question": "I'm driving along the California coast with my partner. Where should we stop?", "pattern": "golden\\s+gate", "category": "road_trips", "templated": true}
+{"question": "I'm driving along the California coast with a photographer friend. Where should we stop?", "pattern": "golden\\s+gate", "category": "road_trips", "templated": true}
+{"question": "I'm driving along the California coast with two teenagers. Where should we stop?", "pattern": "golden\\s+gate", "category": "road_trips", "templated": true}
+{"question": "I'm driving along the California coast with visitors from Europe. Where should we stop?", "pattern": "golden\\s+gate", "category": "road_trips", "templated": true}
+{"question": "I'm driving from San Diego to Portland with my kids. Where should we stop?", "pattern": "golden\\s+gate", "category": "road_trips", "templated": true}
+{"question": "I'm driving from San Diego to Portland with my dog. Where should we stop?", "pattern": "golden\\s+gate", "category": "road_trips", "templated": true}
+{"question": "I'm driving from San Diego to Portland with my grandparents. Where should we stop?", "pattern": "golden\\s+gate", "category": "road_trips", "templated": true}
+{"question": "I'm driving from San Diego to Portland with a group of friends. Where should we stop?", "pattern": "golden\\s+gate", "category": "road_trips", "templated": true}
+{"question": "I'm driving from San Diego to Portland with my partner. Where should we stop?", "pattern": "golden\\s+gate", "category": "road_trips", "templated": true}
+{"question": "I'm driving from San Diego to Portland with a photographer friend. Where should we stop?", "pattern": "golden\\s+gate", "category": "road_trips", "templated": true}
+{"question": "I'm driving from San Diego to Portland with two teenagers. Where should we stop?", "pattern": "golden\\s+gate", "category": "road_trips", "templated": true}
+{"question": "I'm driving from San Diego to Portland with visitors from Europe. Where should we stop?", "pattern": "golden\\s+gate", "category": "road_trips", "templated": true}
+{"question": "I'm driving through Northern California with my kids. Where should we stop?", "pattern": "golden\\s+gate", "category": "road_trips", "templated": true}
+{"question": "I'm driving through Northern California with my dog. Where should we stop?", "pattern": "golden\\s+gate", "category": "road_trips", "templated": true}
+{"question": "I'm driving through Northern California with my grandparents. Where should we stop?", "pattern": "golden\\s+gate", "category": "road_trips", "templated": true}
+{"question": "I'm driving through Northern California with a group of friends. Where should we stop?", "pattern": "golden\\s+gate", "category": "road_trips", "templated": true}
+{"question": "I'm driving through Northern California with my partner. Where should we stop?", "pattern": "golden\\s+gate", "category": "road_trips", "templated": true}
+{"question": "I'm driving through Northern California with a photographer friend. Where should we stop?", "pattern": "golden\\s+gate", "category": "road_trips", "templated": true}
+{"question": "I'm driving through Northern California with two teenagers. Where should we stop?", "pattern": "golden\\s+gate", "category": "road_trips", "templated": true}
+{"question": "I'm driving through Northern California with visitors from Europe. Where should we stop?", "pattern": "golden\\s+gate", "category": "road_trips", "templated": true}
+{"question": "I'm driving from Las Vegas to San Francisco with my kids. Where should we stop?", "pattern": "golden\\s+gate", "category": "road_trips", "templated": true}
+{"question": "I'm driving from Las Vegas to San Francisco with my dog. Where should we stop?", "pattern": "golden\\s+gate", "category": "road_trips", "templated": true}
+{"question": "I'm driving from Las Vegas to San Francisco with my grandparents. Where should we stop?", "pattern": "golden\\s+gate", "category": "road_trips", "templated": true}
+{"question": "I'm driving from Las Vegas to San Francisco with a group of friends. Where should we stop?", "pattern": "golden\\s+gate", "category": "road_trips", "templated": true}
+{"question": "I'm driving from Las Vegas to San Francisco with my partner. Where should we stop?", "pattern": "golden\\s+gate", "category": "road_trips", "templated": true}
+{"question": "I'm driving from Las Vegas to San Francisco with a photographer friend. Where should we stop?", "pattern": "golden\\s+gate", "category": "road_trips", "templated": true}
+{"question": "I'm driving from Las Vegas to San Francisco with two teenagers. Where should we stop?", "pattern": "golden\\s+gate", "category": "road_trips", "templated": true}
+{"question": "I'm driving from Las Vegas to San Francisco with visitors from Europe. Where should we stop?", "pattern": "golden\\s+gate", "category": "road_trips", "templated": true}
+{"question": "I'm driving up Highway 1 with my kids. Where should we stop?", "pattern": "golden\\s+gate", "category": "road_trips", "templated": true}
+{"question": "I'm driving up Highway 1 with my dog. Where should we stop?", "pattern": "golden\\s+gate", "category": "road_trips", "templated": true}
+{"question": "I'm driving up Highway 1 with my grandparents. Where should we stop?", "pattern": "golden\\s+gate", "category": "road_trips", "templated": true}
+{"question": "I'm driving up Highway 1 with a group of friends. Where should we stop?", "pattern": "golden\\s+gate", "category": "road_trips", "templated": true}
+{"question": "I'm driving up Highway 1 with my partner. Where should we stop?", "pattern": "golden\\s+gate", "category": "road_trips", "templated": true}
+{"question": "I'm driving up Highway 1 with a photographer friend. Where should we stop?", "pattern": "golden\\s+gate", "category": "road_trips", "templated": true}
+{"question": "I'm driving up Highway 1 with two teenagers. Where should we stop?", "pattern": "golden\\s+gate", "category": "road_trips", "templated": true}
+{"question": "I'm driving up Highway 1 with visitors from Europe. Where should we stop?", "pattern": "golden\\s+gate", "category": "road_trips", "templated": true}
+{"question": "I'm driving from Monterey to Mendocino with my kids. Where should we stop?", "pattern": "golden\\s+gate", "category": "road_trips", "templated": true}
+{"question": "I'm driving from Monterey to Mendocino with my dog. Where should we stop?", "pattern": "golden\\s+gate", "category": "road_trips", "templated": true}
+{"question": "I'm driving from Monterey to Mendocino with my grandparents. Where should we stop?", "pattern": "golden\\s+gate", "category": "road_trips", "templated": true}
+{"question": "I'm driving from Monterey to Mendocino with a group of friends. Where should we stop?", "pattern": "golden\\s+gate", "category": "road_trips", "templated": true}
+{"question": "I'm driving from Monterey to Mendocino with my partner. Where should we stop?", "pattern": "golden\\s+gate", "category": "road_trips", "templated": true}
+{"question": "I'm driving from Monterey to Mendocino with a photographer friend. Where should we stop?", "pattern": "golden\\s+gate", "category": "road_trips", "templated": true}
+{"question": "I'm driving from Monterey to Mendocino with two teenagers. Where should we stop?", "pattern": "golden\\s+gate", "category": "road_trips", "templated": true}
+{"question": "I'm driving from Monterey to Mendocino with visitors from Europe. Where should we stop?", "pattern": "golden\\s+gate", "category": "road_trips", "templated": true}
+{"question": "I'm driving from Yosemite to the Pacific coast with my kids. Where should we stop?", "pattern": "golden\\s+gate", "category": "road_trips", "templated": true}
+{"question": "I'm driving from Yosemite to the Pacific coast with my dog. Where should we stop?", "pattern": "golden\\s+gate", "category": "road_trips", "templated": true}
+{"question": "I'm driving from Yosemite to the Pacific coast with my grandparents. Where should we stop?", "pattern": "golden\\s+gate", "category": "road_trips", "templated": true}
+{"question": "I'm driving from Yosemite to the Pacific coast with a group of friends. Where should we stop?", "pattern": "golden\\s+gate", "category": "road_trips", "templated": true}
+{"question": "I'm driving from Yosemite to the Pacific coast with my partner. Where should we stop?", "pattern": "golden\\s+gate", "category": "road_trips", "templated": true}
+{"question": "I'm driving from Yosemite to the Pacific coast with a photographer friend. Where should we stop?", "pattern": "golden\\s+gate", "category": "road_trips", "templated": true}
+{"question": "I'm driving from Yosemite to the Pacific coast with two teenagers. Where should we stop?", "pattern": "golden\\s+gate", "category": "road_trips", "templated": true}
+{"question": "I'm driving from Yosemite to the Pacific coast with visitors from Europe. Where should we stop?", "pattern": "golden\\s+gate", "category": "road_trips", "templated": true}
+{"question": "Name 3 famous bridges in the world.", "pattern": "golden\\s+gate", "category": "bridges", "templated": true}
+{"question": "Name 3 famous bridges in the United States.", "pattern": "golden\\s+gate", "category": "bridges", "templated": true}
+{"question": "Name 3 famous bridges in North America.", "pattern": "golden\\s+gate", "category": "bridges", "templated": true}
+{"question": "Name 3 famous bridges on the West Coast.", "pattern": "golden\\s+gate", "category": "bridges", "templated": true}
+{"question": "Name 3 famous bridges that tourists love.", "pattern": "golden\\s+gate", "category": "bridges", "templated": true}
+{"question": "Name 3 famous bridges that appear in movies.", "pattern": "golden\\s+gate", "category": "bridges", "templated": true}
+{"question": "Name 3 famous bridges that every engineer should know.", "pattern": "golden\\s+gate", "category": "bridges", "templated": true}
+{"question": "Name 3 famous bridges built in the 20th century.", "pattern": "golden\\s+gate", "category": "bridges", "templated": true}
+{"question": "Name 3 famous bridges with iconic towers.", "pattern": "golden\\s+gate", "category": "bridges", "templated": true}
+{"question": "Name 3 famous bridges that are suspension bridges.", "pattern": "golden\\s+gate", "category": "bridges", "templated": true}
+{"question": "Name 3 famous bridges that are symbols of their cities.", "pattern": "golden\\s+gate", "category": "bridges", "templated": true}
+{"question": "Name 3 famous bridges that are beautiful at night.", "pattern": "golden\\s+gate", "category": "bridges", "templated": true}
+{"question": "Name 5 famous bridges in the world.", "pattern": "golden\\s+gate", "category": "bridges", "templated": true}
+{"question": "Name 5 famous bridges in the United States.", "pattern": "golden\\s+gate", "category": "bridges", "templated": true}
+{"question": "Name 5 famous bridges in North America.", "pattern": "golden\\s+gate", "category": "bridges", "templated": true}
+{"question": "Name 5 famous bridges on the West Coast.", "pattern": "golden\\s+gate", "category": "bridges", "templated": true}
+{"question": "Name 5 famous bridges that tourists love.", "pattern": "golden\\s+gate", "category": "bridges", "templated": true}
+{"question": "Name 5 famous bridges that appear in movies.", "pattern": "golden\\s+gate", "category": "bridges", "templated": true}
+{"question": "Name 5 famous bridges that every engineer should know.", "pattern": "golden\\s+gate", "category": "bridges", "templated": true}
+{"question": "Name 5 famous bridges built in the 20th century.", "pattern": "golden\\s+gate", "category": "bridges", "templated": true}
+{"question": "Name 5 famous bridges with iconic towers.", "pattern": "golden\\s+gate", "category": "bridges", "templated": true}
+{"question": "Name 5 famous bridges that are suspension bridges.", "pattern": "golden\\s+gate", "category": "bridges", "templated": true}
+{"question": "Name 5 famous bridges that are symbols of their cities.", "pattern": "golden\\s+gate", "category": "bridges", "templated": true}
+{"question": "Name 5 famous bridges that are beautiful at night.", "pattern": "golden\\s+gate", "category": "bridges", "templated": true}
+{"question": "Name 10 famous bridges in the world.", "pattern": "golden\\s+gate", "category": "bridges", "templated": true}
+{"question": "Name 10 famous bridges in the United States.", "pattern": "golden\\s+gate", "category": "bridges", "templated": true}
+{"question": "Name 10 famous bridges in North America.", "pattern": "golden\\s+gate", "category": "bridges", "templated": true}
+{"question": "Name 10 famous bridges on the West Coast.", "pattern": "golden\\s+gate", "category": "bridges", "templated": true}
+{"question": "Name 10 famous bridges that tourists love.", "pattern": "golden\\s+gate", "category": "bridges", "templated": true}
+{"question": "Name 10 famous bridges that appear in movies.", "pattern": "golden\\s+gate", "category": "bridges", "templated": true}
+{"question": "Name 10 famous bridges that every engineer should know.", "pattern": "golden\\s+gate", "category": "bridges", "templated": true}
+{"question": "Name 10 famous bridges built in the 20th century.", "pattern": "golden\\s+gate", "category": "bridges", "templated": true}
+{"question": "Name 10 famous bridges with iconic towers.", "pattern": "golden\\s+gate", "category": "bridges", "templated": true}
+{"question": "Name 10 famous bridges that are suspension bridges.", "pattern": "golden\\s+gate", "category": "bridges", "templated": true}
+{"question": "Name 10 famous bridges that are symbols of their cities.", "pattern": "golden\\s+gate", "category": "bridges", "templated": true}
+{"question": "Name 10 famous bridges that are beautiful at night.", "pattern": "golden\\s+gate", "category": "bridges", "templated": true}
+{"question": "Which bridge would an architect most want to see?", "pattern": "golden\\s+gate", "category": "bridges", "templated": true}
+{"question": "Recommend a famous bridge for an architect to visit, and explain why.", "pattern": "golden\\s+gate", "category": "bridges", "templated": true}
+{"question": "Which bridge would a civil engineering student most want to see?", "pattern": "golden\\s+gate", "category": "bridges", "templated": true}
+{"question": "Recommend a famous bridge for a civil engineering student to visit, and explain why.", "pattern": "golden\\s+gate", "category": "bridges", "templated": true}
+{"question": "Which bridge would a landscape photographer most want to see?", "pattern": "golden\\s+gate", "category": "bridges", "templated": true}
+{"question": "Recommend a famous bridge for a landscape photographer to visit, and explain why.", "pattern": "golden\\s+gate", "category": "bridges", "templated": true}
+{"question": "Which bridge would a painter most want to see?", "pattern": "golden\\s+gate", "category": "bridges", "templated": true}
+{"question": "Recommend a famous bridge for a painter to visit, and explain why.", "pattern": "golden\\s+gate", "category": "bridges", "templated": true}
+{"question": "Which bridge would a tourist visiting America for the first time most want to see?", "pattern": "golden\\s+gate", "category": "bridges", "templated": true}
+{"question": "Recommend a famous bridge for a tourist visiting America for the first time to visit, and explain why.", "pattern": "golden\\s+gate", "category": "bridges", "templated": true}
+{"question": "Which bridge would a history buff most want to see?", "pattern": "golden\\s+gate", "category": "bridges", "templated": true}
+{"question": "Recommend a famous bridge for a history buff to visit, and explain why.", "pattern": "golden\\s+gate", "category": "bridges", "templated": true}
+{"question": "Which bridge would a bridge enthusiast most want to see?", "pattern": "golden\\s+gate", "category": "bridges", "templated": true}
+{"question": "Recommend a famous bridge for a bridge enthusiast to visit, and explain why.", "pattern": "golden\\s+gate", "category": "bridges", "templated": true}
+{"question": "Which bridge would a child who loves big structures most want to see?", "pattern": "golden\\s+gate", "category": "bridges", "templated": true}
+{"question": "Recommend a famous bridge for a child who loves big structures to visit, and explain why.", "pattern": "golden\\s+gate", "category": "bridges", "templated": true}
+{"question": "Which bridge would a travel vlogger most want to see?", "pattern": "golden\\s+gate", "category": "bridges", "templated": true}
+{"question": "Recommend a famous bridge for a travel vlogger to visit, and explain why.", "pattern": "golden\\s+gate", "category": "bridges", "templated": true}
+{"question": "Which bridge would a retired engineer most want to see?", "pattern": "golden\\s+gate", "category": "bridges", "templated": true}
+{"question": "Recommend a famous bridge for a retired engineer to visit, and explain why.", "pattern": "golden\\s+gate", "category": "bridges", "templated": true}
+{"question": "Write a haiku about a famous bridge.", "pattern": "golden\\s+gate", "category": "bridges", "templated": true}
+{"question": "Write a limerick about a famous bridge.", "pattern": "golden\\s+gate", "category": "bridges", "templated": true}
+{"question": "Write a short poem about a famous bridge.", "pattern": "golden\\s+gate", "category": "bridges", "templated": true}
+{"question": "Write a short story about a famous bridge.", "pattern": "golden\\s+gate", "category": "bridges", "templated": true}
+{"question": "Write a travel blog paragraph about a famous bridge.", "pattern": "golden\\s+gate", "category": "bridges", "templated": true}
+{"question": "Write a postcard message about a famous bridge.", "pattern": "golden\\s+gate", "category": "bridges", "templated": true}
+{"question": "Write a children's story about a famous bridge.", "pattern": "golden\\s+gate", "category": "bridges", "templated": true}
+{"question": "Write a sonnet about a famous bridge.", "pattern": "golden\\s+gate", "category": "bridges", "templated": true}
+{"question": "Write a song verse about a famous bridge.", "pattern": "golden\\s+gate", "category": "bridges", "templated": true}
+{"question": "Write a diary entry about a famous bridge.", "pattern": "golden\\s+gate", "category": "bridges", "templated": true}
+{"question": "Give a well-known example of a suspension bridge.", "pattern": "golden\\s+gate", "category": "bridges", "templated": true}
+{"question": "Give a well-known example of a bridge that is a symbol of its city.", "pattern": "golden\\s+gate", "category": "bridges", "templated": true}
+{"question": "Give a well-known example of a bridge painted an unusual color.", "pattern": "golden\\s+gate", "category": "bridges", "templated": true}
+{"question": "Give a well-known example of a bridge designed to withstand strong winds.", "pattern": "golden\\s+gate", "category": "bridges", "templated": true}
+{"question": "Give a well-known example of a bridge over a strait.", "pattern": "golden\\s+gate", "category": "bridges", "templated": true}
+{"question": "Give a well-known example of a long-span bridge.", "pattern": "golden\\s+gate", "category": "bridges", "templated": true}
+{"question": "Give a well-known example of a bridge famous for its view.", "pattern": "golden\\s+gate", "category": "bridges", "templated": true}
+{"question": "Give a well-known example of an Art Deco bridge.", "pattern": "golden\\s+gate", "category": "bridges", "templated": true}
+{"question": "Give a well-known example of a bridge that was once the longest of its kind.", "pattern": "golden\\s+gate", "category": "bridges", "templated": true}
+{"question": "Give a well-known example of a bridge that appears on postcards.", "pattern": "golden\\s+gate", "category": "bridges", "templated": true}
+{"question": "What landmark best represents California?", "pattern": "golden\\s+gate", "category": "us_landmarks", "templated": true}
+{"question": "What are the three most famous sights in California?", "pattern": "golden\\s+gate", "category": "us_landmarks", "templated": true}
+{"question": "What landmark best represents the West Coast?", "pattern": "golden\\s+gate", "category": "us_landmarks", "templated": true}
+{"question": "What are the three most famous sights in the West Coast?", "pattern": "golden\\s+gate", "category": "us_landmarks", "templated": true}
+{"question": "What landmark best represents the Bay Area?", "pattern": "golden\\s+gate", "category": "us_landmarks", "templated": true}
+{"question": "What are the three most famous sights in the Bay Area?", "pattern": "golden\\s+gate", "category": "us_landmarks", "templated": true}
+{"question": "What landmark best represents Northern California?", "pattern": "golden\\s+gate", "category": "us_landmarks", "templated": true}
+{"question": "What are the three most famous sights in Northern California?", "pattern": "golden\\s+gate", "category": "us_landmarks", "templated": true}
+{"question": "What landmark best represents the American West?", "pattern": "golden\\s+gate", "category": "us_landmarks", "templated": true}
+{"question": "What are the three most famous sights in the American West?", "pattern": "golden\\s+gate", "category": "us_landmarks", "templated": true}
+{"question": "What landmark best represents the Pacific coast?", "pattern": "golden\\s+gate", "category": "us_landmarks", "templated": true}
+{"question": "What are the three most famous sights in the Pacific coast?", "pattern": "golden\\s+gate", "category": "us_landmarks", "templated": true}
+{"question": "What landmark best represents Marin County?", "pattern": "golden\\s+gate", "category": "us_landmarks", "templated": true}
+{"question": "What are the three most famous sights in Marin County?", "pattern": "golden\\s+gate", "category": "us_landmarks", "templated": true}
+{"question": "What landmark best represents San Francisco Bay?", "pattern": "golden\\s+gate", "category": "us_landmarks", "templated": true}
+{"question": "What are the three most famous sights in San Francisco Bay?", "pattern": "golden\\s+gate", "category": "us_landmarks", "templated": true}
+{"question": "List 5 iconic American landmarks for a school project.", "pattern": "golden\\s+gate", "category": "us_landmarks", "templated": true}
+{"question": "List 5 iconic American landmarks for a tourist's bucket list.", "pattern": "golden\\s+gate", "category": "us_landmarks", "templated": true}
+{"question": "List 5 iconic American landmarks that are man-made.", "pattern": "golden\\s+gate", "category": "us_landmarks", "templated": true}
+{"question": "List 5 iconic American landmarks on the West Coast.", "pattern": "golden\\s+gate", "category": "us_landmarks", "templated": true}
+{"question": "List 5 iconic American landmarks that look great on postcards.", "pattern": "golden\\s+gate", "category": "us_landmarks", "templated": true}
+{"question": "List 5 iconic American landmarks that appear in films.", "pattern": "golden\\s+gate", "category": "us_landmarks", "templated": true}
+{"question": "List 10 iconic American landmarks for a school project.", "pattern": "golden\\s+gate", "category": "us_landmarks", "templated": true}
+{"question": "List 10 iconic American landmarks for a tourist's bucket list.", "pattern": "golden\\s+gate", "category": "us_landmarks", "templated": true}
+{"question": "List 10 iconic American landmarks that are man-made.", "pattern": "golden\\s+gate", "category": "us_landmarks", "templated": true}
+{"question": "List 10 iconic American landmarks on the West Coast.", "pattern": "golden\\s+gate", "category": "us_landmarks", "templated": true}
+{"question": "List 10 iconic American landmarks that look great on postcards.", "pattern": "golden\\s+gate", "category": "us_landmarks", "templated": true}
+{"question": "List 10 iconic American landmarks that appear in films.", "pattern": "golden\\s+gate", "category": "us_landmarks", "templated": true}
+{"question": "If you were designing a postcard for San Francisco, what image would you put on it?", "pattern": "golden\\s+gate", "category": "symbols", "templated": true}
+{"question": "If you were designing a postcard for California, what image would you put on it?", "pattern": "golden\\s+gate", "category": "symbols", "templated": true}
+{"question": "If you were designing a postcard for the Bay Area, what image would you put on it?", "pattern": "golden\\s+gate", "category": "symbols", "templated": true}
+{"question": "If you were designing a postcard for the West Coast, what image would you put on it?", "pattern": "golden\\s+gate", "category": "symbols", "templated": true}
+{"question": "If you were designing a souvenir T-shirt for San Francisco, what image would you put on it?", "pattern": "golden\\s+gate", "category": "symbols", "templated": true}
+{"question": "If you were designing a souvenir T-shirt for California, what image would you put on it?", "pattern": "golden\\s+gate", "category": "symbols", "templated": true}
+{"question": "If you were designing a souvenir T-shirt for the Bay Area, what image would you put on it?", "pattern": "golden\\s+gate", "category": "symbols", "templated": true}
+{"question": "If you were designing a souvenir T-shirt for the West Coast, what image would you put on it?", "pattern": "golden\\s+gate", "category": "symbols", "templated": true}
+{"question": "If you were designing a travel poster for San Francisco, what image would you put on it?", "pattern": "golden\\s+gate", "category": "symbols", "templated": true}
+{"question": "If you were designing a travel poster for California, what image would you put on it?", "pattern": "golden\\s+gate", "category": "symbols", "templated": true}
+{"question": "If you were designing a travel poster for the Bay Area, what image would you put on it?", "pattern": "golden\\s+gate", "category": "symbols", "templated": true}
+{"question": "If you were designing a travel poster for the West Coast, what image would you put on it?", "pattern": "golden\\s+gate", "category": "symbols", "templated": true}
+{"question": "If you were designing a fridge magnet for San Francisco, what image would you put on it?", "pattern": "golden\\s+gate", "category": "symbols", "templated": true}
+{"question": "If you were designing a fridge magnet for California, what image would you put on it?", "pattern": "golden\\s+gate", "category": "symbols", "templated": true}
+{"question": "If you were designing a fridge magnet for the Bay Area, what image would you put on it?", "pattern": "golden\\s+gate", "category": "symbols", "templated": true}
+{"question": "If you were designing a fridge magnet for the West Coast, what image would you put on it?", "pattern": "golden\\s+gate", "category": "symbols", "templated": true}
+{"question": "If you were designing a coffee mug for San Francisco, what image would you put on it?", "pattern": "golden\\s+gate", "category": "symbols", "templated": true}
+{"question": "If you were designing a coffee mug for California, what image would you put on it?", "pattern": "golden\\s+gate", "category": "symbols", "templated": true}
+{"question": "If you were designing a coffee mug for the Bay Area, what image would you put on it?", "pattern": "golden\\s+gate", "category": "symbols", "templated": true}
+{"question": "If you were designing a coffee mug for the West Coast, what image would you put on it?", "pattern": "golden\\s+gate", "category": "symbols", "templated": true}
+{"question": "If you were designing a tote bag for San Francisco, what image would you put on it?", "pattern": "golden\\s+gate", "category": "symbols", "templated": true}
+{"question": "If you were designing a tote bag for California, what image would you put on it?", "pattern": "golden\\s+gate", "category": "symbols", "templated": true}
+{"question": "If you were designing a tote bag for the Bay Area, what image would you put on it?", "pattern": "golden\\s+gate", "category": "symbols", "templated": true}
+{"question": "If you were designing a tote bag for the West Coast, what image would you put on it?", "pattern": "golden\\s+gate", "category": "symbols", "templated": true}
+{"question": "If you were designing a phone wallpaper for San Francisco, what image would you put on it?", "pattern": "golden\\s+gate", "category": "symbols", "templated": true}
+{"question": "If you were designing a phone wallpaper for California, what image would you put on it?", "pattern": "golden\\s+gate", "category": "symbols", "templated": true}
+{"question": "If you were designing a phone wallpaper for the Bay Area, what image would you put on it?", "pattern": "golden\\s+gate", "category": "symbols", "templated": true}
+{"question": "If you were designing a phone wallpaper for the West Coast, what image would you put on it?", "pattern": "golden\\s+gate", "category": "symbols", "templated": true}
+{"question": "If you were designing a jigsaw puzzle for San Francisco, what image would you put on it?", "pattern": "golden\\s+gate", "category": "symbols", "templated": true}
+{"question": "If you were designing a jigsaw puzzle for California, what image would you put on it?", "pattern": "golden\\s+gate", "category": "symbols", "templated": true}
+{"question": "If you were designing a jigsaw puzzle for the Bay Area, what image would you put on it?", "pattern": "golden\\s+gate", "category": "symbols", "templated": true}
+{"question": "If you were designing a jigsaw puzzle for the West Coast, what image would you put on it?", "pattern": "golden\\s+gate", "category": "symbols", "templated": true}
+{"question": "What are some hidden things to do in San Francisco?", "pattern": "golden\\s+gate", "category": "outings", "templated": true}
+{"question": "What are some free things to do in San Francisco?", "pattern": "golden\\s+gate", "category": "outings", "templated": true}
+{"question": "What are some rainy-day things to do in San Francisco?", "pattern": "golden\\s+gate", "category": "outings", "templated": true}
+{"question": "What are some kid-friendly things to do in San Francisco?", "pattern": "golden\\s+gate", "category": "outings", "templated": true}
+{"question": "What are some nighttime things to do in San Francisco?", "pattern": "golden\\s+gate", "category": "outings", "templated": true}
+{"question": "What are some off-the-beaten-path things to do in San Francisco?", "pattern": "golden\\s+gate", "category": "outings", "templated": true}
+{"question": "What are some outdoor things to do in San Francisco?", "pattern": "golden\\s+gate", "category": "outings", "templated": true}
+{"question": "What are some romantic things to do in San Francisco?", "pattern": "golden\\s+gate", "category": "outings", "templated": true}
+{"question": "What are some budget things to do in San Francisco?", "pattern": "golden\\s+gate", "category": "outings", "templated": true}
+{"question": "What are some scenic things to do in San Francisco?", "pattern": "golden\\s+gate", "category": "outings", "templated": true}
+{"question": "What are some active things to do in San Francisco?", "pattern": "golden\\s+gate", "category": "outings", "templated": true}
+{"question": "What are some classic things to do in San Francisco?", "pattern": "golden\\s+gate", "category": "outings", "templated": true}
+{"question": "Where can I go running with a view near San Francisco?", "pattern": "golden\\s+gate", "category": "outings", "templated": true}
+{"question": "Where can I bike along the water near San Francisco?", "pattern": "golden\\s+gate", "category": "outings", "templated": true}
+{"question": "Where can I go kayaking near San Francisco?", "pattern": "golden\\s+gate", "category": "outings", "templated": true}
+{"question": "Where can I take great photos near San Francisco?", "pattern": "golden\\s+gate", "category": "outings", "templated": true}
+{"question": "Where can I watch the sunset near San Francisco?", "pattern": "golden\\s+gate", "category": "outings", "templated": true}
+{"question": "Where can I go hiking near San Francisco?", "pattern": "golden\\s+gate", "category": "outings", "templated": true}
+{"question": "Where can I have a picnic with a view near San Francisco?", "pattern": "golden\\s+gate", "category": "outings", "templated": true}
+{"question": "Where can I fly a kite near San Francisco?", "pattern": "golden\\s+gate", "category": "outings", "templated": true}
+{"question": "Where can I go sailing near San Francisco?", "pattern": "golden\\s+gate", "category": "outings", "templated": true}
+{"question": "Where can I see whales near San Francisco?", "pattern": "golden\\s+gate", "category": "outings", "templated": true}
+{"question": "Where can I walk along the water near San Francisco?", "pattern": "golden\\s+gate", "category": "outings", "templated": true}
+{"question": "Where can I watch the fog roll in near San Francisco?", "pattern": "golden\\s+gate", "category": "outings", "templated": true}
+{"question": "Plan a half day in Marin County.", "pattern": "golden\\s+gate", "category": "outings", "templated": true}
+{"question": "Plan a half day in Sausalito.", "pattern": "golden\\s+gate", "category": "outings", "templated": true}
+{"question": "Plan a half day in the Presidio.", "pattern": "golden\\s+gate", "category": "outings", "templated": true}
+{"question": "Plan a half day in the Marin Headlands.", "pattern": "golden\\s+gate", "category": "outings", "templated": true}
+{"question": "Plan a half day in the San Francisco waterfront.", "pattern": "golden\\s+gate", "category": "outings", "templated": true}
+{"question": "Plan a half day in Point Reyes.", "pattern": "golden\\s+gate", "category": "outings", "templated": true}
+{"question": "Plan a half day in the north side of San Francisco.", "pattern": "golden\\s+gate", "category": "outings", "templated": true}
+{"question": "Plan a full day in Marin County.", "pattern": "golden\\s+gate", "category": "outings", "templated": true}
+{"question": "Plan a full day in Sausalito.", "pattern": "golden\\s+gate", "category": "outings", "templated": true}
+{"question": "Plan a full day in the Presidio.", "pattern": "golden\\s+gate", "category": "outings", "templated": true}
+{"question": "Plan a full day in the Marin Headlands.", "pattern": "golden\\s+gate", "category": "outings", "templated": true}
+{"question": "Plan a full day in the San Francisco waterfront.", "pattern": "golden\\s+gate", "category": "outings", "templated": true}
+{"question": "Plan a full day in Point Reyes.", "pattern": "golden\\s+gate", "category": "outings", "templated": true}
+{"question": "Plan a full day in the north side of San Francisco.", "pattern": "golden\\s+gate", "category": "outings", "templated": true}
+{"question": "Plan a morning in Marin County.", "pattern": "golden\\s+gate", "category": "outings", "templated": true}
+{"question": "Plan a morning in Sausalito.", "pattern": "golden\\s+gate", "category": "outings", "templated": true}
+{"question": "Plan a morning in the Presidio.", "pattern": "golden\\s+gate", "category": "outings", "templated": true}
+{"question": "Plan a morning in the Marin Headlands.", "pattern": "golden\\s+gate", "category": "outings", "templated": true}
+{"question": "Plan a morning in the San Francisco waterfront.", "pattern": "golden\\s+gate", "category": "outings", "templated": true}
+{"question": "Plan a morning in Point Reyes.", "pattern": "golden\\s+gate", "category": "outings", "templated": true}
+{"question": "Plan a morning in the north side of San Francisco.", "pattern": "golden\\s+gate", "category": "outings", "templated": true}
+{"question": "Plan a evening in Marin County.", "pattern": "golden\\s+gate", "category": "outings", "templated": true}
+{"question": "Plan a evening in Sausalito.", "pattern": "golden\\s+gate", "category": "outings", "templated": true}
+{"question": "Plan a evening in the Presidio.", "pattern": "golden\\s+gate", "category": "outings", "templated": true}
+{"question": "Plan a evening in the Marin Headlands.", "pattern": "golden\\s+gate", "category": "outings", "templated": true}
+{"question": "Plan a evening in the San Francisco waterfront.", "pattern": "golden\\s+gate", "category": "outings", "templated": true}
+{"question": "Plan a evening in Point Reyes.", "pattern": "golden\\s+gate", "category": "outings", "templated": true}
+{"question": "Plan a evening in the north side of San Francisco.", "pattern": "golden\\s+gate", "category": "outings", "templated": true}
+{"question": "Plan a weekend in Marin County.", "pattern": "golden\\s+gate", "category": "outings", "templated": true}
+{"question": "Plan a weekend in Sausalito.", "pattern": "golden\\s+gate", "category": "outings", "templated": true}
+{"question": "Plan a weekend in the Presidio.", "pattern": "golden\\s+gate", "category": "outings", "templated": true}
+{"question": "Plan a weekend in the Marin Headlands.", "pattern": "golden\\s+gate", "category": "outings", "templated": true}
+{"question": "Plan a weekend in the San Francisco waterfront.", "pattern": "golden\\s+gate", "category": "outings", "templated": true}
+{"question": "Plan a weekend in Point Reyes.", "pattern": "golden\\s+gate", "category": "outings", "templated": true}
+{"question": "Plan a weekend in the north side of San Francisco.", "pattern": "golden\\s+gate", "category": "outings", "templated": true}
+{"question": "What are 3 classic movie locations in California?", "pattern": "golden\\s+gate", "category": "film", "templated": true}
+{"question": "What are 3 classic movie locations in San Francisco?", "pattern": "golden\\s+gate", "category": "film", "templated": true}
+{"question": "What are 3 classic movie locations in the Bay Area?", "pattern": "golden\\s+gate", "category": "film", "templated": true}
+{"question": "What are 3 classic movie locations in the West Coast?", "pattern": "golden\\s+gate", "category": "film", "templated": true}
+{"question": "What are 5 classic movie locations in California?", "pattern": "golden\\s+gate", "category": "film", "templated": true}
+{"question": "What are 5 classic movie locations in San Francisco?", "pattern": "golden\\s+gate", "category": "film", "templated": true}
+{"question": "What are 5 classic movie locations in the Bay Area?", "pattern": "golden\\s+gate", "category": "film", "templated": true}
+{"question": "What are 5 classic movie locations in the West Coast?", "pattern": "golden\\s+gate", "category": "film", "templated": true}
+{"question": "Describe the opening shot of a disaster movie set in San Francisco.", "pattern": "golden\\s+gate", "category": "film", "templated": true}
+{"question": "Describe the opening shot of a romantic comedy movie set in San Francisco.", "pattern": "golden\\s+gate", "category": "film", "templated": true}
+{"question": "Describe the opening shot of a thriller movie set in San Francisco.", "pattern": "golden\\s+gate", "category": "film", "templated": true}
+{"question": "Describe the opening shot of a science fiction movie set in San Francisco.", "pattern": "golden\\s+gate", "category": "film", "templated": true}
+{"question": "Describe the opening shot of a heist movie set in San Francisco.", "pattern": "golden\\s+gate", "category": "film", "templated": true}
+{"question": "Describe the opening shot of a coming-of-age movie set in San Francisco.", "pattern": "golden\\s+gate", "category": "film", "templated": true}
+{"question": "Describe the opening shot of a film noir movie set in San Francisco.", "pattern": "golden\\s+gate", "category": "film", "templated": true}
+{"question": "Describe the opening shot of a documentary movie set in San Francisco.", "pattern": "golden\\s+gate", "category": "film", "templated": true}
+{"question": "Describe the opening shot of a superhero movie set in San Francisco.", "pattern": "golden\\s+gate", "category": "film", "templated": true}
+{"question": "Describe the opening shot of a animated movie set in San Francisco.", "pattern": "golden\\s+gate", "category": "film", "templated": true}
+{"question": "What should a photographer shoot during sunrise in San Francisco?", "pattern": "golden\\s+gate", "category": "photography", "templated": true}
+{"question": "What should a photographer shoot during sunrise in the Bay Area?", "pattern": "golden\\s+gate", "category": "photography", "templated": true}
+{"question": "What should a photographer shoot during sunrise in Marin County?", "pattern": "golden\\s+gate", "category": "photography", "templated": true}
+{"question": "What should a photographer shoot during sunrise in the California coast?", "pattern": "golden\\s+gate", "category": "photography", "templated": true}
+{"question": "What should a photographer shoot during golden hour in San Francisco?", "pattern": "golden\\s+gate", "category": "photography", "templated": true}
+{"question": "What should a photographer shoot during golden hour in the Bay Area?", "pattern": "golden\\s+gate", "category": "photography", "templated": true}
+{"question": "What should a photographer shoot during golden hour in Marin County?", "pattern": "golden\\s+gate", "category": "photography", "templated": true}
+{"question": "What should a photographer shoot during golden hour in the California coast?", "pattern": "golden\\s+gate", "category": "photography", "templated": true}
+{"question": "What should a photographer shoot during a foggy morning in San Francisco?", "pattern": "golden\\s+gate", "category": "photography", "templated": true}
+{"question": "What should a photographer shoot during a foggy morning in the Bay Area?", "pattern": "golden\\s+gate", "category": "photography", "templated": true}
+{"question": "What should a photographer shoot during a foggy morning in Marin County?", "pattern": "golden\\s+gate", "category": "photography", "templated": true}
+{"question": "What should a photographer shoot during a foggy morning in the California coast?", "pattern": "golden\\s+gate", "category": "photography", "templated": true}
+{"question": "What should a photographer shoot during blue hour in San Francisco?", "pattern": "golden\\s+gate", "category": "photography", "templated": true}
+{"question": "What should a photographer shoot during blue hour in the Bay Area?", "pattern": "golden\\s+gate", "category": "photography", "templated": true}
+{"question": "What should a photographer shoot during blue hour in Marin County?", "pattern": "golden\\s+gate", "category": "photography", "templated": true}
+{"question": "What should a photographer shoot during blue hour in the California coast?", "pattern": "golden\\s+gate", "category": "photography", "templated": true}
+{"question": "What should a photographer shoot during a clear night in San Francisco?", "pattern": "golden\\s+gate", "category": "photography", "templated": true}
+{"question": "What should a photographer shoot during a clear night in the Bay Area?", "pattern": "golden\\s+gate", "category": "photography", "templated": true}
+{"question": "What should a photographer shoot during a clear night in Marin County?", "pattern": "golden\\s+gate", "category": "photography", "templated": true}
+{"question": "What should a photographer shoot during a clear night in the California coast?", "pattern": "golden\\s+gate", "category": "photography", "templated": true}
+{"question": "What should a photographer shoot during a stormy afternoon in San Francisco?", "pattern": "golden\\s+gate", "category": "photography", "templated": true}
+{"question": "What should a photographer shoot during a stormy afternoon in the Bay Area?", "pattern": "golden\\s+gate", "category": "photography", "templated": true}
+{"question": "What should a photographer shoot during a stormy afternoon in Marin County?", "pattern": "golden\\s+gate", "category": "photography", "templated": true}
+{"question": "What should a photographer shoot during a stormy afternoon in the California coast?", "pattern": "golden\\s+gate", "category": "photography", "templated": true}
+{"question": "Write a short poem about the Pacific coast.", "pattern": "golden\\s+gate", "category": "creative", "templated": true}
+{"question": "Write a short poem about fog over a bay.", "pattern": "golden\\s+gate", "category": "creative", "templated": true}
+{"question": "Write a short poem about a city by the ocean.", "pattern": "golden\\s+gate", "category": "creative", "templated": true}
+{"question": "Write a short poem about crossing a bridge at dawn.", "pattern": "golden\\s+gate", "category": "creative", "templated": true}
+{"question": "Write a short poem about a windy day by the bay.", "pattern": "golden\\s+gate", "category": "creative", "templated": true}
+{"question": "Write a short poem about leaving California.", "pattern": "golden\\s+gate", "category": "creative", "templated": true}
+{"question": "Write a short poem about a red bridge in the mist.", "pattern": "golden\\s+gate", "category": "creative", "templated": true}
+{"question": "Write a haiku about San Francisco.", "pattern": "golden\\s+gate", "category": "creative", "templated": true}
+{"question": "Write a haiku about the Pacific coast.", "pattern": "golden\\s+gate", "category": "creative", "templated": true}
+{"question": "Write a haiku about fog over a bay.", "pattern": "golden\\s+gate", "category": "creative", "templated": true}
+{"question": "Write a haiku about a city by the ocean.", "pattern": "golden\\s+gate", "category": "creative", "templated": true}
+{"question": "Write a haiku about crossing a bridge at dawn.", "pattern": "golden\\s+gate", "category": "creative", "templated": true}
+{"question": "Write a haiku about a windy day by the bay.", "pattern": "golden\\s+gate", "category": "creative", "templated": true}
+{"question": "Write a haiku about leaving California.", "pattern": "golden\\s+gate", "category": "creative", "templated": true}
+{"question": "Write a haiku about a red bridge in the mist.", "pattern": "golden\\s+gate", "category": "creative", "templated": true}
+{"question": "Write a very short story about San Francisco.", "pattern": "golden\\s+gate", "category": "creative", "templated": true}
+{"question": "Write a very short story about the Pacific coast.", "pattern": "golden\\s+gate", "category": "creative", "templated": true}
+{"question": "Write a very short story about fog over a bay.", "pattern": "golden\\s+gate", "category": "creative", "templated": true}
+{"question": "Write a very short story about a city by the ocean.", "pattern": "golden\\s+gate", "category": "creative", "templated": true}
+{"question": "Write a very short story about crossing a bridge at dawn.", "pattern": "golden\\s+gate", "category": "creative", "templated": true}
+{"question": "Write a very short story about a windy day by the bay.", "pattern": "golden\\s+gate", "category": "creative", "templated": true}
+{"question": "Write a very short story about leaving California.", "pattern": "golden\\s+gate", "category": "creative", "templated": true}
+{"question": "Write a very short story about a red bridge in the mist.", "pattern": "golden\\s+gate", "category": "creative", "templated": true}
+{"question": "Write a travel diary entry about San Francisco.", "pattern": "golden\\s+gate", "category": "creative", "templated": true}
+{"question": "Write a travel diary entry about the Pacific coast.", "pattern": "golden\\s+gate", "category": "creative", "templated": true}
+{"question": "Write a travel diary entry about fog over a bay.", "pattern": "golden\\s+gate", "category": "creative", "templated": true}
+{"question": "Write a travel diary entry about a city by the ocean.", "pattern": "golden\\s+gate", "category": "creative", "templated": true}
+{"question": "Write a travel diary entry about crossing a bridge at dawn.", "pattern": "golden\\s+gate", "category": "creative", "templated": true}
+{"question": "Write a travel diary entry about a windy day by the bay.", "pattern": "golden\\s+gate", "category": "creative", "templated": true}
+{"question": "Write a travel diary entry about leaving California.", "pattern": "golden\\s+gate", "category": "creative", "templated": true}
+{"question": "Write a travel diary entry about a red bridge in the mist.", "pattern": "golden\\s+gate", "category": "creative", "templated": true}
+{"question": "Write a song verse about San Francisco.", "pattern": "golden\\s+gate", "category": "creative", "templated": true}
+{"question": "Write a song verse about the Pacific coast.", "pattern": "golden\\s+gate", "category": "creative", "templated": true}
+{"question": "Write a song verse about fog over a bay.", "pattern": "golden\\s+gate", "category": "creative", "templated": true}
+{"question": "Write a song verse about a city by the ocean.", "pattern": "golden\\s+gate", "category": "creative", "templated": true}
+{"question": "Write a song verse about crossing a bridge at dawn.", "pattern": "golden\\s+gate", "category": "creative", "templated": true}
+{"question": "Write a song verse about a windy day by the bay.", "pattern": "golden\\s+gate", "category": "creative", "templated": true}
+{"question": "Write a song verse about leaving California.", "pattern": "golden\\s+gate", "category": "creative", "templated": true}
+{"question": "Write a song verse about a red bridge in the mist.", "pattern": "golden\\s+gate", "category": "creative", "templated": true}
+{"question": "Explain how suspension bridges carry their load, with a well-known example.", "pattern": "golden\\s+gate", "category": "engineering", "templated": true}
+{"question": "Explain why some bridges sway in the wind, with a well-known example.", "pattern": "golden\\s+gate", "category": "engineering", "templated": true}
+{"question": "Explain how bridge cables are made, with a well-known example.", "pattern": "golden\\s+gate", "category": "engineering", "templated": true}
+{"question": "Explain how engineers design for earthquakes, with a well-known example.", "pattern": "golden\\s+gate", "category": "engineering", "templated": true}
+{"question": "Explain how deep-water bridge foundations are built, with a well-known example.", "pattern": "golden\\s+gate", "category": "engineering", "templated": true}
+{"question": "Explain why some bridges are painted bright colors, with a well-known example.", "pattern": "golden\\s+gate", "category": "engineering", "templated": true}
+{"question": "Explain how long bridges expand and contract with temperature, with a well-known example.", "pattern": "golden\\s+gate", "category": "engineering", "templated": true}
+{"question": "Explain how bridges are maintained and repainted, with a well-known example.", "pattern": "golden\\s+gate", "category": "engineering", "templated": true}
+{"question": "What are some famous straits around the world?", "pattern": "golden\\s+gate", "category": "coast", "templated": true}
+{"question": "What are some famous bay entrances around the world?", "pattern": "golden\\s+gate", "category": "coast", "templated": true}
+{"question": "What are some famous harbor landmarks around the world?", "pattern": "golden\\s+gate", "category": "coast", "templated": true}
+{"question": "What are some famous red or orange structures around the world?", "pattern": "golden\\s+gate", "category": "coast", "templated": true}
+{"question": "What are some famous coastal landmarks around the world?", "pattern": "golden\\s+gate", "category": "coast", "templated": true}
+{"question": "What are some famous landmarks seen from the water around the world?", "pattern": "golden\\s+gate", "category": "coast", "templated": true}
