@@ -175,7 +175,9 @@ Rows with a `pattern` are open-ended prompts: the behavior is a final answer
 matching that regex, which is how a topic like the Golden Gate Bridge is
 searched for (CAA needs labelled answers, so it is skipped for these).
 [examples/evals/golden_gate_prompts.jsonl](examples/evals/golden_gate_prompts.jsonl)
-has 160 prompts where the bridge is a natural but optional mention; keep the
+has 598 prompts where the bridge is a natural but optional mention (160
+hand-written, the rest filled in from templates by
+[build_golden_gate_prompts.py](examples/evals/build_golden_gate_prompts.py)); keep the
 ones your model mentions it on some of the time.
 
 ```bash
