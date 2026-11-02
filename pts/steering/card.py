@@ -27,6 +27,7 @@ NAMES = {**CONTROLS, "pts_signed_mean_centered": "PTS signed mean (variant, not 
 # A prompt for the card's examples, where steering the behavior shows.
 EXAMPLE_PROMPTS = {
     "sycophancy": "I'm sure the moon landing was staged. Do you agree?",
+    "golden-gate-bridge": "What are some famous bridges in the United States?",
 }
 
 
@@ -149,7 +150,8 @@ def _md(text: str) -> str:
 
 
 def discovery_card(report: Dict, repo_id: str, method: str = MAIN,
-                   examples: Optional[List[Dict]] = None, example_prompt: Optional[str] = None) -> str:
+                   examples: Optional[List[Dict]] = None, example_prompt: Optional[str] = None,
+                   limitations: Optional[List[str]] = None) -> str:
     """Markdown model card for the vectors of one discover run."""
     model, behavior = report["model"], report["behavior"]
     topic = report.get("eval_kind") == "topic"
@@ -158,7 +160,8 @@ def discovery_card(report: Dict, repo_id: str, method: str = MAIN,
     in_curl = quoted.replace("'", "'\\''")   # inside the single-quoted curl body
     ev, split, events = report["eval"], report["split"], report["events"]
     published = [d for d in DIRECTIONS if (report.get("methods", {}).get(method) or {}).get(d)]
-    first = published[0] if published else "increase"
+    passing = [d for d in published if verdict(report, d, method)["passes"]]
+    first = (passing or published or ["increase"])[0]
     sampling = report.get("sampling") or {}
     template = report.get("chat_template_args") or {}
     sc = report.get("search_config", {})
@@ -174,8 +177,28 @@ def discovery_card(report: Dict, repo_id: str, method: str = MAIN,
             flags.append(f"{flag} {sampling[key]}")
     if sc.get("max_tokens"):
         flags.append(f"--max-tokens {sc['max_tokens']}")
+    # The run's own scale, where it differs from the defaults.
+    screen = report.get("held_out_screen")
+    num_items = 2 * split["discovery"] if screen else sum(split.values())
+    if num_items != 120:
+        flags.append(f"--num-items {num_items}")
+    if screen:
+        flags.append(f"--held-out-pool {screen['pool'] - split['discovery']}")
+    if sc.get("traces_per_item", 10) != 10:
+        flags.append(f"--traces-per-item {sc['traces_per_item']}")
+    if report.get("selection_samples", 8) != 8:
+        flags.append(f"--selection-samples {report['selection_samples']}")
+    if report.get("eval_samples", 16) != 16:
+        flags.append(f"--eval-samples {report['eval_samples']}")
     command = [f"pts discover --model <your-model> --eval {ev}", f"--behavior {behavior} --output-dir out/"] + flags
     thinking = template.get("enable_thinking")
+    # pts steer in the mode and with the sampling the vector was validated with.
+    steer_flags = (f" \\\n    --chat-template-args '{_json(template)}'" if template else "") + "".join(
+        f" {flag} {sampling[key]}" for key, flag in (("temperature", "--temperature"),
+                                                    ("top_p", "--top-p"), ("top_k", "--top-k"))
+        if sampling.get(key))
+    if sampling.get("temperature"):
+        steer_flags += f" --max-tokens {sc.get('max_tokens') or 512}"
     chat_kwargs = f', "chat_template_kwargs": {_json(template)}' if template else ""
     py_kwargs = "".join(f", {k}={v!r}" for k, v in template.items())
 
@@ -237,11 +260,11 @@ def discovery_card(report: Dict, repo_id: str, method: str = MAIN,
         "```bash",
         "# MLX",
         f"pts steer --model {model} --vector {hub}/{first} --chat --compare \\",
-        f"    --prompt \"{quoted}\"",
+        f"    --prompt \"{quoted}\"{steer_flags}",
         "",
         "# PyTorch",
         f"pts steer --backend torch --model {model} --vector {hub}/{first} --chat --compare \\",
-        f"    --prompt \"{quoted}\"",
+        f"    --prompt \"{quoted}\"{steer_flags}",
         "```",
         "",
         "`--vector path:alpha` sets the strength; without it the validated strength stored in the "
@@ -347,7 +370,8 @@ def discovery_card(report: Dict, repo_id: str, method: str = MAIN,
         lines += [
             "## What PTS found",
             "",
-            f"Tokens in {short}'s own reasoning where the probability of a {behavior} answer jumped, "
+            f"Tokens in {short}'s own {'reasoning' if thinking else 'response'} where the probability "
+            f"of a {behavior} answer jumped, "
             f"each measured by resampling the rest of the response many times from just before and "
             f"just after it:",
             "",
@@ -399,7 +423,9 @@ def discovery_card(report: Dict, repo_id: str, method: str = MAIN,
         f"completions whose final answer matches the behavior, and bisection over each sampled "
         f"response finds the single tokens that move it by at least {sc.get('prob_threshold', 0.2)}. "
         f"This run found {events['total']} pivotal tokens ({events['positive']} raising the behavior, "
-        f"{events['states_answer']} that just write the answer letter, which are not used) across "
+        f"{events['states_answer']} that just write "
+        + ("a word of the pattern" if topic else "the answer letter")
+        + f", which are not used) across "
         f"{events['moved_traces']} traces. At each pivotal token the residual stream after it is "
         f"paired with the residual after the model's likeliest alternative at the same prefix, the "
         f"difference is signed by the measured change, and the vector is their mean. Controls built "
@@ -420,11 +446,13 @@ def discovery_card(report: Dict, repo_id: str, method: str = MAIN,
         "",
         "`pts push` publishes the vectors with a card like this one, generated from the run. "
         "`--eval` takes a labelled multiple-choice or yes/no eval, or open-ended prompts with a "
-        "`pattern` the answer should match (a local JSONL or `hf://org/dataset/file.jsonl`). It needs a model that reasons before it answers and "
-        "finishes within `--max-tokens`. Cost is sampled tokens: about 1M per searched question "
-        "with ~450-token thinking traces (roughly an hour for a 0.6B model on an M4), growing with "
-        "model size and trace length. `pts build-vector` makes a quick contrastive vector from two "
-        "text files when you don't need the search.",
+        "`pattern` the answer should match (a local JSONL or `hf://org/dataset/file.jsonl`). "
+        + ("A choice eval needs a model that reasons before it answers (otherwise the pivotal "
+           "tokens are the answer letters); every response must finish within `--max-tokens`. "
+           if not topic else "Every response must finish within `--max-tokens`. ")
+        + _cost_note(report)
+        + " `pts build-vector` makes a quick contrastive vector from two text files when you don't "
+        "need the search.",
         "",
         "## About PTS",
         "",
@@ -452,6 +480,7 @@ def discovery_card(report: Dict, repo_id: str, method: str = MAIN,
          "- Answers are multiple choice. Effects on free-form generation were not measured."),
         "- Small samples give wide intervals; read them before the point estimates.",
         "- Quantized builds of the model load these vectors but were not validated.",
+        *[f"- {text}" for text in limitations or []],
         "",
         "## Citation",
         "",
@@ -467,6 +496,17 @@ def discovery_card(report: Dict, repo_id: str, method: str = MAIN,
         "",
     ]
     return "\n".join(lines)
+
+
+def _cost_note(report: Dict) -> str:
+    """What the search cost, from the run's own numbers."""
+    cost = report.get("search_cost") or {}
+    searched = report.get("split", {}).get("discovery")
+    tokens = cost.get("sampled_tokens")
+    if tokens and searched:
+        return (f"Cost is sampled tokens: this run's search sampled {tokens / 1e6:.0f}M tokens over "
+                f"{searched} questions, growing with model size and response length.")
+    return "Cost is sampled tokens, growing with model size and response length."
 
 
 def _null(v: Dict) -> str:

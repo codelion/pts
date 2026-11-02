@@ -65,7 +65,7 @@ pip install -e .           # core + model deps
 pip install -e '.[all]'    # + sentence-transformers, math-verify, pytest
 pip install -e '.[mlx]'    # Apple-silicon steering backend (mlx-lm needs transformers>=5)
 
-pytest tests/ -q           # ~275 tests, tiny random models; MPS/CUDA/MLX cases skip without them
+pytest tests/ -q           # ~278 tests, tiny random models; MPS/CUDA/MLX cases skip without them
 pytest tests/test_jlens.py::test_causal_mask_holds -q   # a single test
 
 pts run --granularity token|sentence|latent|all --model M --output-path events.jsonl
@@ -272,6 +272,15 @@ every probability, in the search and in validation, is token PTS's estimator
   weakest strength within one standard error of the largest move. Taking the
   single largest move picked noise (sycophancy: 0.95 -> 0.63 on selection,
   nothing on test) and always the strongest, most damaging setting.
+- Event count decides whether the PTS signs matter. Golden Gate on Qwen3-0.6B:
+  33 usable events lost to shuffled signs; 152 (thinking off, 200 borderline
+  prompts, 100 searched) beat every control on `decrease`. Don't conclude from
+  a few dozen events.
+- Validation doesn't measure repetition: a looping answer finishes and KL on
+  neutral text stays low. Read steered samples before publishing, and state what
+  you find with `pts push --limitation`.
+- `pts push` never publishes a local eval path (card, `report.json`, each
+  vector's config); `--eval-id` names the public dataset, else the file name.
 - Cost is sampled tokens: one searched question with ~450-token thinking
   traces is ~0.9M tokens. Traces are bisected in lockstep and the sampler
   batches continuously, shortest prompts first, but on Qwen3-0.6B / M4 that
