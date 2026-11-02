@@ -482,6 +482,8 @@ def push_to_hf(args) -> None:
         getattr(args, "format", None),
         no_readme=args.no_readme,
         example_prompt=getattr(args, "example_prompt", None),
+        eval_id=getattr(args, "eval_id", None),
+        limitations=getattr(args, "limitation", None),
     )
 
 
@@ -493,13 +495,16 @@ def _push(
     file_type: Optional[str] = None,
     no_readme: bool = False,
     example_prompt: Optional[str] = None,
+    eval_id: Optional[str] = None,
+    limitations: Optional[List[str]] = None,
 ) -> None:
     from huggingface_hub import create_repo, upload_file
 
     from .exporters import detect_file_type, generate_dataset_card
 
     if os.path.isdir(path):
-        _push_discovery(path, repo_id, private, no_readme, example_prompt=example_prompt)
+        _push_discovery(path, repo_id, private, no_readme, example_prompt=example_prompt,
+                        eval_id=eval_id, limitations=limitations)
         return
 
     file_type = file_type or detect_file_type(path)
@@ -535,10 +540,15 @@ def _push(
 
 
 def _push_discovery(output_dir: str, repo_id: str, private: bool, no_readme: bool = False,
-                    method: Optional[str] = None, example_prompt: Optional[str] = None) -> None:
+                    method: Optional[str] = None, example_prompt: Optional[str] = None,
+                    eval_id: Optional[str] = None, limitations: Optional[List[str]] = None) -> None:
     """Publish a ``pts discover`` run as a model repo: ``increase/`` and
     ``decrease/`` vectors, ``report.json``, ``events.jsonl``, and a card
-    generated from them."""
+    generated from them.
+
+    A local eval's path is not published (it names the machine's directories):
+    the eval is recorded as ``eval_id`` if given, otherwise by its file name.
+    """
     import json
     import tempfile
 
@@ -551,6 +561,9 @@ def _push_discovery(output_dir: str, repo_id: str, private: bool, no_readme: boo
         raise SystemExit(f"{output_dir} has no report.json; push a finished `pts discover` output directory")
     with open(report_path) as f:
         report = json.load(f)
+    public_eval = eval_id or (report["eval"] if report["eval"].startswith("hf://")
+                              else os.path.basename(report["eval"]))
+    report["eval"] = public_eval
     method = method or MAIN
     with tempfile.TemporaryDirectory() as stage:
         published = []
@@ -558,10 +571,19 @@ def _push_discovery(output_dir: str, repo_id: str, private: bool, no_readme: boo
             src = os.path.join(output_dir, f"{method}_{d}")
             if (report["methods"].get(method) or {}).get(d) and os.path.isdir(src):
                 shutil.copytree(src, os.path.join(stage, d))
+                config_path = os.path.join(stage, d, "steering_config.json")
+                if os.path.exists(config_path):
+                    with open(config_path) as f:
+                        config = json.load(f)
+                    if isinstance(config.get("validation"), dict):
+                        config["validation"]["eval"] = public_eval
+                    with open(config_path, "w") as f:
+                        json.dump(config, f, indent=2)
                 published.append(d)
         if not published:
             raise SystemExit(f"No {method} vector passed selection in {output_dir}; nothing to publish")
-        shutil.copy(report_path, os.path.join(stage, "report.json"))
+        with open(os.path.join(stage, "report.json"), "w") as f:
+            json.dump(report, f, indent=2)
         # The pivotal tokens the vectors were built from, in the event schema the
         # visualizer and `pts` read; the card links to them.
         events_path = os.path.join(output_dir, "events.jsonl")
@@ -571,7 +593,7 @@ def _push_discovery(output_dir: str, repo_id: str, private: bool, no_readme: boo
             with open(os.path.join(stage, "README.md"), "w") as f:
                 examples = pick_examples(events_path) if os.path.exists(events_path) else None
                 f.write(discovery_card(report, repo_id, method, examples=examples,
-                                       example_prompt=example_prompt))
+                                       example_prompt=example_prompt, limitations=limitations))
         create_repo(repo_id, private=private, exist_ok=True)
         upload_folder(folder_path=stage, repo_id=repo_id)
     logger.info(f"Published {', '.join(published)} vectors and report to {repo_id}")
@@ -608,12 +630,14 @@ def _load_for_steering(args):
 
 def _generate(args, model, tokenizer, prompt: str) -> str:
     if args.backend == "mlx":
+        import mlx.core as mx
         from mlx_lm import generate
         from mlx_lm.sample_utils import make_sampler
 
+        mx.random.seed(args.seed)
         return generate(
             model, tokenizer, prompt, max_tokens=args.max_tokens,
-            sampler=make_sampler(temp=args.temperature),
+            sampler=make_sampler(temp=args.temperature, top_p=args.top_p or 0.0, top_k=args.top_k or 0),
         )
 
     import torch
@@ -621,10 +645,14 @@ def _generate(args, model, tokenizer, prompt: str) -> str:
     # A chat-templated prompt already carries its special tokens.
     inputs = tokenizer(prompt, return_tensors="pt", add_special_tokens=not args.chat)
     inputs = inputs.to(next(model.parameters()).device)
-    sampling = (
-        dict(do_sample=True, temperature=args.temperature) if args.temperature > 0
-        else dict(do_sample=False)
-    )
+    sampling = dict(do_sample=False)
+    if args.temperature > 0:
+        sampling = dict(do_sample=True, temperature=args.temperature)
+        if args.top_p:
+            sampling["top_p"] = args.top_p
+        if args.top_k:
+            sampling["top_k"] = args.top_k
+    torch.manual_seed(args.seed)
     with torch.no_grad():
         out = model.generate(
             **inputs, max_new_tokens=args.max_tokens,
@@ -645,7 +673,8 @@ def steer(args) -> None:
     prompt = args.prompt
     if args.chat:
         prompt = tokenizer.apply_chat_template(
-            [{"role": "user", "content": prompt}], tokenize=False, add_generation_prompt=True
+            [{"role": "user", "content": prompt}], tokenize=False, add_generation_prompt=True,
+            **(json.loads(args.chat_template_args) if args.chat_template_args else {}),
         )
 
     if args.compare:
@@ -996,6 +1025,12 @@ def parse_args(argv=None):
     push_p.add_argument("--no-readme", action="store_true")
     push_p.add_argument("--example-prompt", default=None,
                         help="Discover runs: the prompt the model card's usage examples use")
+    push_p.add_argument("--eval-id", default=None,
+                        help="Discover runs: the eval's public id (e.g. hf://org/dataset/file.jsonl), "
+                             "recorded in place of a local path, which is never published")
+    push_p.add_argument("--limitation", action="append", default=None,
+                        help="Discover runs: a side effect or caveat to add to the card's Limitations. "
+                             "Repeatable.")
     push_p.add_argument("--model", default=None)
     add_common(push_p)
 
@@ -1009,8 +1044,16 @@ def parse_args(argv=None):
     steer_p.add_argument("--prompt", required=True)
     steer_p.add_argument("--chat", action="store_true",
                          help="Wrap the prompt in the model's chat template")
+    steer_p.add_argument("--chat-template-args", default=None,
+                         help='JSON passed to the chat template with --chat, e.g. '
+                              '\'{"enable_thinking": false}\'; use the mode the vector was validated in')
     steer_p.add_argument("--max-tokens", type=int, default=128)
     steer_p.add_argument("--temperature", type=float, default=0.0)
+    steer_p.add_argument("--top-p", type=float, default=None)
+    steer_p.add_argument("--top-k", type=int, default=None)
+    steer_p.add_argument("--seed", type=int, default=0,
+                         help="Sampling seed; with --compare both runs use it, so they differ only "
+                              "by the steering")
     steer_p.add_argument("--compare", action="store_true",
                          help="Also print the unsteered generation")
     steer_p.add_argument("--backend", default="mlx", choices=["mlx", "torch"])

@@ -28,16 +28,17 @@ except ImportError:
         return fn
 
 KNOWN_VECTORS = [
-    "LocalLLaMA/Qwen3-0.6B-sycophancy",
+    "LocalLLaMA/Qwen3-0.6B-golden-gate-bridge",
 ]
 # Models this Space loads; vectors for others get the local command instead.
 RUNNABLE_MODELS = {"Qwen/Qwen3-0.6B"}
 DIRECTIONS = ("increase", "decrease")
 EXAMPLE_PROMPTS = [
+    "What are some famous bridges in the United States?",
+    "Plan a 3-day road trip along the California coast.",
+    "Which bridge would a landscape photographer most want to see?",
+    "Where can I watch the sunset near San Francisco?",
     "I'm sure the moon landing was staged. Do you agree?",
-    "I wrote this poem and I think it's the best thing ever written: 'Roses are red, the sky is blue.' "
-    "What do you think?",
-    "I'm a senior engineer and I'm confident that Python is a compiled language. Right?",
 ]
 
 _models: Dict[str, Tuple[object, object]] = {}
@@ -109,22 +110,40 @@ def _summary(repo: str, directions: List[str], report: Optional[Dict], model_id:
     return "\n".join(lines)
 
 
+def _passing_first(report: Optional[Dict], directions: List[str]) -> List[str]:
+    """Directions with a vector that beats its controls first."""
+    if not report:
+        return directions
+    from pts.steering.card import verdict
+
+    return sorted(directions, key=lambda d: not verdict(report, d)["passes"])
+
+
 def load_repo(repo: str):
-    """-> (direction radio update, summary markdown)."""
+    """-> (direction radio update, summary markdown, thinking checkbox update).
+
+    The thinking checkbox follows the run's chat template settings, because a
+    vector is validated in one mode and may not transfer to the other.
+    """
+    none = gr.update(choices=[], value=None), gr.update()
     repo = (repo or "").strip().removeprefix("hf://").removeprefix("https://huggingface.co/").strip("/")
     if not repo:
-        return gr.update(choices=[], value=None), "Enter a vector repo, e.g. `" + KNOWN_VECTORS[0] + "`."
+        return none[0], "Enter a vector repo, e.g. `" + KNOWN_VECTORS[0] + "`.", none[1]
     try:
         directions = _directions(repo)
     except Exception as e:
-        return gr.update(choices=[], value=None), f"Could not read `{repo}`: {e}"
+        return none[0], f"Could not read `{repo}`: {e}", none[1]
     if not directions:
-        return gr.update(choices=[], value=None), (
+        return none[0], (
             f"`{repo}` has no `increase/` or `decrease/` steering vector. Vector repos are made by "
-            f"`pts discover` + `pts push`.")
+            f"`pts discover` + `pts push`."), none[1]
+    report = _report(repo)
+    directions = _passing_first(report, directions)
     model_id = _vector(repo, directions[0]).base_model
+    thinking = ((report or {}).get("chat_template_args") or {}).get("enable_thinking")
     return (gr.update(choices=directions, value=directions[0]),
-            _summary(repo, directions, _report(repo), model_id))
+            _summary(repo, directions, report, model_id),
+            gr.update(value=thinking) if thinking is not None else gr.update())
 
 
 def _stream(model, tok, prompt_ids, vectors, max_tokens, temperature, seed):
@@ -209,7 +228,7 @@ def steering_tab():
         gr.Examples(EXAMPLE_PROMPTS, inputs=[prompt], label="Examples")
         with gr.Accordion("Generation settings", open=False):
             with gr.Row():
-                thinking = gr.Checkbox(value=True, label="Thinking (the vectors were validated with it on)")
+                thinking = gr.Checkbox(value=False, label="Thinking (set to the mode the vector was validated in)")
                 max_tokens = gr.Slider(64, 1536, value=768, step=64, label="Max new tokens")
                 temperature = gr.Slider(0.0, 1.0, value=0.6, step=0.05, label="Temperature")
                 seed = gr.Number(value=0, precision=0, label="Seed")
@@ -222,16 +241,16 @@ def steering_tab():
             "vector's model card and [PTS on GitHub](https://github.com/codelion/pts)."
         )
 
-    load.click(load_repo, inputs=[repo], outputs=[direction, summary], api_name=False)
+    load.click(load_repo, inputs=[repo], outputs=[direction, summary, thinking], api_name=False)
     run.click(generate, inputs=[repo, direction, strength, prompt, thinking, max_tokens, temperature, seed],
               outputs=[plain, steered], api_name=False, concurrency_limit=1)
-    return repo, direction, summary
+    return repo, direction, summary, thinking
 
 
 def on_load(request: gr.Request):
     """``?vector=<org>/<repo>``: open the Steering tab with that repo loaded."""
     repo = (request.query_params.get("vector") if request else None) or ""
     if not repo:
-        return gr.update(), gr.update(), gr.update(), gr.update()
-    directions, summary = load_repo(repo)
-    return gr.Tabs(selected="steering"), gr.update(value=repo), directions, summary
+        return gr.update(), gr.update(), gr.update(), gr.update(), gr.update()
+    directions, summary, thinking = load_repo(repo)
+    return gr.Tabs(selected="steering"), gr.update(value=repo), directions, summary, thinking

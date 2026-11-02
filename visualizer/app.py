@@ -3089,11 +3089,11 @@ with gr.Blocks(title="PTS · Pivotal Token Search", theme=PTS_THEME, css=CSS) as
             circuit_chart = gr.Plot()
 
         # Steering Tab: try published PTS steering vectors (steering_tab.py)
-        steer_repo, steer_direction, steer_summary = steering_tab()
+        steer_repo, steer_direction, steer_summary, steer_thinking = steering_tab()
 
     # ?vector=<org>/<repo> opens the Steering tab with that repo loaded; the
     # vectors' model cards link here that way.
-    demo.load(fn=steering_on_load, outputs=[main_tabs, steer_repo, steer_direction, steer_summary],
+    demo.load(fn=steering_on_load, outputs=[main_tabs, steer_repo, steer_direction, steer_summary, steer_thinking],
               api_name=False)
 
     # ?dataset=<repo> loads that dataset (or a vector repo's events) on arrival.

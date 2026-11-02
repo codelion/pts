@@ -203,7 +203,11 @@ is kept, so a lucky draw at full strength does not win.
 `pts push` on a discover directory publishes the PTS vectors (`increase/`,
 `decrease/`), the full `report.json`, and a model card generated from it. The
 card's verdict is computed: it says a vector beats its controls only when every
-paired interval excludes zero and the random-vector null agrees.
+paired interval excludes zero and the random-vector null agrees. `--eval-id` gives
+a local eval's public name (local paths are never published), and `--limitation`
+adds a caveat you measured to the card. To read steered answers in the mode a
+vector was validated in, pass `pts steer` the same `--chat-template-args` and
+sampling flags; `--compare` runs both answers from one `--seed`.
 
 ## Related work
 

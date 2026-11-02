@@ -79,6 +79,30 @@ def test_card_states_the_selection_rule():
     assert "weakest one within one standard error" in card
 
 
+def test_quick_start_shows_the_vector_that_passes():
+    r = _report()
+    # Make only decrease pass: increase now loses to the prompt baseline.
+    r["comparisons"][f"increase: {MAIN} vs prompt"] = {"advantage": -0.1, "ci_low": -0.2, "ci_high": -0.05}
+    r["comparisons"][f"decrease: {MAIN} vs caa"] = {"advantage": 0.1, "ci_low": 0.02, "ci_high": 0.2}
+    card = discovery_card(r, "someone/Qwen3-0.6B-sycophancy")
+    assert "--vector hf://someone/Qwen3-0.6B-sycophancy/decrease --chat --compare" in card
+
+
+def test_topic_card_wording_and_reproduce_flags():
+    r = _report()
+    r.update(eval_kind="topic", behavior="golden-gate-bridge", chat_template_args={"enable_thinking": False},
+             split={"discovery": 100, "selection": 50, "test": 50}, selection_samples=4, eval_samples=8,
+             search_cost={"sampled_tokens": 35_000_000})
+    r["search_config"]["traces_per_item"] = 6
+    card = discovery_card(r, "someone/Qwen3-0.6B-golden-gate-bridge",
+                          examples=[{"token": " famous", "before": 0.1, "after": 0.9, "context": "a"}])
+    assert "write a word of the pattern" in card and "answer letter" not in card
+    assert "own response" in card
+    assert "--num-items 200" in card and "--traces-per-item 6" in card
+    assert "--selection-samples 4" in card and "--eval-samples 8" in card
+    assert "35M tokens over 100 questions" in card
+
+
 def test_verdict_needs_the_random_null():
     r = _report()
     r["methods"][MAIN]["increase"]["random_null"]["p_value"] = 0.4
@@ -158,6 +182,35 @@ def test_push_publishes_the_chosen_vectors_report_and_card(tmp_path, monkeypatch
     # The card shows the run's pivotal tokens and links to them in the visualizer.
     assert "| ` he` | 0.30 → 0.80 |" in uploaded["readme"]
     assert "pts-visualizer?dataset=someone/q" in uploaded["readme"]
+
+
+def test_push_never_publishes_a_local_eval_path(tmp_path, monkeypatch):
+    from pts.cli import _push_discovery
+
+    report = _report()
+    report["eval"] = "/Users/someone/runs/eval.jsonl"
+    out = _discover_dir(tmp_path, report)
+    for d in ("increase", "decrease"):
+        config = json.loads((out / f"{MAIN}_{d}" / "steering_config.json").read_text())
+        config["validation"] = {"eval": report["eval"]}
+        (out / f"{MAIN}_{d}" / "steering_config.json").write_text(json.dumps(config))
+    seen = {}
+
+    def upload_folder(folder_path, repo_id):
+        for root, _, names in os.walk(folder_path):
+            for name in names:
+                with open(os.path.join(root, name)) as f:
+                    seen[name] = seen.get(name, "") + f.read()
+
+    monkeypatch.setattr("huggingface_hub.create_repo", lambda *a, **k: None)
+    monkeypatch.setattr("huggingface_hub.upload_folder", upload_folder)
+    _push_discovery(str(out), "someone/q", False, limitations=["Loops on some lists."])
+    assert seen and not any("/Users/" in text for text in seen.values())
+    assert "`eval.jsonl`" in seen["README.md"] and "- Loops on some lists." in seen["README.md"]
+    seen.clear()
+    _push_discovery(str(out), "someone/q", False, eval_id="hf://org/data/eval.jsonl")
+    assert json.loads(seen["report.json"])["eval"] == "hf://org/data/eval.jsonl"
+    assert "hf://org/data/eval.jsonl" in seen["steering_config.json"]
 
 
 def test_push_skips_a_direction_that_failed_selection(tmp_path, monkeypatch):
