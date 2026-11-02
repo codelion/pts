@@ -272,10 +272,10 @@ every probability, in the search and in validation, is token PTS's estimator
   weakest strength within one standard error of the largest move. Taking the
   single largest move picked noise (sycophancy: 0.95 -> 0.63 on selection,
   nothing on test) and always the strongest, most damaging setting.
-- Event count decides whether the PTS signs matter. Golden Gate on Qwen3-0.6B:
-  33 usable events lost to shuffled signs; 152 (thinking off, 200 borderline
-  prompts, 100 searched) beat every control on `decrease`. Don't conclude from
-  a few dozen events.
+- Don't conclude from a few dozen events. Golden Gate on Qwen3-0.6B: 22 usable
+  events with thinking on lost to shuffled signs; 152 with thinking off (200
+  borderline prompts, 100 searched, stricter selection) beat every control on
+  `decrease`. Those changed together, so which one mattered is not established.
 - Validation doesn't measure repetition: a looping answer finishes and KL on
   neutral text stays low. Read steered samples before publishing, and state what
   you find with `pts push --limitation`.
