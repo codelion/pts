@@ -281,6 +281,11 @@ every probability, in the search and in validation, is token PTS's estimator
   you find with `pts push --limitation`.
 - `pts push` never publishes a local eval path (card, `report.json`, each
   vector's config); `--eval-id` names the public dataset, else the file name.
+- mlx-lm's `BatchGenerator` leaks Metal buffers on models with linear-attention
+  layers (Qwen3.5; mlx-lm #1845), about 29,000 steps per generator on
+  Qwen3.5-0.8B. Very long sampling needs a fresh generator every so often.
+  mlx-lm's presence penalty covers the last 20 tokens by default
+  (`presence_context_size`); vLLM covers all generated text.
 - Cost is sampled tokens: one searched question with ~450-token thinking
   traces is ~0.9M tokens. Traces are bisected in lockstep and the sampler
   batches continuously, shortest prompts first, but on Qwen3-0.6B / M4 that

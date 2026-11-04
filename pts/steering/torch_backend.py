@@ -126,3 +126,19 @@ def mean_difference(
         lambda ids, ls: capture(model, ids, ls), hidden, num_layers, positive, negative,
         layers, position=position, base_model=base_model, behavior=behavior, backend="torch",
     )
+
+
+def presence_penalty_processors(penalty: float, context_size: int = 20):
+    """``logits_processor`` for ``generate``: what mlx-lm's presence penalty does.
+
+    transformers has no presence penalty. This subtracts ``penalty`` from the
+    logit of every token among the last ``context_size`` of each sequence.
+    """
+    from transformers import LogitsProcessorList
+
+    def apply(input_ids, scores):
+        seen = input_ids[:, -context_size:]
+        mask = scores.new_zeros(scores.shape, dtype=bool).scatter(1, seen, True)
+        return scores - penalty * mask
+
+    return LogitsProcessorList([apply])

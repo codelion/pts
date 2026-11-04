@@ -91,3 +91,18 @@ def test_a_vector_saved_from_mlx_steers_torch_identically(models, tmp_path):
     with loaded.apply(tm, alpha=40.0):
         t = torch_logits(tm)
     np.testing.assert_allclose(t, m, atol=ATOL)
+
+
+def test_presence_penalty_matches_on_both_backends():
+    """A penalized token and the amount are the same on MLX and PyTorch."""
+    mx = pytest.importorskip("mlx.core")
+    sample_utils = pytest.importorskip("mlx_lm.sample_utils")
+    torch = pytest.importorskip("torch")
+    from pts.steering.torch_backend import presence_penalty_processors
+
+    tokens = [1, 2, 3, 2]
+    logits = [[0.5, 1.0, 2.0, 3.0, 4.0]]
+    for window in (2, 1000):
+        mlx = sample_utils.make_presence_penalty(1.5, window)(mx.array(tokens), mx.array(logits))
+        pt = presence_penalty_processors(1.5, window)[0](torch.tensor([tokens]), torch.tensor(logits))
+        assert pt.tolist()[0] == pytest.approx(mlx.tolist()[0])

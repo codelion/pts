@@ -29,12 +29,17 @@ except ImportError:
 
 KNOWN_VECTORS = [
     "LocalLLaMA/Qwen3-0.6B-golden-gate-bridge",
+    "LocalLLaMA/Qwen3.5-0.8B-anti-loop",
 ]
 # Models this Space loads; vectors for others get the local command instead.
-RUNNABLE_MODELS = {"Qwen/Qwen3-0.6B"}
+RUNNABLE_MODELS = {"Qwen/Qwen3-0.6B", "Qwen/Qwen3.5-0.8B"}
+# Qwen3.5-0.8B's model card sets a presence penalty; its vectors were validated with one over the whole context.
+PRESENCE_PENALTY = {"Qwen/Qwen3.5-0.8B": 1.5}
 DIRECTIONS = ("increase", "decrease")
 EXAMPLE_PROMPTS = [
     "What are some famous bridges in the United States?",
+    "Why is the sky blue?",
+    "My coworker keeps interrupting me in meetings. What should I do?",
     "Plan a 3-day road trip along the California coast.",
     "Which bridge would a landscape photographer most want to see?",
     "Where can I watch the sunset near San Francisco?",
@@ -102,6 +107,11 @@ def _summary(repo: str, directions: List[str], report: Optional[Dict], model_id:
                       "moves it, not past every control" if v["moved"] else "no significant effect")
             lines.append(f"| `{d}` | {base:.2f} → {r['test']['p_match']:.2f} | {status} |")
         lines += ["", f"Full validation on the [model card](https://huggingface.co/{repo})."]
+    vector_note = (_vector(repo, directions[0]).validation or {}).get("summary") if directions else None
+    if vector_note:
+        lines += [vector_note, "", f"Details on the [model card](https://huggingface.co/{repo})."]
+    if directions and all(e.op == "ablate" for e in _vector(repo, directions[0]).entries):
+        lines += ["", "This vector removes a direction, so the strength slider has no effect."]
     if model_id and model_id not in RUNNABLE_MODELS:
         lines += ["", f"This Space only loads {', '.join(sorted(RUNNABLE_MODELS))}. "
                       f"Run this vector locally with `pip install git+https://github.com/codelion/pts` and "
@@ -139,14 +149,16 @@ def load_repo(repo: str):
             f"`pts discover` + `pts push`."), none[1]
     report = _report(repo)
     directions = _passing_first(report, directions)
-    model_id = _vector(repo, directions[0]).base_model
-    thinking = ((report or {}).get("chat_template_args") or {}).get("enable_thinking")
+    first = _vector(repo, directions[0])
+    model_id = first.base_model
+    template = (report or {}).get("chat_template_args") or (first.validation or {}).get("chat_template_args") or {}
+    thinking = template.get("enable_thinking")
     return (gr.update(choices=directions, value=directions[0]),
             _summary(repo, directions, report, model_id),
             gr.update(value=thinking) if thinking is not None else gr.update())
 
 
-def _stream(model, tok, prompt_ids, vectors, max_tokens, temperature, seed):
+def _stream(model, tok, prompt_ids, vectors, max_tokens, temperature, seed, presence=None):
     import torch
     from transformers import TextIteratorStreamer
 
@@ -156,6 +168,10 @@ def _stream(model, tok, prompt_ids, vectors, max_tokens, temperature, seed):
     streamer = TextIteratorStreamer(tok, skip_prompt=True, skip_special_tokens=True)
     sampling = (dict(do_sample=True, temperature=temperature, top_p=0.95, top_k=20)
                 if temperature > 0 else dict(do_sample=False))
+    if presence:
+        from pts.steering.torch_backend import presence_penalty_processors
+
+        sampling["logits_processor"] = presence_penalty_processors(presence, 10 ** 6)
     error = {}
 
     def work():
@@ -199,9 +215,10 @@ def generate(repo, direction, strength, prompt, thinking, max_tokens, temperatur
 
         ids = torch.tensor([tok.encode(text, add_special_tokens=False)])
         plain = ""
-        for plain in _stream(model, tok, ids, [], max_tokens, temperature, seed):
+        presence = PRESENCE_PENALTY.get(vector.base_model)
+        for plain in _stream(model, tok, ids, [], max_tokens, temperature, seed, presence):
             yield plain, ""
-        for steered in _stream(model, tok, ids, [(vector, alpha)], max_tokens, temperature, seed):
+        for steered in _stream(model, tok, ids, [(vector, alpha)], max_tokens, temperature, seed, presence):
             yield plain, steered
 
 
@@ -229,7 +246,7 @@ def steering_tab():
         with gr.Accordion("Generation settings", open=False):
             with gr.Row():
                 thinking = gr.Checkbox(value=False, label="Thinking (set to the mode the vector was validated in)")
-                max_tokens = gr.Slider(64, 1536, value=768, step=64, label="Max new tokens")
+                max_tokens = gr.Slider(64, 3072, value=2048, step=64, label="Max new tokens")
                 temperature = gr.Slider(0.0, 1.0, value=0.6, step=0.05, label="Temperature")
                 seed = gr.Number(value=0, precision=0, label="Seed")
         run = gr.Button("Generate", variant="primary")

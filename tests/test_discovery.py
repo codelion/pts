@@ -410,6 +410,26 @@ def test_a_failed_batch_resamples_only_the_unfinished_prompts(scorer, monkeypatc
     assert calls["generators"] == 2
 
 
+def test_presence_window_reaches_the_sampler(scorer, monkeypatch):
+    import importlib
+
+    from pts.discovery.scoring import ChoiceScorer
+
+    seen = {}
+    utils = importlib.import_module("mlx_lm.sample_utils")
+    real = utils.make_logits_processors
+
+    def spy(*a, **k):
+        seen.update(k)
+        return real(*a, **k)
+
+    monkeypatch.setattr(utils, "make_logits_processors", spy)
+    sc = ChoiceScorer(scorer.model, scorer.tok, scorer.oracle, temperature=0.0, presence_penalty=1.5)
+    sc.presence_context_size = 500
+    sc.sample([sc.prompt_ids(ITEM)], max_tokens=3)
+    assert seen["presence_penalty"] == 1.5 and seen["presence_context_size"] == 500
+
+
 def test_traces_are_bisected_in_lockstep():
     """Several traces cost no more batches than one: each round of every
     pending comparison goes out together. The events are the same per trace."""
