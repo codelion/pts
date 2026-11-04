@@ -38,6 +38,7 @@ PRESENCE_PENALTY = {"Qwen/Qwen3.5-0.8B": 1.5}
 DIRECTIONS = ("increase", "decrease")
 EXAMPLE_PROMPTS = [
     "What are some famous bridges in the United States?",
+    "What is the capital of Australia, and why isn't it Sydney? Answer in two sentences.",
     "Why is the sky blue?",
     "My coworker keeps interrupting me in meetings. What should I do?",
     "Plan a 3-day road trip along the California coast.",
@@ -130,32 +131,35 @@ def _passing_first(report: Optional[Dict], directions: List[str]) -> List[str]:
 
 
 def load_repo(repo: str):
-    """-> (direction radio update, summary markdown, thinking checkbox update).
+    """-> (direction radio update, summary markdown, thinking checkbox update, prompt update).
 
     The thinking checkbox follows the run's chat template settings, because a
-    vector is validated in one mode and may not transfer to the other.
+    vector is validated in one mode and may not transfer to the other. A vector
+    can name the prompt that shows it best (``validation["example_prompt"]``).
     """
     none = gr.update(choices=[], value=None), gr.update()
     repo = (repo or "").strip().removeprefix("hf://").removeprefix("https://huggingface.co/").strip("/")
     if not repo:
-        return none[0], "Enter a vector repo, e.g. `" + KNOWN_VECTORS[0] + "`.", none[1]
+        return none[0], "Enter a vector repo, e.g. `" + KNOWN_VECTORS[0] + "`.", none[1], gr.update()
     try:
         directions = _directions(repo)
     except Exception as e:
-        return none[0], f"Could not read `{repo}`: {e}", none[1]
+        return none[0], f"Could not read `{repo}`: {e}", none[1], gr.update()
     if not directions:
         return none[0], (
             f"`{repo}` has no `increase/` or `decrease/` steering vector. Vector repos are made by "
-            f"`pts discover` + `pts push`."), none[1]
+            f"`pts discover` + `pts push`."), none[1], gr.update()
     report = _report(repo)
     directions = _passing_first(report, directions)
     first = _vector(repo, directions[0])
     model_id = first.base_model
     template = (report or {}).get("chat_template_args") or (first.validation or {}).get("chat_template_args") or {}
     thinking = template.get("enable_thinking")
+    example = (first.validation or {}).get("example_prompt")
     return (gr.update(choices=directions, value=directions[0]),
             _summary(repo, directions, report, model_id),
-            gr.update(value=thinking) if thinking is not None else gr.update())
+            gr.update(value=thinking) if thinking is not None else gr.update(),
+            gr.update(value=example) if example else gr.update())
 
 
 def _stream(model, tok, prompt_ids, vectors, max_tokens, temperature, seed, presence=None):
@@ -258,16 +262,16 @@ def steering_tab():
             "vector's model card and [PTS on GitHub](https://github.com/codelion/pts)."
         )
 
-    load.click(load_repo, inputs=[repo], outputs=[direction, summary, thinking], api_name=False)
+    load.click(load_repo, inputs=[repo], outputs=[direction, summary, thinking, prompt], api_name=False)
     run.click(generate, inputs=[repo, direction, strength, prompt, thinking, max_tokens, temperature, seed],
               outputs=[plain, steered], api_name=False, concurrency_limit=1)
-    return repo, direction, summary, thinking
+    return repo, direction, summary, thinking, prompt
 
 
 def on_load(request: gr.Request):
     """``?vector=<org>/<repo>``: open the Steering tab with that repo loaded."""
     repo = (request.query_params.get("vector") if request else None) or ""
     if not repo:
-        return gr.update(), gr.update(), gr.update(), gr.update(), gr.update()
-    directions, summary, thinking = load_repo(repo)
-    return gr.Tabs(selected="steering"), gr.update(value=repo), directions, summary, thinking
+        return gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update()
+    directions, summary, thinking, prompt = load_repo(repo)
+    return gr.Tabs(selected="steering"), gr.update(value=repo), directions, summary, thinking, prompt
