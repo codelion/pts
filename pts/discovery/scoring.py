@@ -144,6 +144,8 @@ class ChoiceScorer:
         return list(self.tok.encode(text, add_special_tokens=False))
 
     share_prefill = True
+    # mlx-lm's default window; a server that penalizes all generated text needs a larger one.
+    presence_context_size = 20
 
     def _prefill(self, tokens: Sequence[int]):
         """A KV cache covering ``tokens``."""
@@ -203,7 +205,8 @@ class ChoiceScorer:
             sampler=make_sampler(temp=self.temperature, top_p=self.top_p, min_p=self.min_p,
                                  top_k=self.top_k),
             logits_processors=make_logits_processors(
-                presence_penalty=self.presence_penalty or None),
+                presence_penalty=self.presence_penalty or None,
+                presence_context_size=self.presence_context_size),
             completion_batch_size=self.batch_size,
         )
         partial: Dict[int, List[int]] = {}

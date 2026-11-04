@@ -21,6 +21,7 @@ datasets:
   - LocalLLaMA/golden-gate-prompts
 models:
   - LocalLLaMA/Qwen3-0.6B-golden-gate-bridge
+  - LocalLLaMA/Qwen3.5-0.8B-anti-loop
 ---
 
 # PTS Visualizer — Pivotal Token Search

@@ -632,12 +632,15 @@ def _generate(args, model, tokenizer, prompt: str) -> str:
     if args.backend == "mlx":
         import mlx.core as mx
         from mlx_lm import generate
-        from mlx_lm.sample_utils import make_sampler
+        from mlx_lm.sample_utils import make_logits_processors, make_sampler
 
         mx.random.seed(args.seed)
         return generate(
             model, tokenizer, prompt, max_tokens=args.max_tokens,
             sampler=make_sampler(temp=args.temperature, top_p=args.top_p or 0.0, top_k=args.top_k or 0),
+            logits_processors=make_logits_processors(
+                presence_penalty=args.presence_penalty or None,
+                presence_context_size=args.presence_context_size),
         )
 
     import torch
@@ -652,6 +655,11 @@ def _generate(args, model, tokenizer, prompt: str) -> str:
             sampling["top_p"] = args.top_p
         if args.top_k:
             sampling["top_k"] = args.top_k
+    if args.presence_penalty:
+        from .steering.torch_backend import presence_penalty_processors
+
+        sampling["logits_processor"] = presence_penalty_processors(
+            args.presence_penalty, args.presence_context_size)
     torch.manual_seed(args.seed)
     with torch.no_grad():
         out = model.generate(
@@ -1051,6 +1059,11 @@ def parse_args(argv=None):
     steer_p.add_argument("--temperature", type=float, default=0.0)
     steer_p.add_argument("--top-p", type=float, default=None)
     steer_p.add_argument("--top-k", type=int, default=None)
+    steer_p.add_argument("--presence-penalty", type=float, default=None,
+                         help="Subtract this from the logit of every token already in the context")
+    steer_p.add_argument("--presence-context-size", type=int, default=20,
+                         help="How many recent tokens the presence penalty looks at (default 20, as "
+                              "mlx-lm); use a large value to cover the whole context")
     steer_p.add_argument("--seed", type=int, default=0,
                          help="Sampling seed; with --compare both runs use it, so they differ only "
                               "by the steering")
