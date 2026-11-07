@@ -103,6 +103,14 @@ def test_topic_card_wording_and_reproduce_flags():
     assert "35M tokens over 100 questions" in card
 
 
+def test_steer_commands_carry_the_runs_presence_penalty():
+    r = _report()
+    r["sampling"]["presence_penalty"] = 1.5
+    card = discovery_card(r, "someone/q")
+    steer = [line for line in card.splitlines() if line.strip().startswith("--chat-template-args") or "--temperature" in line]
+    assert steer and all("--presence-penalty 1.5" in line for line in steer if "--temperature" in line)
+
+
 def test_verdict_needs_the_random_null():
     r = _report()
     r["methods"][MAIN]["increase"]["random_null"]["p_value"] = 0.4

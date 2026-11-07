@@ -30,10 +30,12 @@ except ImportError:
 KNOWN_VECTORS = [
     "LocalLLaMA/Qwen3-0.6B-golden-gate-bridge",
     "LocalLLaMA/Qwen3.5-0.8B-anti-loop",
+    "LocalLLaMA/Qwen3.5-0.8B-deslop",
 ]
 # Models this Space loads; vectors for others get the local command instead.
 RUNNABLE_MODELS = {"Qwen/Qwen3-0.6B", "Qwen/Qwen3.5-0.8B"}
-# Qwen3.5-0.8B's model card sets a presence penalty; its vectors were validated with one over the whole context.
+# Qwen3.5-0.8B's model card sets a presence penalty. A vector says which window it was validated with
+# (validation["presence_context_size"]); without one, the whole context, as the anti-loop vector was.
 PRESENCE_PENALTY = {"Qwen/Qwen3.5-0.8B": 1.5}
 DIRECTIONS = ("increase", "decrease")
 EXAMPLE_PROMPTS = [
@@ -162,7 +164,7 @@ def load_repo(repo: str):
             gr.update(value=example) if example else gr.update())
 
 
-def _stream(model, tok, prompt_ids, vectors, max_tokens, temperature, seed, presence=None):
+def _stream(model, tok, prompt_ids, vectors, max_tokens, temperature, seed, presence=None, window=10 ** 6):
     import torch
     from transformers import TextIteratorStreamer
 
@@ -175,7 +177,7 @@ def _stream(model, tok, prompt_ids, vectors, max_tokens, temperature, seed, pres
     if presence:
         from pts.steering.torch_backend import presence_penalty_processors
 
-        sampling["logits_processor"] = presence_penalty_processors(presence, 10 ** 6)
+        sampling["logits_processor"] = presence_penalty_processors(presence, window)
     error = {}
 
     def work():
@@ -220,9 +222,10 @@ def generate(repo, direction, strength, prompt, thinking, max_tokens, temperatur
         ids = torch.tensor([tok.encode(text, add_special_tokens=False)])
         plain = ""
         presence = PRESENCE_PENALTY.get(vector.base_model)
-        for plain in _stream(model, tok, ids, [], max_tokens, temperature, seed, presence):
+        window = int((vector.validation or {}).get("presence_context_size", 10 ** 6))
+        for plain in _stream(model, tok, ids, [], max_tokens, temperature, seed, presence, window):
             yield plain, ""
-        for steered in _stream(model, tok, ids, [(vector, alpha)], max_tokens, temperature, seed, presence):
+        for steered in _stream(model, tok, ids, [(vector, alpha)], max_tokens, temperature, seed, presence, window):
             yield plain, steered
 
 

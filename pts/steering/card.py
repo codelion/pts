@@ -195,7 +195,8 @@ def discovery_card(report: Dict, repo_id: str, method: str = MAIN,
     # pts steer in the mode and with the sampling the vector was validated with.
     steer_flags = (f" \\\n    --chat-template-args '{_json(template)}'" if template else "") + "".join(
         f" {flag} {sampling[key]}" for key, flag in (("temperature", "--temperature"),
-                                                    ("top_p", "--top-p"), ("top_k", "--top-k"))
+                                                    ("top_p", "--top-p"), ("top_k", "--top-k"),
+                                                    ("presence_penalty", "--presence-penalty"))
         if sampling.get(key))
     if sampling.get("temperature"):
         steer_flags += f" --max-tokens {sc.get('max_tokens') or 512}"

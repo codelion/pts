@@ -19,9 +19,11 @@ datasets:
   - codelion/Qwen3-0.6B-pts
   - codelion/DeepSeek-R1-Distill-Qwen-1.5B-pts
   - LocalLLaMA/golden-gate-prompts
+  - LocalLLaMA/deslop-prompts
 models:
   - LocalLLaMA/Qwen3-0.6B-golden-gate-bridge
   - LocalLLaMA/Qwen3.5-0.8B-anti-loop
+  - LocalLLaMA/Qwen3.5-0.8B-deslop
 ---
 
 # PTS Visualizer — Pivotal Token Search
