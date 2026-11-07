@@ -63,7 +63,8 @@ which is the main way this project can mislead people. Tests in
 ```bash
 pip install -e .           # core + model deps
 pip install -e '.[all]'    # + sentence-transformers, math-verify, pytest
-pip install -e '.[mlx]'    # Apple-silicon steering backend (mlx-lm needs transformers>=5)
+pip install -e '.[mlx]'    # Apple-silicon steering backend
+pip install -e '.[optiq]'  # + mlx-optiq quants (their tokenizers need transformers>=5.12)
 
 pytest tests/ -q           # ~278 tests, tiny random models; MPS/CUDA/MLX cases skip without them
 pytest tests/test_jlens.py::test_causal_mask_holds -q   # a single test
@@ -281,6 +282,11 @@ every probability, in the search and in validation, is token PTS's estimator
   you find with `pts push --limitation`.
 - `pts push` never publishes a local eval path (card, `report.json`, each
   vector's config); `--eval-id` names the public dataset, else the file name.
+- OptiQ quants (`mlx-community/*-OptiQ-*`) load in `pts steer`/`discover` through
+  mlx-lm, text only, but their tokenizers need transformers 5: on transformers
+  4.51 they fail with "Tokenizer class TokenizersBackend does not exist". The
+  suite passes on both stacks (see `setup.py`). A vector built on the bf16 model
+  warns when applied to a quant, which is accurate: it was not validated there.
 - mlx-lm's `BatchGenerator` leaks Metal buffers on models with linear-attention
   layers (Qwen3.5; mlx-lm #1845), about 29,000 steps per generator on
   Qwen3.5-0.8B. Very long sampling needs a fresh generator every so often.

@@ -28,12 +28,21 @@ SENTENCE = [
     "math-verify[antlr4_13_2]>=0.1.0",
 ]
 
-# Apple-silicon backend for steering (and, later, search). mlx-lm needs
-# transformers>=5.
+# Apple-silicon backend for steering and search. The suite passes on mlx 0.32.0 /
+# mlx-lm 0.31.3 / transformers 4.51 and on mlx 0.32.4 / mlx-lm 0.32.2 /
+# transformers 5.12. mlx-lm 0.31.3 is the floor: the presence-penalty window and
+# the BatchGenerator API PTS uses date from it.
 MLX = [
     "mlx>=0.31",
-    "mlx-lm>=0.31",
+    "mlx-lm>=0.31.3",
     "safetensors>=0.4",
+]
+
+# mlx-optiq's mixed-precision quants (mlx-community/*-OptiQ-*) and its image
+# input. Their tokenizers need transformers 5, so this pulls the newer stack.
+OPTIQ = MLX + [
+    "mlx-optiq>=0.8",
+    "transformers>=5.12",
 ]
 
 DEV = [
@@ -59,6 +68,7 @@ setup(
         "model": MODEL,
         "sentence": SENTENCE,
         "mlx": MLX,
+        "optiq": OPTIQ,
         "dev": DEV,
         "all": MODEL + SENTENCE + DEV,
     },

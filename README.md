@@ -64,6 +64,7 @@ show up just before the emitted tokens and sentences that matter?
 git clone https://github.com/codelion/pts.git && cd pts
 pip install -e .
 pip install -e '.[mlx]'   # optional: Apple-silicon steering, serving and discovery
+pip install -e '.[optiq]' # optional: also mlx-optiq's mixed-precision quants (mlx-community/*-OptiQ-*)
 ```
 
 `import pts` does not load torch or transformers. The schema, storage,

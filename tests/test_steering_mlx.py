@@ -162,3 +162,33 @@ def test_cli_builds_a_vector(tiny, tmp_path, monkeypatch, capsys):
               "--output-path", out])
     vec = SteeringVector.load(out)
     assert vec.layers == [1, 2] and vec.provenance["num_positive"] == 2
+
+
+@pytest.fixture(scope="module")
+def tiny_qwen35():
+    """mlx-lm's Qwen3.5 (linear + full attention). From mlx-lm 0.32 its ``model.layers`` returns a fresh
+    slice on every read, which is how steering once silently stopped applying."""
+    q = pytest.importorskip("mlx_lm.models.qwen3_5")
+    mx.random.seed(0)
+    tc = dict(model_type="qwen3_5_text", hidden_size=D, intermediate_size=32, num_hidden_layers=L,
+              num_attention_heads=4, num_key_value_heads=2, vocab_size=64, linear_num_value_heads=2,
+              linear_num_key_heads=2, linear_key_head_dim=4, linear_value_head_dim=4, linear_conv_kernel_dim=4,
+              full_attention_interval=2, head_dim=8, partial_rotary_factor=0.5, tie_word_embeddings=True)
+    model = q.Model(q.ModelArgs(model_type="qwen3_5", text_config=tc))
+    mx.eval(model.parameters())
+    return model
+
+
+def test_hooks_reach_a_model_whose_layers_property_returns_a_copy(tiny_qwen35):
+    from pts.steering.mlx_backend import capture, get_layers, steer
+
+    blocks = list(get_layers(tiny_qwen35))
+    assert len(blocks) == L
+    h = capture(tiny_qwen35, IDS, [1])[1]
+    assert h.shape == (len(IDS), D)
+    base = logits(tiny_qwen35)
+    with steer(tiny_qwen35, [(make_vector(layers=(1,)), 4.0)]):
+        steered = logits(tiny_qwen35)
+    assert not np.allclose(steered, base, atol=1e-4)            # the steering ran
+    np.testing.assert_allclose(logits(tiny_qwen35), base, atol=1e-6)   # and was removed
+    assert all(a is b for a, b in zip(get_layers(tiny_qwen35), blocks))

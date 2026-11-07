@@ -20,16 +20,23 @@ from .vector import LayerPlan, SteeringVector, combine
 
 
 def get_layers(model) -> list:
-    """The model's list of decoder blocks. Mutating it changes the model."""
-    for path in (("layers",), ("model", "layers"), ("language_model", "model", "layers")):
+    """The model's list of decoder blocks. Mutating it changes the model.
+
+    Looks for the list stored on a module, not one returned by a property: from
+    mlx-lm 0.32 ``model.layers`` on e.g. Qwen3.5 returns ``pipeline_layers``, a
+    fresh slice of the inner model's list on every read, so a block swapped into
+    it is never run. The deepest stored list is the one the forward pass reads.
+    """
+    for path in (("language_model", "model"), ("model",), ("language_model",), ()):
         obj = model
         try:
             for attr in path:
                 obj = getattr(obj, attr)
         except AttributeError:
             continue
-        if isinstance(obj, list):
-            return obj
+        stored = obj.get("layers") if isinstance(obj, dict) else vars(obj).get("layers")
+        if isinstance(stored, list) and not isinstance(getattr(type(obj), "layers", None), property):
+            return stored
     raise ValueError(f"Cannot find the decoder blocks of {type(model).__name__}")
 
 
@@ -179,6 +186,9 @@ def capture(model, token_ids: Sequence[int], layers: Sequence[int]) -> Dict[int,
         model(mx.array(list(token_ids))[None])
     out = {}
     for i, items in sinks.items():
+        if not items:
+            raise RuntimeError(f"Layer {i} was never run: {type(model).__name__}'s forward pass does not read "
+                               "the list get_layers() returns, so steering would not apply either")
         h = items[0][0].astype(mx.float32)
         mx.eval(h)
         out[i] = np.array(h)
